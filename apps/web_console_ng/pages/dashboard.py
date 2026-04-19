@@ -799,8 +799,6 @@ async def dashboard(client: Client) -> None:
         background_tasks.add(task)
         task.add_done_callback(_handle_dashboard_task_done)
 
-    use_workspace_v2 = config.FEATURE_UNIFIED_EXECUTION_WORKSPACE
-
     order_flow_panel = OrderFlowPanel(max_rows=12)
     strategy_context_widget: StrategyContextWidget | None = None
     tabs_host: ui.column | None = None
@@ -841,142 +839,77 @@ async def dashboard(client: Client) -> None:
         can_view_models=can_view_models,
     )
 
-    # Metrics strip/cards
-    if use_workspace_v2:
-        with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
-            with ui.element("div").classes("workspace-v2-command-strip"):
-                pnl_card = _MetricStripValue(
-                    "UNR P&L",
-                    format_fn=lambda v: f"${v:,.2f}",
-                    color_fn=lambda v: "positive" if v >= 0 else "negative",
-                    enter_delay_ms=40,
-                )
-                positions_card = _MetricStripValue(
-                    "POSITIONS",
-                    format_fn=lambda v: str(v),
-                    enter_delay_ms=80,
-                )
-                realized_card = _MetricStripValue(
-                    "REALIZED",
-                    format_fn=lambda v: f"${v:,.2f}",
-                    color_fn=lambda v: "positive" if v >= 0 else "negative",
-                    enter_delay_ms=120,
-                )
-                bp_card = _MetricStripValue(
-                    "BUYING POWER",
-                    format_fn=lambda v: f"${v:,.2f}",
-                    enter_delay_ms=160,
-                )
-                connection_status_pill = _CommandStatusPill("CONN --", enter_delay_ms=200)
-                kill_switch_status_pill = _CommandStatusPill("KILL --", enter_delay_ms=240)
-                circuit_breaker_status_pill = _CommandStatusPill("CB --", enter_delay_ms=280)
-                session_clock_pill = _CommandStatusPill("UTC --:--:--", enter_delay_ms=320)
-
-            with ui.element("div").classes("workspace-v2-body"):
-                with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
-                    with ui.element("div").classes("workspace-v2-chart-pane"):
-                        order_context.create_price_chart(width=960, height=420).classes(
-                            "w-full h-full"
-                        )
-                    with ui.element("div").classes("workspace-v2-microstructure"):
-                        order_flow_panel.create().classes("h-full overflow-hidden")
-                        order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
-                        order_context.create_market_context().classes(
-                            "h-full overflow-hidden workspace-v2-market-context"
-                        )
-
-                with ui.element("div").classes("workspace-v2-zone-c workspace-v2-enter-zone workspace-v2-enter-zone-c"):
-                    with ui.element("div").classes("workspace-v2-panel"):
-                        ui.label("Watchlist").classes("workspace-v2-panel-title mb-1")
-                        order_context.create_watchlist().classes("w-full")
-
-                    if workspace_quick_links:
-                        with ui.element("div").classes("workspace-v2-panel"):
-                            ui.label("Quick Panels").classes("workspace-v2-panel-title mb-1")
-                            with ui.row().classes("w-full gap-1 flex-wrap"):
-                                for quick_label, quick_path in workspace_quick_links:
-                                    with ui.link(target=quick_path).classes("workspace-v2-quick-link"):
-                                        ui.label(quick_label).classes("workspace-v2-kv")
-
-                    strategy_context_widget = StrategyContextWidget(
-                        strategies=user_strategies,
-                        show_strategy_link=(
-                            config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
-                        ),
-                        show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
-                    )
-                    strategy_context_widget.create()
-                    order_context.set_strategy_context_widget(strategy_context_widget)
-
-                    order_context.create_order_ticket()
-
-                    with ui.element("div").classes("workspace-v2-panel"):
-                        ui.label("Execution Actions").classes("workspace-v2-panel-title mb-1")
-                        ui.label("Bulk risk controls").classes("workspace-v2-kv mb-2")
-                        with ui.row().classes("w-full gap-2 flex-wrap"):
-                            cancel_symbol_orders_btn = ui.button(
-                                "Cancel Symbol Orders",
-                                on_click=lambda: _schedule_dashboard_task(
-                                    _show_cancel_symbol_orders_dialog()
-                                ),
-                                color="orange",
-                            ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-warning")
-                            flatten_all_positions_btn = ui.button(
-                                "Flatten All Positions",
-                                on_click=lambda: _schedule_dashboard_task(
-                                    _show_flatten_all_positions_dialog()
-                                ),
-                                color="red",
-                            ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-danger")
-
-                    tabs_host = ui.column().classes("workspace-v2-tabs-area")
-                    log_tail_host = ui.column().classes("shrink-0")
-
-            with ui.element("div").classes("workspace-v2-overlay hidden") as workspace_overlay:
-                with ui.card().classes("workspace-v2-overlay-card"):
-                    workspace_overlay_title = ui.label("Connection unavailable").classes(
-                        "workspace-v2-overlay-title"
-                    )
-                    workspace_overlay_detail = ui.label(
-                        "Trading actions are locked until the workspace stream recovers."
-                    ).classes("workspace-v2-overlay-detail")
-    else:
-        with trading_grid().classes("w-full mb-2"):
-            pnl_card = MetricCard(
-                title="Unrealized P&L",
+    # Unified Execution Workspace is the only supported trading layout.
+    with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
+        with ui.element("div").classes("workspace-v2-command-strip"):
+            pnl_card = _MetricStripValue(
+                "UNR P&L",
                 format_fn=lambda v: f"${v:,.2f}",
-                color_fn=lambda v: "text-green-600" if v >= 0 else "text-red-600",
+                color_fn=lambda v: "positive" if v >= 0 else "negative",
+                enter_delay_ms=40,
             )
-            positions_card = MetricCard(
-                title="Positions",
+            positions_card = _MetricStripValue(
+                "POSITIONS",
                 format_fn=lambda v: str(v),
+                enter_delay_ms=80,
             )
-            realized_card = MetricCard(
-                title="Realized (Today)",
+            realized_card = _MetricStripValue(
+                "REALIZED",
                 format_fn=lambda v: f"${v:,.2f}",
-                color_fn=lambda v: "text-green-600" if v >= 0 else "text-red-600",
+                color_fn=lambda v: "positive" if v >= 0 else "negative",
+                enter_delay_ms=120,
             )
-            bp_card = MetricCard(
-                title="Buying Power",
+            bp_card = _MetricStripValue(
+                "BUYING POWER",
                 format_fn=lambda v: f"${v:,.2f}",
+                enter_delay_ms=160,
             )
+            connection_status_pill = _CommandStatusPill("CONN --", enter_delay_ms=200)
+            kill_switch_status_pill = _CommandStatusPill("KILL --", enter_delay_ms=240)
+            circuit_breaker_status_pill = _CommandStatusPill("CB --", enter_delay_ms=280)
+            session_clock_pill = _CommandStatusPill("UTC --:--:--", enter_delay_ms=320)
 
-        with ui.element("div").classes(
-            "grid gap-4 w-full mb-4 " "grid-cols-1 md:grid-cols-2 lg:grid-cols-[250px_1fr_350px]"
-        ):
-            with ui.column().classes("hidden md:flex"):
-                order_context.create_watchlist()
-
-            with ui.column().classes("min-h-[200px] gap-3"):
-                order_context.create_price_chart(width=600, height=300)
-                with ui.element("div").classes("h-[340px] min-h-[280px] grid grid-rows-2 gap-2"):
-                    order_flow_panel.create().classes("h-full")
+        with ui.element("div").classes("workspace-v2-body"):
+            with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
+                with ui.element("div").classes("workspace-v2-chart-pane"):
+                    order_context.create_price_chart(width=960, height=420).classes(
+                        "w-full h-full"
+                    )
+                with ui.element("div").classes("workspace-v2-microstructure"):
+                    order_flow_panel.create().classes("h-full overflow-hidden")
                     order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
+                    order_context.create_market_context().classes(
+                        "h-full overflow-hidden workspace-v2-market-context"
+                    )
 
-            with ui.column().classes("gap-4"):
-                order_context.create_market_context()
+            with ui.element("div").classes("workspace-v2-zone-c workspace-v2-enter-zone workspace-v2-enter-zone-c"):
+                with ui.element("div").classes("workspace-v2-panel"):
+                    ui.label("Watchlist").classes("workspace-v2-panel-title mb-1")
+                    order_context.create_watchlist().classes("w-full")
+
+                if workspace_quick_links:
+                    with ui.element("div").classes("workspace-v2-panel"):
+                        ui.label("Quick Panels").classes("workspace-v2-panel-title mb-1")
+                        with ui.row().classes("w-full gap-1 flex-wrap"):
+                            for quick_label, quick_path in workspace_quick_links:
+                                with ui.link(target=quick_path).classes("workspace-v2-quick-link"):
+                                    ui.label(quick_label).classes("workspace-v2-kv")
+
+                strategy_context_widget = StrategyContextWidget(
+                    strategies=user_strategies,
+                    show_strategy_link=(
+                        config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
+                    ),
+                    show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
+                )
+                strategy_context_widget.create()
+                order_context.set_strategy_context_widget(strategy_context_widget)
+
                 order_context.create_order_ticket()
-                with compact_card("Execution Actions").classes("w-full"):
+
+                with ui.element("div").classes("workspace-v2-panel"):
+                    ui.label("Execution Actions").classes("workspace-v2-panel-title mb-1")
+                    ui.label("Bulk risk controls").classes("workspace-v2-kv mb-2")
                     with ui.row().classes("w-full gap-2 flex-wrap"):
                         cancel_symbol_orders_btn = ui.button(
                             "Cancel Symbol Orders",
@@ -984,14 +917,26 @@ async def dashboard(client: Client) -> None:
                                 _show_cancel_symbol_orders_dialog()
                             ),
                             color="orange",
-                        ).classes("text-black")
+                        ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-warning")
                         flatten_all_positions_btn = ui.button(
                             "Flatten All Positions",
                             on_click=lambda: _schedule_dashboard_task(
                                 _show_flatten_all_positions_dialog()
                             ),
                             color="red",
-                        ).classes("text-white")
+                        ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-danger")
+
+                tabs_host = ui.column().classes("workspace-v2-tabs-area")
+                log_tail_host = ui.column().classes("shrink-0")
+
+        with ui.element("div").classes("workspace-v2-overlay hidden") as workspace_overlay:
+            with ui.card().classes("workspace-v2-overlay-card"):
+                workspace_overlay_title = ui.label("Connection unavailable").classes(
+                    "workspace-v2-overlay-title"
+                )
+                workspace_overlay_detail = ui.label(
+                    "Trading actions are locked until the workspace stream recovers."
+                ).classes("workspace-v2-overlay-detail")
 
     # Data Health Widget (P6T12.4) - in expandable card
     health_container = ui.expansion("Data Health", icon="monitor_heart").classes(
@@ -1137,42 +1082,27 @@ async def dashboard(client: Client) -> None:
     last_sync_label: ui.label
     activity_feed: LogTailPanel
 
-    if use_workspace_v2 and tabs_host is not None and log_tail_host is not None:
-        with tabs_host:
-            with ui.element("div").classes("workspace-v2-panel w-full flex-1 min-h-0"):
-                tabbed_panel = create_tabbed_panel(
-                    _build_positions_grid,
-                    _build_orders_grid,
-                    _build_fills_grid,
-                    _build_history_grid,
-                    state=panel_state,
-                    on_filter_change=_handle_filter_change,
-                    on_tab_change=_handle_tab_change,
-                )
+    if tabs_host is None or log_tail_host is None:
+        raise RuntimeError("workspace layout hosts are missing")
 
-        with log_tail_host:
-            last_sync_label = ui.label("Last sync: --").classes(
-                "workspace-v2-kv workspace-v2-data-mono mb-1"
+    with tabs_host:
+        with ui.element("div").classes("workspace-v2-panel w-full flex-1 min-h-0"):
+            tabbed_panel = create_tabbed_panel(
+                _build_positions_grid,
+                _build_orders_grid,
+                _build_fills_grid,
+                _build_history_grid,
+                state=panel_state,
+                on_filter_change=_handle_filter_change,
+                on_tab_change=_handle_tab_change,
             )
-            activity_feed = LogTailPanel(max_items=180)
-            activity_feed.create(title="Tail Logs")
-    else:
-        with trading_grid().classes("w-full"):
-            with compact_card().classes("w-full"):
-                tabbed_panel = create_tabbed_panel(
-                    _build_positions_grid,
-                    _build_orders_grid,
-                    _build_fills_grid,
-                    _build_history_grid,
-                    state=panel_state,
-                    on_filter_change=_handle_filter_change,
-                    on_tab_change=_handle_tab_change,
-                )
 
-            with compact_card("Tail Logs").classes("w-full"):
-                last_sync_label = ui.label("Last sync: --").classes("text-xs text-gray-500 mb-2")
-                activity_feed = LogTailPanel(max_items=180)
-                activity_feed.create(title="Tail Logs")
+    with log_tail_host:
+        last_sync_label = ui.label("Last sync: --").classes(
+            "workspace-v2-kv workspace-v2-data-mono mb-1"
+        )
+        activity_feed = LogTailPanel(max_items=180)
+        activity_feed.create(title="Tail Logs")
 
     notified_missing_ids: set[str] = set()
     notified_malformed: set[int] = set()  # Dedupe malformed position notifications
@@ -1240,7 +1170,7 @@ async def dashboard(client: Client) -> None:
     _set_bulk_action_buttons_enabled(True)
 
     def _update_workspace_connection_pill() -> None:
-        if not use_workspace_v2 or connection_status_pill is None:
+        if connection_status_pill is None:
             return
         text, tone = resolve_workspace_connection_pill(
             state=workspace_connection_state,
@@ -1249,19 +1179,19 @@ async def dashboard(client: Client) -> None:
         connection_status_pill.set_state(text, tone)
 
     def _update_workspace_kill_switch_pill() -> None:
-        if not use_workspace_v2 or kill_switch_status_pill is None:
+        if kill_switch_status_pill is None:
             return
         text, tone = resolve_workspace_kill_switch_pill(workspace_kill_switch_state)
         kill_switch_status_pill.set_state(text, tone)
 
     def _update_workspace_circuit_breaker_pill() -> None:
-        if not use_workspace_v2 or circuit_breaker_status_pill is None:
+        if circuit_breaker_status_pill is None:
             return
         text, tone = resolve_workspace_circuit_breaker_pill(workspace_circuit_breaker_state)
         circuit_breaker_status_pill.set_state(text, tone)
 
     def _update_workspace_clock_pill() -> None:
-        if not use_workspace_v2 or session_clock_pill is None:
+        if session_clock_pill is None:
             return
         session_clock_pill.set_state(
             f"UTC {datetime.now(UTC).strftime('%H:%M:%S')}",
@@ -1270,7 +1200,7 @@ async def dashboard(client: Client) -> None:
 
     def _set_workspace_mask(*, locked: bool, title: str = "", detail: str = "") -> None:
         """Show/hide workspace interaction mask for safety-critical stale/disconnect states."""
-        if not use_workspace_v2 or workspace_root is None or workspace_overlay is None:
+        if workspace_root is None or workspace_overlay is None:
             return
 
         if locked:
@@ -1300,9 +1230,6 @@ async def dashboard(client: Client) -> None:
 
     def _evaluate_workspace_mask() -> None:
         """Lock interactive workspace zones when connection is read-only or live data is stale."""
-        if not use_workspace_v2:
-            return
-
         stale, age_s = _is_workspace_data_stale()
         locked, title, detail = determine_workspace_lock_state(
             connection_read_only=workspace_connection_read_only,
@@ -2363,9 +2290,8 @@ async def dashboard(client: Client) -> None:
     market_timer = ui.timer(config.DASHBOARD_MARKET_POLL_SECONDS, update_market_data)
     timers.append(market_timer)
 
-    if use_workspace_v2:
-        clock_timer = ui.timer(1.0, _update_workspace_clock_pill)
-        timers.append(clock_timer)
+    clock_timer = ui.timer(1.0, _update_workspace_clock_pill)
+    timers.append(clock_timer)
 
     async def check_stale_data() -> None:
         for card in [pnl_card, positions_card, realized_card, bp_card]:
