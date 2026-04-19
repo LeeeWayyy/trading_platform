@@ -403,7 +403,11 @@ class ExecutionAnalysisResult:
     # === Cost decomposition (bps, sign-adjusted) ===
     price_shortfall_bps: float  # Price-only component on filled qty
     vwap_slippage_bps: float  # (exec - vwap) / vwap * 10000 * side_sign
-    fee_cost_bps: float  # SIGNED: positive=fee, negative=rebate
+    # SIGNED: positive=fee, negative=rebate. NaN when fee currencies are
+    # mixed or non-USD (untrusted); NaN chosen over None to preserve float
+    # arithmetic in consumers. The route layer (_result_to_order_detail)
+    # converts NaN -> None for API responses to match total_fees's None.
+    fee_cost_bps: float
     opportunity_cost_bps: float  # Unfilled qty cost (weighted by unfilled fraction)
     total_cost_bps: float  # price_shortfall + fee_cost + opportunity_cost
 

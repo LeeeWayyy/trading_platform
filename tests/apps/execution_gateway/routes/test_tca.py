@@ -1031,7 +1031,7 @@ class TestResultToOrderDetailNanConversion:
         mock_result = MagicMock(spec=ExecutionAnalysisResult)
         mock_result.symbol = "AAPL"
         mock_result.side = "buy"
-        mock_result.execution_date = date.today()
+        mock_result.execution_date = date(2024, 7, 26)
         mock_result.arrival_price = 150.0
         mock_result.execution_price = 150.10
         mock_result.vwap_benchmark = 150.05
@@ -1070,7 +1070,7 @@ class TestResultToOrderDetailNanConversion:
         mock_result = MagicMock(spec=ExecutionAnalysisResult)
         mock_result.symbol = "AAPL"
         mock_result.side = "buy"
-        mock_result.execution_date = date.today()
+        mock_result.execution_date = date(2024, 7, 26)
         mock_result.arrival_price = 150.0
         mock_result.execution_price = 150.10
         mock_result.vwap_benchmark = 150.05
@@ -2023,7 +2023,7 @@ class TestSummaryFeeExclusionWarning:
         self, test_client: TestClient, mock_db: MagicMock
     ) -> None:
         """Summary warnings include fee exclusion count when orders have non-USD fees."""
-        base_time = datetime.now(UTC) - timedelta(hours=1)
+        base_time = datetime(2024, 7, 26, 10, 0, 0, tzinfo=UTC)
         trades = [
             {
                 "trade_id": "trade-0",
@@ -2052,11 +2052,11 @@ class TestSummaryFeeExclusionWarning:
             },
         ]
         mock_db.get_trades_for_tca.return_value = trades
-        today = date.today()
+        fixed_date = date(2024, 7, 26)
 
         response = test_client.get(
             "/api/v1/tca/analysis",
-            params={"start_date": str(today - timedelta(days=7)), "end_date": str(today)},
+            params={"start_date": str(fixed_date - timedelta(days=7)), "end_date": str(fixed_date)},
         )
 
         assert response.status_code == 200
@@ -2078,7 +2078,7 @@ class TestSingleOrderNullableFeeContract:
         self, test_client: TestClient, mock_db: MagicMock
     ) -> None:
         """Single order endpoint returns null fee_cost_bps and total_fees for non-USD."""
-        base_time = datetime.now(UTC) - timedelta(hours=1)
+        base_time = datetime(2024, 7, 26, 10, 0, 0, tzinfo=UTC)
         trades = [
             {
                 "trade_id": "trade-0",
