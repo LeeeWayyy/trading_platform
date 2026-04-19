@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 INTERNAL_REFRESH_HEADER = "X-Internal-Auth"
-INTERNAL_REFRESH_SECRET = os.getenv("INTERNAL_REFRESH_SECRET") or None
+# Strip whitespace to stay consistent with startup validation in ``main.py``.
+# Without stripping, a secret configured with stray whitespace would pass
+# startup checks but silently fail ``secrets.compare_digest`` at request time
+# (see issue #176).
+_INTERNAL_REFRESH_SECRET_RAW = os.getenv("INTERNAL_REFRESH_SECRET", "").strip()
+INTERNAL_REFRESH_SECRET: str | None = _INTERNAL_REFRESH_SECRET_RAW or None
 
 
 @router.post("/refresh")
