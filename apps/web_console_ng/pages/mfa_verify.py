@@ -14,10 +14,7 @@ from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.mfa import MFAHandler
 from apps.web_console_ng.auth.middleware import requires_auth
 from apps.web_console_ng.auth.redirects import (
-    legacy_cookie_security_attrs,
-    normalize_legacy_trade_marker,
     sanitize_redirect_path,
-    set_legacy_trade_marker_cookie,
     with_root_path,
     with_root_path_once,
 )
@@ -111,14 +108,6 @@ async def mfa_verify_page() -> None:
                 if result.success:
                     # Finalize session - set cookies and CSRF token
                     cookie_cfg = CookieConfig.from_env()
-                    legacy_marker_raw = _storage_user_get("legacy_trade_from")
-                    legacy_trade_marker = normalize_legacy_trade_marker(
-                        str(legacy_marker_raw) if legacy_marker_raw is not None else None
-                    )
-                    legacy_secure, legacy_samesite = legacy_cookie_security_attrs(
-                        cookie_cfg.get_cookie_flags()
-                    )
-                    legacy_cookie_attached = False
                     if hasattr(request.state, "response"):
                         response = request.state.response
                         if result.cookie_value:
@@ -133,14 +122,6 @@ async def mfa_verify_page() -> None:
                                 value=result.csrf_token,
                                 **cookie_cfg.get_csrf_flags(),
                             )
-                        set_legacy_trade_marker_cookie(
-                            response,
-                            marker=legacy_trade_marker,
-                            root_path=request_root_path,
-                            secure=legacy_secure,
-                            samesite=legacy_samesite,
-                        )
-                        legacy_cookie_attached = legacy_trade_marker is not None
                     else:
                         logger.warning(
                             "MFA verify: request.state.response not available for cookie setting"
@@ -156,8 +137,6 @@ async def mfa_verify_page() -> None:
                     redirect_to = _resolve_post_verify_redirect(request)
                     _storage_user_pop("pending_mfa_cookie")
                     _storage_user_pop("redirect_after_login")
-                    if legacy_trade_marker is None or legacy_cookie_attached:
-                        _storage_user_pop("legacy_trade_from")
 
                     ui.notify("Verification successful", type="positive")
                     ui.navigate.to(with_root_path_once(redirect_to, root_path=request_root_path))

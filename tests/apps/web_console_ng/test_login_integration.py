@@ -164,10 +164,9 @@ async def test_mfa_page_redirects_if_no_pending_cookie() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_mfa_verify_sets_legacy_trade_cookie_and_clears_storage_marker() -> None:
+async def test_mfa_verify_sets_session_and_csrf_cookies() -> None:
     storage_user: dict[str, object] = {
         "pending_mfa_cookie": "pending_cookie",
-        "legacy_trade_from": "manual-order",
         "redirect_after_login": "/trade",
     }
     mock_app = SimpleNamespace(storage=SimpleNamespace(user=storage_user, request=None))
@@ -211,12 +210,16 @@ async def test_mfa_verify_sets_legacy_trade_cookie_and_clears_storage_marker() -
         verify_handler = dummy_ui.button_handlers["Verify"]
         await verify_handler()
 
-    legacy_cookie_calls = [
+    session_cookie_calls = [
         call
         for call in response.set_cookie.call_args_list
-        if call.kwargs.get("key") == "legacy_trade_from"
+        if call.kwargs.get("key") == CookieConfig.from_env().get_cookie_name()
     ]
-    assert legacy_cookie_calls
-    assert legacy_cookie_calls[0].kwargs.get("path") == "/"
-    assert storage_user.get("legacy_trade_from") is None
+    csrf_cookie_calls = [
+        call for call in response.set_cookie.call_args_list if call.kwargs.get("key") == "ng_csrf"
+    ]
+    assert session_cookie_calls
+    assert csrf_cookie_calls
+    assert storage_user.get("pending_mfa_cookie") is None
+    assert storage_user.get("redirect_after_login") is None
     dummy_ui.navigate.to.assert_called_once_with("/trade")

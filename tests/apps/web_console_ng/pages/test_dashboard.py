@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-from types import SimpleNamespace
 
 import pytest
 
@@ -118,67 +117,3 @@ def test_dashboard_has_trade_alias_route() -> None:
 def test_dashboard_session_expiry_redirects_to_login() -> None:
     source = inspect.getsource(dashboard_module.dashboard)
     assert 'with_root_path("/login"' in source
-
-
-@pytest.mark.parametrize(
-    ("state_marker", "expected_notice"),
-    [
-        ("manual-order", "Manual Controls moved to Trade Workspace."),
-        (
-            "position-management",
-            "Position Management moved to Trade Workspace.",
-        ),
-        ("unknown", None),
-        (None, None),
-    ],
-)
-def test_resolve_legacy_trade_route_notice(
-    state_marker: str | None,
-    expected_notice: str | None,
-) -> None:
-    request = SimpleNamespace(state=SimpleNamespace(legacy_trade_from=state_marker))
-    assert (
-        dashboard_module._resolve_legacy_trade_route_notice(request=request)
-        == expected_notice
-    )
-
-
-def test_resolve_legacy_trade_route_notice_without_request_returns_none() -> None:
-    assert dashboard_module._resolve_legacy_trade_route_notice(request=None) is None
-
-
-def test_resolve_legacy_trade_route_notice_prefers_request_state_marker() -> None:
-    request = SimpleNamespace(
-        state=SimpleNamespace(legacy_trade_from="manual-order"),
-        cookies={"legacy_trade_from": "position-management"},
-    )
-    assert (
-        dashboard_module._resolve_legacy_trade_route_notice(request=request)
-        == "Manual Controls moved to Trade Workspace."
-    )
-
-
-def test_resolve_legacy_trade_route_notice_falls_back_to_cookie_marker() -> None:
-    request = SimpleNamespace(
-        state=SimpleNamespace(legacy_trade_from=None),
-        cookies={"legacy_trade_from": "position-management"},
-    )
-    assert (
-        dashboard_module._resolve_legacy_trade_route_notice(request=request)
-        == "Position Management moved to Trade Workspace."
-    )
-
-
-def test_resolve_legacy_trade_route_notice_falls_back_to_storage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        dashboard_module,
-        "app",
-        SimpleNamespace(storage=SimpleNamespace(user={"legacy_trade_from": "manual-order"})),
-    )
-    request = SimpleNamespace(state=SimpleNamespace(legacy_trade_from=None), cookies={})
-    assert (
-        dashboard_module._resolve_legacy_trade_route_notice(request=request)
-        == "Manual Controls moved to Trade Workspace."
-    )
