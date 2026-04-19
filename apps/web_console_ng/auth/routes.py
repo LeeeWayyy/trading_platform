@@ -134,7 +134,6 @@ async def login_post(request: Request) -> Response:
                     **cookie_flags,
                 )
             # Note: CSRF token set after MFA verification completes
-            _storage_user_pop("legacy_trade_from")
             logger.info("MFA required for user: %s, redirecting to /mfa-verify", username)
             return response
 
@@ -158,7 +157,6 @@ async def login_post(request: Request) -> Response:
                 **cookie_cfg.get_csrf_flags(),
             )
 
-        _storage_user_pop("legacy_trade_from")
         logger.info("Login successful for user: %s", username)
         return response
     else:
@@ -256,7 +254,6 @@ async def auth_callback(code: str, state: str) -> None:
             str(redirect_after_login) if redirect_after_login is not None else None,
             root_path=root_path,
         )
-        _storage_user_pop("legacy_trade_from")
         _storage_user_pop("redirect_after_login")
         ui.navigate.to(with_root_path_once(redirect_to, root_path=root_path))
     else:

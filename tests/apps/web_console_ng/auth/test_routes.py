@@ -129,7 +129,6 @@ async def test_login_post_success_sets_cookies_and_redirects(
     cookie_config: _DummyCookieConfig,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    popped_keys: list[str] = []
     handler = SimpleNamespace(
         authenticate=AsyncMock(
             return_value=AuthResult(
@@ -142,7 +141,6 @@ async def test_login_post_success_sets_cookies_and_redirects(
     )
     monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
     monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
-    monkeypatch.setattr(routes, "_storage_user_pop", lambda key: popped_keys.append(str(key)))
 
     async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
         response = await client.post(
@@ -155,7 +153,6 @@ async def test_login_post_success_sets_cookies_and_redirects(
     cookies = _get_set_cookie_headers(response.headers)
     assert any(cookie_config.cookie_name in header for header in cookies)
     assert any("ng_csrf" in header for header in cookies)
-    assert "legacy_trade_from" in popped_keys
 
 
 @pytest.mark.asyncio()
@@ -164,7 +161,6 @@ async def test_login_post_requires_mfa_sets_pending_cookie(
     cookie_config: _DummyCookieConfig,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    popped_keys: list[str] = []
     handler = SimpleNamespace(
         authenticate=AsyncMock(
             return_value=AuthResult(
@@ -176,7 +172,6 @@ async def test_login_post_requires_mfa_sets_pending_cookie(
     )
     monkeypatch.setattr(routes, "get_auth_handler", lambda _auth_type: handler)
     monkeypatch.setattr(routes, "extract_trusted_client_ip", lambda *_: "1.2.3.4")
-    monkeypatch.setattr(routes, "_storage_user_pop", lambda key: popped_keys.append(str(key)))
 
     async with AsyncClient(app=fastapi_app, base_url="http://test") as client:
         response = await client.post(
@@ -194,7 +189,6 @@ async def test_login_post_requires_mfa_sets_pending_cookie(
     cookies = _get_set_cookie_headers(response.headers)
     assert any(cookie_config.cookie_name in header for header in cookies)
     assert all("ng_csrf" not in header for header in cookies)
-    assert "legacy_trade_from" in popped_keys
 
 
 @pytest.mark.asyncio()
@@ -414,7 +408,6 @@ async def test_auth_callback_sets_session_and_csrf_cookies(
             storage=SimpleNamespace(
                 user={
                     "redirect_after_login": "/trade",
-                    "legacy_trade_from": "manual-order",
                 }
             )
         ),
@@ -441,7 +434,6 @@ async def test_auth_callback_sets_session_and_csrf_cookies(
     await routes.auth_callback(code="abc", state="xyz")
 
     assert ui_spy["navigations"] == ["/console/trade"]
-    assert "legacy_trade_from" not in routes.app.storage.user
     assert "redirect_after_login" not in routes.app.storage.user
     set_cookies = _get_set_cookie_headers(response.headers)
     assert any(cookie_config.cookie_name in header for header in set_cookies)

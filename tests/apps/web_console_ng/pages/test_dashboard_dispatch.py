@@ -349,7 +349,6 @@ def test_resolve_workspace_quick_links_for_trader() -> None:
         can_view_data_quality=True,
         feature_strategy_management_enabled=True,
         can_manage_strategies=True,
-        feature_research_workspace_enabled=True,
         feature_model_registry_enabled=True,
         can_view_models=True,
     )
@@ -371,7 +370,6 @@ def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
         can_view_data_quality=False,
         feature_strategy_management_enabled=False,
         can_manage_strategies=False,
-        feature_research_workspace_enabled=False,
         feature_model_registry_enabled=False,
         can_view_models=False,
     )
@@ -382,7 +380,7 @@ def test_resolve_workspace_quick_links_hides_restricted_entries() -> None:
     assert "/data/inspector" not in paths
 
 
-def test_resolve_workspace_quick_links_hides_promote_when_workspace_disabled() -> None:
+def test_resolve_workspace_quick_links_hides_promote_when_model_registry_disabled() -> None:
     links = dashboard_module.resolve_workspace_quick_links(
         user_role="operator",
         feature_alerts_enabled=True,
@@ -390,8 +388,7 @@ def test_resolve_workspace_quick_links_hides_promote_when_workspace_disabled() -
         can_view_data_quality=True,
         feature_strategy_management_enabled=True,
         can_manage_strategies=True,
-        feature_research_workspace_enabled=False,
-        feature_model_registry_enabled=True,
+        feature_model_registry_enabled=False,
         can_view_models=True,
     )
     paths = {path for _, path in links}

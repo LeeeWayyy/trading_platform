@@ -18,10 +18,7 @@ from nicegui import Client, app, events, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
-from apps.web_console_ng.auth.redirects import (
-    LEGACY_TRADE_MARKER_COOKIE_NAME,
-    with_root_path,
-)
+from apps.web_console_ng.auth.redirects import with_root_path
 from apps.web_console_ng.components.data_health_widget import render_data_health
 from apps.web_console_ng.components.execution_context import (
     build_execution_context_snapshot,
@@ -118,11 +115,6 @@ _FLATTEN_ALL_ALLOWED_ROLES = frozenset({"admin"})
 STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
 STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
 STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES = 1024
-_LEGACY_TRADE_ROUTE_MESSAGES = {
-    "manual-order": "Manual Controls moved to Trade Workspace.",
-    "position-management": "Position Management moved to Trade Workspace.",
-}
-
 ScopeKey = tuple[str, frozenset[str]]
 StrategyResolutionScopeKey = tuple[str, ...]
 StrategyResolutionCacheKey = tuple[StrategyResolutionScopeKey, str]
@@ -184,33 +176,6 @@ def _set_strategy_resolution_in_shared_cache(
         if len(_strategy_resolution_cache) > STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES:
             _strategy_resolution_cache.popitem(last=False)
     return resolution
-
-
-def _resolve_legacy_trade_route_notice(*, request: Any | None) -> str | None:
-    """Return informational toast for users entering via retired trade routes."""
-    if request is None:
-        return None
-    state = getattr(request, "state", None)
-    legacy_from = getattr(state, "legacy_trade_from", None)
-    if legacy_from is None:
-        cookies = getattr(request, "cookies", None)
-        if cookies is not None:
-            get_cookie = getattr(cookies, "get", None)
-            if callable(get_cookie):
-                legacy_from = get_cookie(LEGACY_TRADE_MARKER_COOKIE_NAME)
-    if legacy_from is None:
-        try:
-            legacy_from = app.storage.user.pop("legacy_trade_from", None)
-        except RuntimeError:
-            legacy_from = None
-    normalized = str(legacy_from or "").strip().lower()
-    notice = _LEGACY_TRADE_ROUTE_MESSAGES.get(normalized)
-    if notice is not None:
-        try:
-            app.storage.user.pop("legacy_trade_from", None)
-        except RuntimeError:
-            pass
-    return notice
 
 
 class _MetricStripValue:
@@ -457,7 +422,6 @@ def resolve_workspace_quick_links(
     can_view_data_quality: bool,
     feature_strategy_management_enabled: bool,
     can_manage_strategies: bool,
-    feature_research_workspace_enabled: bool,
     feature_model_registry_enabled: bool,
     can_view_models: bool,
 ) -> list[tuple[str, str]]:
@@ -485,7 +449,6 @@ def resolve_workspace_quick_links(
     if (
         feature_model_registry_enabled
         and can_view_models
-        and feature_research_workspace_enabled
     ):
         visible_links.append(("Promote", "/research?tab=promote"))
     return visible_links
@@ -724,11 +687,6 @@ async def dashboard(client: Client) -> None:
         ui.navigate.to(with_root_path("/login", root_path=request_root_path))
         return
 
-    request = getattr(client, "request", None)
-    legacy_route_notice = _resolve_legacy_trade_route_notice(request=request)
-    if legacy_route_notice:
-        ui.notify(legacy_route_notice, type="info")
-
     lifecycle = ClientLifecycleManager.get()
 
     # Get or generate client_id (may not be set yet if WebSocket hasn't connected)
@@ -879,7 +837,6 @@ async def dashboard(client: Client) -> None:
         can_view_data_quality=can_view_data_quality,
         feature_strategy_management_enabled=config.FEATURE_STRATEGY_MANAGEMENT,
         can_manage_strategies=can_manage_strategies,
-        feature_research_workspace_enabled=config.FEATURE_RESEARCH_WORKSPACE,
         feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
         can_view_models=can_view_models,
     )
@@ -947,7 +904,6 @@ async def dashboard(client: Client) -> None:
                             config.FEATURE_STRATEGY_MANAGEMENT and can_manage_strategies
                         ),
                         show_model_link=(config.FEATURE_MODEL_REGISTRY and can_view_models),
-                        feature_research_workspace_enabled=config.FEATURE_RESEARCH_WORKSPACE,
                     )
                     strategy_context_widget.create()
                     order_context.set_strategy_context_widget(strategy_context_widget)

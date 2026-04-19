@@ -17,13 +17,7 @@ from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip, is_trusted_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
 from apps.web_console_ng.auth.redirects import (
-    LEGACY_REDIRECT_REMAP,
-    LEGACY_TRADE_MARKER_COOKIE_NAME,
-    clear_legacy_trade_marker_cookie,
-    legacy_trade_marker_from_redirect_path,
-    normalize_legacy_trade_marker,
     sanitize_redirect_path,
-    set_legacy_trade_marker_cookie,
     strip_root_path,
     with_root_path,
 )
@@ -199,9 +193,6 @@ def _redirect_to_login(request: Request, reason: str = "session_expired") -> Non
     try:
         app.storage.user.clear()
         app.storage.user["redirect_after_login"] = sanitized_target
-        legacy_marker = legacy_trade_marker_from_redirect_path(raw_path, root_path=root_path)
-        if legacy_marker is not None:
-            app.storage.user["legacy_trade_from"] = legacy_marker
         app.storage.user["login_reason"] = reason
     except RuntimeError as exc:
         logger.debug("app.storage.user unavailable in _redirect_to_login: %s", exc)
@@ -262,7 +253,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
     _NORMALIZED_EXEMPT_BOUNDARY_PATHS = tuple(
         prefix.rstrip("/") or "/" for prefix in _EXEMPT_BOUNDARY_PATHS
     )
-    _TRADE_WORKSPACE_PATHS = frozenset({"/", "/trade"})
 
     @classmethod
     def _is_exempt_path(cls, normalized_app_request_path: str) -> bool:
@@ -361,14 +351,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 login_path = with_root_path("/login", root_path=root_path)
                 redirect_url = f"{login_path}?next={quote(original_path)}"
                 response = RedirectResponse(url=redirect_url, status_code=302)
-                legacy_marker = None
-                if normalized_app_request_path in LEGACY_REDIRECT_REMAP:
-                    legacy_marker = normalized_app_request_path.lstrip("/")
                 try:
                     app.storage.user.clear()
                     app.storage.user["redirect_after_login"] = original_path
-                    if legacy_marker is not None:
-                        app.storage.user["legacy_trade_from"] = legacy_marker
                 except RuntimeError as exc:
                     logger.debug(
                         "app.storage.user unavailable during auth redirect state persistence: %s",
@@ -396,42 +381,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     httponly=cookie_cfg.httponly,
                     samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
                 )
-
-                if legacy_marker is not None:
-                    set_legacy_trade_marker_cookie(
-                        response,
-                        marker=legacy_marker,
-                        root_path=root_path,
-                        secure=cookie_cfg.secure,
-                        samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
-                    )
-
                 return response
             return Response(status_code=401)
-
-        legacy_trade_from_raw = request.cookies.get(LEGACY_TRADE_MARKER_COOKIE_NAME)
-        normalized_legacy_marker = normalize_legacy_trade_marker(legacy_trade_from_raw)
-        should_consume_legacy_cookie = (
-            normalized_app_request_path in self._TRADE_WORKSPACE_PATHS
-            and normalized_legacy_marker is not None
-        )
-        should_clear_invalid_legacy_cookie = (
-            legacy_trade_from_raw is not None and normalized_legacy_marker is None
-        )
-        if should_consume_legacy_cookie:
-            request.state.legacy_trade_from = normalized_legacy_marker
-
-        downstream_response = await _call_next_with_disconnect_guard(request, call_next)
-        if should_consume_legacy_cookie or should_clear_invalid_legacy_cookie:
-            cookie_cfg = CookieConfig.from_env()
-            clear_legacy_trade_marker_cookie(
-                downstream_response,
-                root_path=root_path,
-                secure=cookie_cfg.secure,
-                samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
-            )
-
-        return downstream_response
+        return await _call_next_with_disconnect_guard(request, call_next)
 
     # P6T19: _override_role_from_db, _apply_role_override, _update_session_payload
     # removed — single-admin model hardcodes role="admin" in dispatch above.

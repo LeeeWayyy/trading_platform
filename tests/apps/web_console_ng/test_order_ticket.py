@@ -1194,8 +1194,13 @@ class TestOrderTicketClosePreset:
         comp._side_toggle = MagicMock()
         return comp
 
-    def test_close_prefill_for_long_position(self, component: OrderTicketComponent) -> None:
+    def test_close_prefill_for_long_position(
+        self, component: OrderTicketComponent, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         component._current_position = 125
+
+        notify = MagicMock()
+        monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
 
         component._on_close_preset_selected()
 
@@ -1204,8 +1209,13 @@ class TestOrderTicketClosePreset:
         component._quantity_input.set_value.assert_called_once_with(125)
         component._side_toggle.set_value.assert_called_once_with("sell")
 
-    def test_close_prefill_for_short_position(self, component: OrderTicketComponent) -> None:
+    def test_close_prefill_for_short_position(
+        self, component: OrderTicketComponent, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         component._current_position = -40
+
+        notify = MagicMock()
+        monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
 
         component._on_close_preset_selected()
 
