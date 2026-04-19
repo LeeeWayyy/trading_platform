@@ -14,11 +14,28 @@ See /docs/CONCEPTS/alpha158-features.md for detailed explanation.
 """
 
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
-import qlib
-from qlib.contrib.data.handler import Alpha158
+
+
+class QlibUnavailableError(RuntimeError):
+    """Raised when pyqlib is unavailable in the current environment."""
+
+
+def _load_qlib_components() -> tuple[Any, type[Any]]:
+    """Load Qlib modules lazily so services can start without pyqlib installed."""
+    try:
+        import qlib  # type: ignore[import-not-found]
+        from qlib.contrib.data.handler import (
+            Alpha158 as QlibAlpha158,  # type: ignore[import-not-found]
+        )
+    except ModuleNotFoundError as exc:
+        raise QlibUnavailableError(
+            "Qlib is not installed in this environment; real Alpha158 feature generation "
+            "is unavailable."
+        ) from exc
+    return qlib, QlibAlpha158
 
 
 def initialize_qlib_with_t1_data(data_dir: Path = Path("data/adjusted")) -> None:
@@ -43,7 +60,8 @@ def initialize_qlib_with_t1_data(data_dir: Path = Path("data/adjusted")) -> None
     # Initialize Qlib with provider_uri pointing to T1 data
     # For now, we'll use Qlib's default initialization
     # In Phase 3, we'll create a custom provider integration
-    init_func = getattr(qlib, "init", None)
+    qlib_module, _ = _load_qlib_components()
+    init_func = getattr(qlib_module, "init", None)
     if init_func is None:
         raise RuntimeError("Qlib init() is unavailable in the current environment")
     init_func(provider_uri=str(data_dir), region="us")
@@ -107,8 +125,10 @@ def get_alpha158_features(
     # Note: Multiple calls to qlib.init() are safe (it checks initialization)
     initialize_qlib_with_t1_data(data_dir)
 
+    _, alpha158_cls = _load_qlib_components()
+
     # Use Qlib's built-in Alpha158 handler
-    handler = Alpha158(
+    handler = alpha158_cls(
         instruments=symbols,
         start_time=start_date,
         end_time=end_date,
@@ -164,8 +184,10 @@ def get_labels(
     # Initialize Qlib if not already done
     initialize_qlib_with_t1_data(data_dir)
 
+    _, alpha158_cls = _load_qlib_components()
+
     # Use Qlib's built-in Alpha158 handler
-    handler = Alpha158(
+    handler = alpha158_cls(
         instruments=symbols,
         start_time=start_date,
         end_time=end_date,

@@ -154,6 +154,7 @@ class OrderTicketComponent:
         self._execution_context_label: ui.label | None = None
         self._execution_context_state_label: ui.label | None = None
         self._quantity_presets: QuantityPresetsComponent | None = None
+        self._root_card: ui.card | None = None
 
         # State
         self._state = OrderTicketState()
@@ -214,6 +215,7 @@ class OrderTicketComponent:
         self._model_status: str = "unknown"
         self._execution_gate_reason: str | None = None
         self._execution_context_snapshot: ExecutionContextSnapshot | None = None
+        self._show_execution_context_ribbon: bool = True
 
     async def initialize(self, timer_tracker: Callable[[ui.timer], None]) -> None:
         """Initialize with timer tracking.
@@ -229,9 +231,11 @@ class OrderTicketComponent:
         # This ensures we don't start in false fail-closed state if already connected
         self._connection_read_only = self._connection_monitor.is_read_only()
 
-    def create(self) -> ui.card:
+    def create(self, *, show_execution_context_ribbon: bool = True) -> ui.card:
         """Create and return the order ticket UI."""
         with ui.card().classes("workspace-v2-panel workspace-v2-ticket") as card:
+            self._root_card = card
+            self._show_execution_context_ribbon = show_execution_context_ribbon
             self._disabled_banner = ui.label("").classes(
                 "hidden workspace-v2-banner workspace-v2-banner-negative"
             )
@@ -369,13 +373,18 @@ class OrderTicketComponent:
                     "workspace-v2-pill workspace-v2-pill-warning"
                 )
 
-            with ui.row().classes("w-full items-center justify-between mt-1"):
-                self._execution_context_label = ui.label("Context: --").classes(
-                    "workspace-v2-kv workspace-v2-data-mono"
-                )
-                self._execution_context_state_label = ui.label("BLOCKED").classes(
-                    "workspace-v2-pill workspace-v2-pill-warning"
-                )
+            if show_execution_context_ribbon:
+                with ui.row().classes("w-full items-center justify-between mt-1"):
+                    self._execution_context_label = ui.label("Context: --").classes(
+                        "workspace-v2-kv workspace-v2-data-mono"
+                    )
+                    self._execution_context_state_label = ui.label("BLOCKED").classes(
+                        "workspace-v2-pill workspace-v2-pill-warning"
+                    )
+            else:
+                # Dashboard uses Strategy Context as the single source of execution context.
+                self._execution_context_label = None
+                self._execution_context_state_label = None
 
             with ui.element("div").classes("workspace-v2-impact-track"):
                 self._impact_bar_fill = ui.element("div").classes(
@@ -690,6 +699,17 @@ class OrderTicketComponent:
 
     def _update_side_action_styles(self) -> None:
         """Reflect selected side in action button emphasis."""
+        if self._root_card is not None:
+            self._root_card.classes(
+                remove="workspace-v2-ticket-side-buy workspace-v2-ticket-side-sell"
+            )
+            self._root_card.classes(
+                add=(
+                    "workspace-v2-ticket-side-buy"
+                    if self._state.side == "buy"
+                    else "workspace-v2-ticket-side-sell"
+                )
+            )
         if self._buy_action_button is not None:
             if self._state.side == "buy":
                 self._buy_action_button.classes(add="workspace-v2-action-active")

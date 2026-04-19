@@ -1,4 +1,4 @@
-.PHONY: help up up-dev down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -36,13 +36,40 @@ requirements: ## Generate requirements.txt from pyproject.toml (for Docker build
 	poetry export -f requirements.txt --output requirements.txt --without-hashes
 	@echo "Generated requirements.txt from pyproject.toml"
 
+ensure-requirements: ## Ensure requirements.txt exists and is newer than pyproject/lock
+	@if [ ! -f requirements.txt ] || \
+		([ -f pyproject.toml ] && [ pyproject.toml -nt requirements.txt ]) || \
+		([ -f poetry.lock ] && [ poetry.lock -nt requirements.txt ]); then \
+		echo "Generating requirements.txt for Docker builds..."; \
+		$(MAKE) requirements; \
+	else \
+		echo "requirements.txt is present and up to date."; \
+	fi
+
 up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 	docker compose up -d
 	@echo "Waiting for services to be healthy..."
 	@sleep 5
 	@docker compose ps
 
-up-dev: ## Start all dev services (infrastructure + APIs + web console + workers)
+up-dev: ## Start all dev services (rebuild first to avoid stale images)
+	@PYTHON=$$( [ -x .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3 ); \
+	$$PYTHON scripts/ops/ensure_web_console_jwt_keys.py
+	$(MAKE) ensure-requirements
+	docker compose --profile dev --profile workers up -d --build
+	@echo "Waiting for services to be healthy..."
+	@sleep 10
+	@docker compose --profile dev ps
+	@echo ""
+	@echo "Services available:"
+	@echo "  - Web Console:       http://localhost:8501"
+	@echo "  - Execution Gateway: http://localhost:8002"
+	@echo "  - Signal Service:    http://localhost:8001"
+	@echo "  - Orchestrator:      http://localhost:8003"
+	@echo "  - Grafana:           http://localhost:3000"
+	@echo "  - Prometheus:        http://localhost:9090"
+
+up-dev-fast: ## Start dev services without rebuild (faster, may use stale image)
 	@PYTHON=$$( [ -x .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3 ); \
 	$$PYTHON scripts/ops/ensure_web_console_jwt_keys.py
 	docker compose --profile dev --profile workers up -d

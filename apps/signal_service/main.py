@@ -92,6 +92,17 @@ def _format_database_url_for_logging(database_url: str) -> str:
     return sanitized
 
 
+def _allow_modelless_mode(current_settings: Settings) -> bool:
+    """Return whether dev/test mode may run without a loaded model."""
+    settings_environment = str(getattr(current_settings, "environment", "production")).strip().lower()
+    return bool(getattr(current_settings, "testing", False)) or settings_environment in {
+        "dev",
+        "test",
+        "development",
+        "testing",
+    }
+
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -678,7 +689,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Step 2: Load active model
         logger.info(f"Loading model: {settings.default_strategy}")
 
-        # In testing mode, allow service to start without model
+        # Dev/test can start without a model so local stacks stay operable.
+        allow_modelless_startup = _allow_modelless_mode(settings)
         model_load_failed = False
         try:
             had_current_model = model_registry.is_loaded
@@ -692,20 +704,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     f"Failed to load model '{settings.default_strategy}'. "
                     "Check database has active model registered."
                 )
-                if settings.testing:
+                if allow_modelless_startup:
                     logger.warning(
-                        f"TESTING MODE: {error_msg} Service will start without model. "
-                        "Signal generation endpoints will return 500."
+                        "%s Service will start without model. "
+                        "Signal generation endpoints will return 500.",
+                        error_msg,
+                        extra={
+                            "environment": settings.environment,
+                            "testing": settings.testing,
+                        },
                     )
                 else:
                     raise RuntimeError(error_msg)
-        except ValueError as e:
-            # Model not found in database
+        except (ValueError, FileNotFoundError, OSError) as e:
+            # Model not found/accessible in database or filesystem.
             model_load_failed = True
-            if settings.testing:
+            if allow_modelless_startup:
                 logger.warning(
-                    f"TESTING MODE: Model loading failed: {e}. "
-                    "Service will start without model. Signal generation endpoints will return 500."
+                    "Model loading failed in non-production mode: %s. "
+                    "Service will start without model. Signal generation endpoints will return 500.",
+                    e,
+                    extra={
+                        "environment": settings.environment,
+                        "testing": settings.testing,
+                        "error_type": type(e).__name__,
+                    },
                 )
             else:
                 raise RuntimeError(f"Failed to load model: {e}") from e
@@ -732,14 +755,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             # Model not loaded - set status to 0
             model_loaded_status.set(0)
-            if settings.testing:
+            if allow_modelless_startup:
                 logger.info(
-                    "TESTING MODE: Service started without model. "
+                    "Service started without model in non-production mode. "
                     "Health checks will pass, signal generation will return 500."
                 )
             else:
-                # This should never happen - we should have raised error earlier
-                logger.error("Unexpected state: model not loaded in non-testing mode")
+                # This should never happen - we should have raised error earlier.
+                logger.error("Unexpected state: model not loaded in strict mode")
 
         # Step 3: Initialize Redis client (optional, T1.2)
         if settings.redis_enabled:
@@ -789,9 +812,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             fallback_buffer = None
             feature_cache = None
 
-        # Step 4: Initialize SignalGenerator (skip in TESTING mode if model not loaded)
-        if settings.testing and not model_registry.is_loaded:
-            logger.info("TESTING MODE: Skipping SignalGenerator initialization (no model loaded)")
+        # Step 4: Initialize SignalGenerator (skip if modelless startup is enabled)
+        if allow_modelless_startup and not model_registry.is_loaded:
+            logger.info("Skipping SignalGenerator initialization (no model loaded)")
             signal_generator = None
         else:
             logger.info(f"Initializing signal generator (data: {settings.data_dir})")
@@ -1579,14 +1602,16 @@ async def health_check() -> HealthResponse:
             "timestamp": "2024-12-31T10:30:00Z"
         }
     """
-    # In testing mode, allow health check to pass even without model
+    # In non-production mode, allow health checks to pass without a model.
+    allow_modelless_health = _allow_modelless_mode(settings)
+
     if model_registry is None or not model_registry.is_loaded:
-        if not settings.testing:
+        if not allow_modelless_health:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model not loaded"
             )
 
-        # Testing mode: return healthy but with model_loaded=False
+        # Non-production mode: return healthy but with model_loaded=False.
         redis_status_str = "disabled" if not settings.redis_enabled else "disconnected"
 
         return HealthResponse(
@@ -1603,13 +1628,13 @@ async def health_check() -> HealthResponse:
 
     # Validate metadata exists (explicit check for production safety)
     if metadata is None:
-        if not settings.testing:
+        if not allow_modelless_health:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Model metadata not available despite is_loaded=True",
             )
 
-        # Testing mode: return healthy with model_loaded=False
+        # Non-production mode: return healthy with model_loaded=False.
         redis_status_str = "disabled" if not settings.redis_enabled else "disconnected"
 
         return HealthResponse(

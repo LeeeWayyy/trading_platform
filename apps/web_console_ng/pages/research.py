@@ -308,6 +308,26 @@ def _is_optional_research_workspace_dependency(module_name: str | None) -> bool:
     )
 
 
+def _render_labeled_mono_field(label: str, value: str, *, min_width: str = "min-w-[120px]") -> None:
+    """Render compact label/value pair with mono value text."""
+    with ui.column().classes(f"gap-0 {min_width}"):
+        ui.label(label).classes("workspace-v2-field-label")
+        ui.label(value).classes("workspace-v2-data-mono text-[11px] text-slate-300 break-all")
+
+
+def _format_dataset_versions_for_display(dataset_version_ids: dict[str, Any] | None) -> str:
+    """Return compact deterministic dataset version summary string."""
+    if not dataset_version_ids:
+        return "—"
+    parts = [
+        f"{key}:{value}"
+        for key, value in sorted(dataset_version_ids.items(), key=lambda item: str(item[0]))
+    ]
+    if len(parts) > 6:
+        return ", ".join(parts[:6]) + ", ..."
+    return ", ".join(parts)
+
+
 async def _render_validate_tab(user: dict[str, Any]) -> None:
     with ui.card().classes("w-full p-4 border border-slate-800 bg-slate-900/35"):
         ui.label("Validate").classes("text-lg font-semibold text-slate-100")
@@ -396,16 +416,12 @@ async def _render_discover_rows(
                     with ui.row().classes("items-center gap-1"):
                         ui.label(row.research_status.upper()).classes("workspace-v2-pill")
                         ui.label(readiness).classes(readiness_classes)
-                with ui.row().classes("w-full gap-3 px-3 py-2 text-xs text-slate-400"):
-                    ui.label(f"strategy={row.strategy_name}").classes("workspace-v2-data-mono")
-                    ui.label(f"version={row.version}").classes("workspace-v2-data-mono")
-                    ui.label(
-                        f"signal_id={row.signal_id[:12]}"
-                    ).classes("workspace-v2-data-mono")
+                with ui.row().classes("w-full gap-3 px-3 py-2"):
+                    _render_labeled_mono_field("Strategy", row.strategy_name)
+                    _render_labeled_mono_field("Version", row.version)
+                    _render_labeled_mono_field("Signal ID", row.signal_id[:12])
                     if row.backtest_job_id:
-                        ui.label(f"backtest={row.backtest_job_id[:12]}").classes(
-                            "workspace-v2-data-mono"
-                        )
+                        _render_labeled_mono_field("Backtest Job", row.backtest_job_id[:12])
                 with ui.row().classes("w-full px-3 pb-3"):
                     ui.button(
                         "Backtest",
@@ -441,9 +457,11 @@ def _render_discover_candidate_rows(
                         _lifecycle_pill_classes(row.lifecycle_label)
                     )
                 with ui.row().classes("items-center gap-2 text-[11px] text-slate-500"):
-                    ui.label(f"ops={row.ops_status or '—'}").classes("workspace-v2-data-mono")
-                    ui.label(f"research={row.research_status or '—'}").classes(
-                        "workspace-v2-data-mono"
+                    ui.label(f"OPS {str(row.ops_status or '—').upper()}").classes(
+                        "workspace-v2-pill workspace-v2-pill-muted workspace-v2-data-mono"
+                    )
+                    ui.label(f"RESEARCH {str(row.research_status or '—').upper()}").classes(
+                        "workspace-v2-pill workspace-v2-pill-muted workspace-v2-data-mono"
                     )
                     if row.signal_id:
                         ui.button(
@@ -480,25 +498,39 @@ async def _render_promote_rows(
                     ui.label(row.lifecycle_label).classes(
                         _lifecycle_pill_classes(row.lifecycle_label)
                     )
-                with ui.row().classes("w-full gap-2 px-3 py-2 text-xs text-slate-400"):
-                    ui.label(f"ops={row.ops_status or '—'}").classes("workspace-v2-data-mono")
-                    ui.label(f"research={row.research_status or '—'}").classes(
-                        "workspace-v2-data-mono"
+                with ui.row().classes("w-full gap-3 px-3 py-2"):
+                    _render_labeled_mono_field(
+                        "Ops Status", str(row.ops_status or "—").upper(), min_width="min-w-[110px]"
                     )
-                    ui.label(f"link={row.linkage_key}").classes("workspace-v2-data-mono")
-                with ui.row().classes("w-full gap-2 px-3 pb-2 text-[11px] text-slate-500"):
-                    ui.label(
-                        f"backtest_job_id={row.backtest_job_id or '—'}"
-                    ).classes("workspace-v2-data-mono")
-                    ui.label(f"snapshot_id={row.snapshot_id or '—'}").classes(
-                        "workspace-v2-data-mono"
+                    _render_labeled_mono_field(
+                        "Research Status",
+                        str(row.research_status or "—").upper(),
+                        min_width="min-w-[110px]",
                     )
-                    ui.label(
-                        f"dataset_version_ids={row.dataset_version_ids or {}}"
-                    ).classes("workspace-v2-data-mono")
-                    ui.label(f"config_hash={row.config_hash or '—'}").classes(
-                        "workspace-v2-data-mono"
-                    )
+                    _render_labeled_mono_field("Link Key", row.linkage_key, min_width="min-w-[180px]")
+                with ui.expansion("Provenance", icon="history").classes("w-full px-3 pb-2"):
+                    with ui.row().classes("w-full gap-3 pt-1"):
+                        _render_labeled_mono_field(
+                            "Backtest Job",
+                            row.backtest_job_id or "—",
+                            min_width="min-w-[180px]",
+                        )
+                        _render_labeled_mono_field(
+                            "Snapshot ID",
+                            row.snapshot_id or "—",
+                            min_width="min-w-[140px]",
+                        )
+                    with ui.row().classes("w-full gap-3 pt-1"):
+                        _render_labeled_mono_field(
+                            "Dataset Versions",
+                            _format_dataset_versions_for_display(row.dataset_version_ids),
+                            min_width="min-w-[260px]",
+                        )
+                        _render_labeled_mono_field(
+                            "Config Hash",
+                            row.config_hash or "—",
+                            min_width="min-w-[180px]",
+                        )
 
                 with ui.row().classes("w-full px-3 pb-3 gap-2"):
                     action = _resolve_promote_action(row, can_manage=can_manage)

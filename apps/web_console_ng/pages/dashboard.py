@@ -799,6 +799,22 @@ async def dashboard(client: Client) -> None:
         background_tasks.add(task)
         task.add_done_callback(_handle_dashboard_task_done)
 
+    async def _handle_cancel_symbol_orders_click() -> None:
+        """Run cancel dialog flow in request-bound UI context.
+
+        This stays request-bound (instead of fire-and-forget) because the dialog
+        path emits UI updates that require an active slot stack.
+        """
+        await _show_cancel_symbol_orders_dialog()
+
+    async def _handle_flatten_all_positions_click() -> None:
+        """Run flatten dialog flow in request-bound UI context.
+
+        This stays request-bound (instead of fire-and-forget) because the dialog
+        path emits UI updates that require an active slot stack.
+        """
+        await _show_flatten_all_positions_dialog()
+
     order_flow_panel = OrderFlowPanel(max_rows=12)
     strategy_context_widget: StrategyContextWidget | None = None
     tabs_host: ui.column | None = None
@@ -876,11 +892,13 @@ async def dashboard(client: Client) -> None:
                         "w-full h-full"
                     )
                 with ui.element("div").classes("workspace-v2-microstructure"):
-                    order_flow_panel.create().classes("h-full overflow-hidden")
-                    order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
-                    order_context.create_market_context().classes(
-                        "h-full overflow-hidden workspace-v2-market-context"
-                    )
+                    with ui.element("div").classes("workspace-v2-microstructure-dom"):
+                        order_context.create_dom_ladder(levels=5).classes("h-full overflow-hidden")
+                    with ui.element("div").classes("workspace-v2-microstructure-side"):
+                        order_flow_panel.create().classes("h-full overflow-hidden")
+                        order_context.create_market_context().classes(
+                            "h-full overflow-hidden workspace-v2-market-context"
+                        )
 
             with ui.element("div").classes("workspace-v2-zone-c workspace-v2-enter-zone workspace-v2-enter-zone-c"):
                 with ui.element("div").classes("workspace-v2-panel"):
@@ -905,7 +923,7 @@ async def dashboard(client: Client) -> None:
                 strategy_context_widget.create()
                 order_context.set_strategy_context_widget(strategy_context_widget)
 
-                order_context.create_order_ticket()
+                order_context.create_order_ticket(show_execution_context_ribbon=False)
 
                 with ui.element("div").classes("workspace-v2-panel"):
                     ui.label("Execution Actions").classes("workspace-v2-panel-title mb-1")
@@ -913,21 +931,19 @@ async def dashboard(client: Client) -> None:
                     with ui.row().classes("w-full gap-2 flex-wrap"):
                         cancel_symbol_orders_btn = ui.button(
                             "Cancel Symbol Orders",
-                            on_click=lambda: _schedule_dashboard_task(
-                                _show_cancel_symbol_orders_dialog()
-                            ),
+                            on_click=_handle_cancel_symbol_orders_click,
                             color="orange",
                         ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-warning")
                         flatten_all_positions_btn = ui.button(
                             "Flatten All Positions",
-                            on_click=lambda: _schedule_dashboard_task(
-                                _show_flatten_all_positions_dialog()
-                            ),
+                            on_click=_handle_flatten_all_positions_click,
                             color="red",
                         ).classes("workspace-v2-bulk-btn workspace-v2-bulk-btn-danger")
 
-                tabs_host = ui.column().classes("workspace-v2-tabs-area")
-                log_tail_host = ui.column().classes("shrink-0")
+                log_tail_host = ui.column().classes("workspace-v2-log-area")
+
+        with ui.element("div").classes("workspace-v2-bottom"):
+            tabs_host = ui.column().classes("workspace-v2-tabs-area")
 
         with ui.element("div").classes("workspace-v2-overlay hidden") as workspace_overlay:
             with ui.card().classes("workspace-v2-overlay-card"):
