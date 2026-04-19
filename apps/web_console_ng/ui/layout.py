@@ -251,8 +251,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     # Research workspace is visible when any consolidated tab permission exists.
                     if path == "/research":
-                        if not config.FEATURE_RESEARCH_WORKSPACE:
-                            return False
                         can_view_discover = (
                             config.FEATURE_ALPHA_EXPLORER
                             and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)

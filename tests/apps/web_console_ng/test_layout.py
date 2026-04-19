@@ -379,7 +379,6 @@ async def test_research_nav_hidden_when_discover_feature_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Research nav should not show for alpha-only users when discover feature is off."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALPHA_EXPLORER", False)
     monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
 

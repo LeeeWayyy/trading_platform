@@ -47,16 +47,16 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.request_query import (
     get_request_query_param,
 )
-from apps.web_console_ng.pages.backtest_tabs import (
+from apps.web_console_ng.backtest_tabs import (
     BACKTEST_TAB_NEW as _SHARED_BACKTEST_TAB_NEW,
 )
-from apps.web_console_ng.pages.backtest_tabs import (
+from apps.web_console_ng.backtest_tabs import (
     BACKTEST_TAB_RESULTS as _SHARED_BACKTEST_TAB_RESULTS,
 )
-from apps.web_console_ng.pages.backtest_tabs import (
+from apps.web_console_ng.backtest_tabs import (
     BACKTEST_TAB_RUNNING as _SHARED_BACKTEST_TAB_RUNNING,
 )
-from apps.web_console_ng.pages.backtest_tabs import (
+from apps.web_console_ng.backtest_tabs import (
     VALID_BACKTEST_TABS as _SHARED_VALID_BACKTEST_TABS,
 )
 from apps.web_console_ng.ui.helpers import safe_classes
