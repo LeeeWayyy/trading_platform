@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from apps.execution_gateway import ALPACA_FEE_CURRENCY
 from apps.execution_gateway.reconciliation.helpers import (
     calculate_synthetic_fill,
     generate_fill_id_from_activity,
@@ -146,6 +147,7 @@ def backfill_alpaca_fills(
             "timestamp": timestamp,
             "synthetic": False,
             "source": "alpaca_activity",
+            "fee_currency": ALPACA_FEE_CURRENCY,
         }
         fills_by_client.setdefault(order.client_order_id, []).append(fill_data)
         affected.add((order.strategy_id, order.symbol))

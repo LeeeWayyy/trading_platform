@@ -91,6 +91,16 @@ class Fill(BaseModel):
     fee_amount: float = Field(default=0.0, description="Total fee (positive) or rebate (negative)")
     fee_currency: str = Field(default="USD", description="Currency of fee")
 
+    @field_validator("fee_currency")
+    @classmethod
+    def normalize_fee_currency(cls, v: str) -> str:
+        """Normalize fee_currency to uppercase and strip whitespace.
+
+        Ensures case-insensitive comparison for fail-closed currency checks
+        (e.g., "usd" and " USD " both normalize to "USD").
+        """
+        return v.upper().strip()
+
     @field_validator("timestamp")
     @classmethod
     def validate_utc(cls, v: datetime) -> datetime:
@@ -363,9 +373,11 @@ class ExecutionAnalysisResult:
 
     Cost decomposition (v7):
     - price_shortfall_bps: Price-only component on filled qty
-    - fee_cost_bps: Fee component (positive=cost, negative=rebate)
+    - fee_cost_bps: Fee component (positive=cost, negative=rebate);
+      NaN when fee currencies are mixed or non-USD (untrusted)
     - opportunity_cost_bps: Cost of unfilled qty (weighted by unfilled fraction)
-    - total_cost_bps: price_shortfall + fees + opportunity (true IS)
+    - total_cost_bps: price_shortfall + fees + opportunity (true IS);
+      excludes fee_cost_bps when it is NaN (untrusted currency)
     - market_impact_bps: Estimated permanent price impact
     - timing_cost_bps: price_shortfall - market_impact (delay cost)
     """
@@ -391,7 +403,11 @@ class ExecutionAnalysisResult:
     # === Cost decomposition (bps, sign-adjusted) ===
     price_shortfall_bps: float  # Price-only component on filled qty
     vwap_slippage_bps: float  # (exec - vwap) / vwap * 10000 * side_sign
-    fee_cost_bps: float  # SIGNED: positive=fee, negative=rebate
+    # SIGNED: positive=fee, negative=rebate. NaN when fee currencies are
+    # mixed or non-USD (untrusted); NaN chosen over None to preserve float
+    # arithmetic in consumers. The route layer (_result_to_order_detail)
+    # converts NaN -> None for API responses to match total_fees's None.
+    fee_cost_bps: float
     opportunity_cost_bps: float  # Unfilled qty cost (weighted by unfilled fraction)
     total_cost_bps: float  # price_shortfall + fee_cost + opportunity_cost
 
@@ -405,7 +421,7 @@ class ExecutionAnalysisResult:
     unfilled_qty: int  # target - filled
     total_target_qty: int
     total_notional: float  # execution_price * total_filled_qty
-    total_fees: float
+    total_fees: float | None  # None when mixed/non-USD fee currencies
     close_price: float | None  # Close price for opportunity cost
     execution_duration_seconds: float
     num_fills: int
@@ -566,10 +582,10 @@ class ExecutionQualityAnalyzer:
             warnings.append(f"{count} fill(s) with mismatched side excluded from analysis")
 
         if mixed_currency_warning:
-            warnings.append("Mixed fee currencies detected - fee aggregation may be incorrect")
+            warnings.append("Mixed fee currencies detected - fee_cost_bps and total_fees excluded (not trustworthy)")
 
         if non_usd_fee_warning:
-            warnings.append("Non-USD fee currency detected - fee_cost_bps assumes USD")
+            warnings.append("Non-USD fee currency detected - fee_cost_bps and total_fees excluded (not normalized)")
 
         # Execution metrics
         symbol = fill_batch.symbol
@@ -578,7 +594,14 @@ class ExecutionQualityAnalyzer:
         total_filled_qty = fill_batch.total_filled_qty
         unfilled_qty = fill_batch.unfilled_qty
         total_target_qty = fill_batch.total_target_qty
-        total_fees = fill_batch.total_fees
+        # Fail closed: total_fees is invalid when summing across different
+        # currencies (e.g., USD + EUR).  Set to None so consumers know the
+        # aggregate is not trustworthy.
+        total_fees: float | None
+        if mixed_currency_warning or non_usd_fee_warning:
+            total_fees = None
+        else:
+            total_fees = fill_batch.total_fees
 
         # Execution window
         first_fill_time = min(f.timestamp for f in valid_fills)
@@ -680,11 +703,18 @@ class ExecutionQualityAnalyzer:
             vwap_slippage_bps = float("nan")
 
         # Fee cost (SIGNED - rebates reduce cost)
-        fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
-        if arrival_price > 0:
-            fee_cost_bps = fee_per_share / arrival_price * 10000
+        # Fail closed: if fee currencies are mixed or non-USD, fee aggregation
+        # is invalid (summing different currencies). Set to NaN so downstream
+        # consumers know the value is not trustworthy.
+        if mixed_currency_warning or non_usd_fee_warning:
+            fee_cost_bps = float("nan")
         else:
-            fee_cost_bps = 0.0
+            assert total_fees is not None  # guaranteed by the branch above
+            fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
+            if arrival_price > 0:
+                fee_cost_bps = fee_per_share / arrival_price * 10000
+            else:
+                fee_cost_bps = 0.0
 
         # Opportunity cost (unfilled qty weighted by unfilled fraction)
         if unfilled_qty > 0 and actual_close_price is not None and arrival_price > 0:
@@ -705,7 +735,9 @@ class ExecutionQualityAnalyzer:
         # Total cost (true IS) - weight filled components by fill_rate
         # price_shortfall and fee_cost apply only to filled portion
         # opportunity_cost is already weighted by unfilled_fraction
-        total_cost_bps = (price_shortfall_bps + fee_cost_bps) * fill_rate + opportunity_cost_bps
+        # Exclude fee_cost_bps from total when it's NaN (untrusted currency)
+        effective_fee_bps = 0.0 if math.isnan(fee_cost_bps) else fee_cost_bps
+        total_cost_bps = (price_shortfall_bps + effective_fee_bps) * fill_rate + opportunity_cost_bps
 
         # Market impact estimation with timing/permanent decomposition
         market_impact_bps, timing_cost_bps, mid_price_at_arrival = self._estimate_market_impact(

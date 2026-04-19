@@ -14,6 +14,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from apps.execution_gateway import ALPACA_FEE_CURRENCY
+
 
 def calculate_synthetic_fill(
     client_order_id: str,
@@ -101,6 +103,7 @@ def calculate_synthetic_fill(
         "timestamp": timestamp.isoformat(),
         "synthetic": True,  # AUDIT: Mark as reconciliation-generated
         "source": source,
+        "fee_currency": ALPACA_FEE_CURRENCY,
         "_missing_qty": missing_qty,  # For logging, stripped before storage
     }
 

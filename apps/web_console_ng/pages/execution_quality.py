@@ -336,7 +336,7 @@ def _generate_demo_data(
     notional_values = [o["total_notional"] for o in orders]
     filled_qty_values = [o["filled_qty"] for o in orders]
     price_values = [o["price_shortfall_bps"] for o in orders]
-    fee_values = [o["fee_cost_bps"] for o in orders]
+    fee_values = [o["fee_cost_bps"] for o in orders if _is_numeric(o.get("fee_cost_bps"))]
     opp_values = [o["opportunity_cost_bps"] for o in orders]
     timing_values = [o["timing_cost_bps"] for o in orders]
 
@@ -362,7 +362,7 @@ def _generate_demo_data(
             "avg_implementation_shortfall_bps": avg_is,
             "avg_price_shortfall_bps": sum(price_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_vwap_slippage_bps": avg_vwap,
-            "avg_fee_cost_bps": sum(fee_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
+            "avg_fee_cost_bps": sum(fee_values) / n if fee_values else None,  # type: ignore[arg-type]
             "avg_opportunity_cost_bps": sum(opp_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
             "avg_market_impact_bps": avg_impact,
             "avg_timing_cost_bps": sum(timing_values) / n if n > 0 else 0.0,  # type: ignore[arg-type]
@@ -742,6 +742,9 @@ async def _render_tca_dashboard(
 
                 if orders:
                     # Aggregate by date
+                    # Fee uses same denominator (count) as other components so
+                    # stacked bar components sum to the correct per-order average.
+                    # None when no orders on that date have trustworthy fee data.
                     date_data: dict[str, dict[str, float]] = {}
                     for order in orders:
                         d = order.get("execution_date", "")
@@ -749,25 +752,32 @@ async def _render_tca_dashboard(
                             date_data[d] = {
                                 "price": 0,
                                 "fee": 0,
+                                "has_fee": 0,
                                 "opportunity": 0,
                                 "timing": 0,
                                 "count": 0,
                             }
                         date_data[d]["price"] += order.get("price_shortfall_bps", 0)
-                        date_data[d]["fee"] += order.get("fee_cost_bps", 0)
+                        fee_val = order.get("fee_cost_bps")
+                        if _is_numeric(fee_val):
+                            date_data[d]["fee"] += fee_val
+                            date_data[d]["has_fee"] = 1
                         date_data[d]["opportunity"] += order.get("opportunity_cost_bps", 0)
                         date_data[d]["timing"] += order.get("timing_cost_bps", 0)
                         date_data[d]["count"] += 1
 
-                    # Average per date
+                    # Average per date (all components use count as denominator)
                     sorted_dates = sorted(date_data.keys())
                     labels = sorted_dates
                     price_shortfall = [
                         round(date_data[d]["price"] / date_data[d]["count"], 2)
                         for d in sorted_dates
                     ]
-                    fee_cost = [
-                        round(date_data[d]["fee"] / date_data[d]["count"], 2) for d in sorted_dates
+                    fee_cost: list[float | None] = [
+                        round(date_data[d]["fee"] / date_data[d]["count"], 2)
+                        if date_data[d]["has_fee"]
+                        else None
+                        for d in sorted_dates
                     ]
                     opportunity_cost = [
                         round(date_data[d]["opportunity"] / date_data[d]["count"], 2)

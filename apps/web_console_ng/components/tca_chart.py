@@ -140,7 +140,7 @@ def create_summary_cards(
 def create_shortfall_decomposition_chart(
     labels: list[str],
     price_shortfall: list[float],
-    fee_cost: list[float],
+    fee_cost: list[float | None],
     opportunity_cost: list[float],
     timing_cost: list[float],
     height: int = 350,
@@ -150,7 +150,7 @@ def create_shortfall_decomposition_chart(
     Args:
         labels: X-axis labels (dates or order IDs)
         price_shortfall: Price slippage component (bps)
-        fee_cost: Fee component (bps)
+        fee_cost: Fee component (bps); None for dates with untrusted fee data
         opportunity_cost: Opportunity cost component (bps)
         timing_cost: Timing/spread cost component (bps)
         height: Chart height in pixels

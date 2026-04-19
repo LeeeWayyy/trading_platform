@@ -161,6 +161,19 @@ class TestTCAAnalysisSummary:
             TCAAnalysisSummary(**valid_summary_data)
         assert "total_orders" in str(exc_info.value)
 
+    def test_nullable_avg_fee_cost_bps(self, valid_summary_data: dict) -> None:
+        """avg_fee_cost_bps accepts None (mixed/non-USD currencies)."""
+        valid_summary_data["avg_fee_cost_bps"] = None
+        summary = TCAAnalysisSummary(**valid_summary_data)
+        assert summary.avg_fee_cost_bps is None
+
+    def test_nullable_avg_fee_cost_bps_serialization(self, valid_summary_data: dict) -> None:
+        """avg_fee_cost_bps=None serializes as null in JSON."""
+        valid_summary_data["avg_fee_cost_bps"] = None
+        summary = TCAAnalysisSummary(**valid_summary_data)
+        data = summary.model_dump()
+        assert data["avg_fee_cost_bps"] is None
+
 
 class TestTCAOrderDetail:
     """Tests for TCAOrderDetail model."""
@@ -233,6 +246,45 @@ class TestTCAOrderDetail:
         """VWAP coverage > 100 raises ValidationError."""
         valid_order_data["vwap_coverage_pct"] = 105.0
         with pytest.raises(ValidationError):
+            TCAOrderDetail(**valid_order_data)
+
+    def test_nullable_fee_fields_both_none(self, valid_order_data: dict) -> None:
+        """fee_cost_bps and total_fees both accept None (mixed/non-USD currencies)."""
+        valid_order_data["fee_cost_bps"] = None
+        valid_order_data["total_fees"] = None
+        order = TCAOrderDetail(**valid_order_data)
+        assert order.fee_cost_bps is None
+        assert order.total_fees is None
+
+    def test_nullable_fee_fields_serialization(self, valid_order_data: dict) -> None:
+        """fee_cost_bps=None and total_fees=None serialize as null in JSON."""
+        valid_order_data["fee_cost_bps"] = None
+        valid_order_data["total_fees"] = None
+        order = TCAOrderDetail(**valid_order_data)
+        data = order.model_dump()
+        assert data["fee_cost_bps"] is None
+        assert data["total_fees"] is None
+
+    def test_fee_fields_consistency_both_numeric(self, valid_order_data: dict) -> None:
+        """fee_cost_bps and total_fees both numeric is valid."""
+        valid_order_data["fee_cost_bps"] = 0.5
+        valid_order_data["total_fees"] = 10.0
+        order = TCAOrderDetail(**valid_order_data)
+        assert order.fee_cost_bps == 0.5
+        assert order.total_fees == 10.0
+
+    def test_fee_fields_inconsistent_bps_none_fees_numeric(self, valid_order_data: dict) -> None:
+        """fee_cost_bps=None with total_fees numeric raises ValidationError."""
+        valid_order_data["fee_cost_bps"] = None
+        valid_order_data["total_fees"] = 14.27
+        with pytest.raises(ValidationError, match="fee_cost_bps and total_fees must both be None"):
+            TCAOrderDetail(**valid_order_data)
+
+    def test_fee_fields_inconsistent_bps_numeric_fees_none(self, valid_order_data: dict) -> None:
+        """fee_cost_bps numeric with total_fees=None raises ValidationError."""
+        valid_order_data["fee_cost_bps"] = 0.10
+        valid_order_data["total_fees"] = None
+        with pytest.raises(ValidationError, match="fee_cost_bps and total_fees must both be None"):
             TCAOrderDetail(**valid_order_data)
 
 

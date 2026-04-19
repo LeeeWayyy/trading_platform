@@ -24,6 +24,7 @@ Data Flow:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
@@ -34,6 +35,7 @@ from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from apps.execution_gateway import ALPACA_FEE_CURRENCY
 from apps.execution_gateway.api.dependencies import build_gateway_authenticator
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.dependencies import get_context
@@ -156,6 +158,17 @@ def _get_taq_provider() -> Any | None:
         return _taq_provider
 
 
+# Breaking change (issue #158): fee_cost_bps, avg_fee_cost_bps, and total_fees
+# changed from float to float|None.  No version bump because:
+#   1. The ONLY consumer is the NiceGUI web console (same repo, already updated)
+#   2. No external typed clients exist (verified via `rg api/v1/tca` repo-wide)
+#   3. This is an internal-only API not exposed outside the deployment
+# RATIONALE: Silent incorrect fee aggregation (mixed/non-USD currencies) was
+# worse than a nullable field.  Fail-closed returns None for untrusted data.
+# COMPATIBILITY: If external consumers are added, introduce /api/v2/tca with a
+# backwards-compatible default (e.g., 0.0 instead of None) and a deprecation
+# period for v1.  See schemas.py TCAAnalysisSummary / TCAOrderDetail docstrings.
+# See docs/ADRs/ADR-0040-tca-nullable-fee-fields.md for the decision record.
 router = APIRouter(prefix="/api/v1/tca", tags=["TCA"])
 
 # TCA auth dependency - requires VIEW_TCA permission
@@ -412,8 +425,13 @@ def _build_fill_batch(
         if price_float <= 0:
             continue
 
-        # Extract fee from order metadata if available
+        # Extract fee from order metadata if available.
+        # Uses ALPACA_FEE_CURRENCY (centralised in __init__.py) as default.
+        # When fee_amount is 0.0, currency is irrelevant.  When metadata
+        # provides a non-zero fee without specifying fee_currency, we log a
+        # warning but keep the default since Alpaca is the only broker.
         fee_amount = 0.0
+        fee_currency = ALPACA_FEE_CURRENCY
         order_metadata = trade.get("order_metadata")
         if order_metadata and isinstance(order_metadata, dict):
             fills_meta = order_metadata.get("fills", [])
@@ -423,6 +441,23 @@ def _build_fill_batch(
                         fee_amount = float(fm.get("fee", 0) or 0)
                     except (ValueError, TypeError):
                         fee_amount = 0.0  # Default to 0 for non-numeric fee
+                    # Propagate fee_currency when stored in fill metadata.
+                    # The Fill model validator normalizes case/whitespace.
+                    stored_currency = fm.get("fee_currency")
+                    if isinstance(stored_currency, str) and stored_currency.strip():
+                        fee_currency = stored_currency  # normalized by Fill validator
+                    elif fee_amount != 0.0:
+                        logger.warning(
+                            "Fill metadata has non-zero fee but no fee_currency; "
+                            "defaulting to USD (Alpaca assumption)",
+                            extra={
+                                "fill_id": fm.get("fill_id"),
+                                "fee_amount": fee_amount,
+                                "client_order_id": client_order_id,
+                                "symbol": trade.get("symbol"),
+                                "strategy_id": trade.get("strategy_id"),
+                            },
+                        )
                     break
 
         fills.append(
@@ -436,6 +471,7 @@ def _build_fill_batch(
                 price=price_float,
                 quantity=qty_int,
                 fee_amount=fee_amount,
+                fee_currency=fee_currency,
             )
         )
 
@@ -536,7 +572,7 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     # Compute execution metrics from effective fills directly
     total_filled_qty = sum(f.quantity for f in effective_fills)
     total_notional = sum(f.price * f.quantity for f in effective_fills)
-    total_fees = sum(f.fee_amount for f in effective_fills)
+    raw_total_fees = sum(f.fee_amount for f in effective_fills)
 
     if total_filled_qty == 0:
         return None
@@ -562,9 +598,20 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     # Note: vwap_benchmark is set to arrival_price below to match this calculation
     vwap_slippage_bps = price_shortfall_bps  # Same without market data
 
-    # Fee cost
-    fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
-    fee_cost_bps = fee_per_share / arrival_price * 10000 if arrival_price > 0 else 0.0
+    # Fee cost and total_fees - fail closed when currencies are mixed or non-USD,
+    # or when the raw aggregate is NaN (e.g., a fill had a non-numeric fee).
+    # Summing fees across different currencies is arithmetically invalid.
+    fee_cost_bps: float | None
+    total_fees: float | None
+    has_mixed = fill_batch.has_mixed_currencies
+    has_non_usd = fill_batch.has_non_usd_fees
+    if has_mixed or has_non_usd or math.isnan(raw_total_fees):
+        fee_cost_bps = None
+        total_fees = None
+    else:
+        total_fees = raw_total_fees
+        fee_per_share = total_fees / total_filled_qty if total_filled_qty > 0 else 0.0
+        fee_cost_bps = fee_per_share / arrival_price * 10000 if arrival_price > 0 else 0.0
 
     # Opportunity cost (simplified - proportional to unfilled)
     # Uses module-level FALLBACK_OPPORTUNITY_COST_BPS constant
@@ -573,12 +620,19 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
     opportunity_cost_bps = unfilled_fraction * FALLBACK_OPPORTUNITY_COST_BPS
 
     # Total IS - weight filled components by fill_rate (matching ExecutionQualityAnalyzer)
-    total_cost_bps = (price_shortfall_bps + fee_cost_bps) * fill_rate + opportunity_cost_bps
+    # Exclude fee_cost_bps from total when untrusted (None or NaN); NaN defense
+    # is belt-and-suspenders since the fail-closed branch above already maps NaN to None.
+    effective_fee_bps = 0.0 if fee_cost_bps is None or math.isnan(fee_cost_bps) else fee_cost_bps
+    total_cost_bps = (price_shortfall_bps + effective_fee_bps) * fill_rate + opportunity_cost_bps
 
     # Build warnings list
     warnings = ["Simplified TCA - no market benchmark data available"]
     if raw_fill_rate > 1.0:
         warnings.append(f"Overfill detected: filled {total_filled_qty} vs target {total_target_qty}")
+    if has_mixed:
+        warnings.append("Mixed fee currencies detected - fee_cost_bps and total_fees excluded (not trustworthy)")
+    if has_non_usd:
+        warnings.append("Non-USD fee currency detected - fee_cost_bps and total_fees excluded (not normalized)")
 
     return TCAOrderDetail(
         client_order_id=fill_batch.fills[0].client_order_id if fill_batch.fills else "",
@@ -597,7 +651,11 @@ def _compute_simple_tca(fill_batch: FillBatch) -> TCAOrderDetail | None:
         implementation_shortfall_bps=round(total_cost_bps, 2),
         price_shortfall_bps=round(price_shortfall_bps, 2),
         vwap_slippage_bps=round(vwap_slippage_bps, 2),
-        fee_cost_bps=round(fee_cost_bps, 2),
+        fee_cost_bps=(
+            round(fee_cost_bps, 2)
+            if fee_cost_bps is not None and not math.isnan(fee_cost_bps)
+            else None
+        ),
         opportunity_cost_bps=round(opportunity_cost_bps, 2),
         market_impact_bps=0.0,  # Cannot compute without TAQ
         timing_cost_bps=0.0,  # Cannot compute without TAQ
@@ -615,6 +673,24 @@ def _result_to_order_detail(
     strategy_id: str,
 ) -> TCAOrderDetail:
     """Convert ExecutionAnalysisResult to TCAOrderDetail."""
+    # Convert NaN fee_cost_bps to None (fail closed for mixed/non-USD currencies).
+    # Use float() conversion to handle numeric-like types (Decimal, numpy scalars)
+    # that are not int/float but still represent valid numbers.
+    raw_fee = result.fee_cost_bps
+    fee_cost: float | None
+    try:
+        fee_float = float(raw_fee)
+        fee_cost = None if math.isnan(fee_float) else round(fee_float, 2)
+    except (TypeError, ValueError):
+        fee_cost = None
+
+    # Ensure fee_cost_bps and total_fees are consistent: both null or both numeric.
+    # If either is None (untrusted), set both to None.
+    total_fees = result.total_fees
+    if fee_cost is None or total_fees is None:
+        fee_cost = None
+        total_fees = None
+
     return TCAOrderDetail(
         client_order_id=client_order_id,
         symbol=result.symbol,
@@ -632,13 +708,13 @@ def _result_to_order_detail(
         implementation_shortfall_bps=round(result.total_cost_bps, 2),
         price_shortfall_bps=round(result.price_shortfall_bps, 2),
         vwap_slippage_bps=round(result.vwap_slippage_bps, 2),
-        fee_cost_bps=round(result.fee_cost_bps, 2),
+        fee_cost_bps=fee_cost,
         opportunity_cost_bps=round(result.opportunity_cost_bps, 2),
         market_impact_bps=round(result.market_impact_bps, 2),
         timing_cost_bps=round(result.timing_cost_bps, 2),
         num_fills=result.num_fills,
         execution_duration_seconds=result.execution_duration_seconds,
-        total_fees=result.total_fees,
+        total_fees=total_fees,
         warnings=result.warnings,
         vwap_coverage_pct=result.vwap_coverage_pct * 100,  # Convert to percentage
     )
@@ -751,6 +827,28 @@ def _analyze_trades_for_tca(
         warnings.append(f"Skipped {total_skipped} order(s): {', '.join(skip_details)}")
 
     return orders, warnings
+
+
+def _avg_fee_cost_bps(orders: list[TCAOrderDetail]) -> float | None:
+    """Average fee_cost_bps across orders, treating None as 0 for IS consistency.
+
+    Uses total order count as denominator (same as other cost components)
+    so that avg_price + avg_fee + avg_opportunity ≈ avg_implementation_shortfall.
+    Returns None when the orders list is empty (zero orders) or when no orders
+    have any trustworthy fee data (all fee_cost_bps are None).
+    """
+    if not orders:
+        return None
+    # Defense-in-depth: filter NaN in addition to None. _result_to_order_detail
+    # should already have converted NaN -> None, but aggregates must never emit NaN.
+    valid = [
+        o.fee_cost_bps
+        for o in orders
+        if o.fee_cost_bps is not None and not math.isnan(o.fee_cost_bps)
+    ]
+    if not valid:
+        return None
+    return sum(valid) / len(orders)
 
 
 # =============================================================================
@@ -883,6 +981,14 @@ def get_tca_analysis(
             f"order(s) discarded). Consider narrowing date range or applying filters."
         )
 
+    # Propagate fee exclusion to summary warnings
+    fee_excluded_count = sum(1 for o in orders if o.fee_cost_bps is None)
+    if fee_excluded_count > 0:
+        warnings.append(
+            f"{fee_excluded_count} order(s) have fee_cost_bps and total_fees excluded "
+            f"(mixed/non-USD currencies) — implementation_shortfall_bps excludes fee for those orders"
+        )
+
     # Build summary from orders
     summary = TCAAnalysisSummary(
         start_date=start_date,
@@ -896,7 +1002,7 @@ def get_tca_analysis(
         avg_implementation_shortfall_bps=sum(o.implementation_shortfall_bps for o in orders) / len(orders) if orders else 0,
         avg_price_shortfall_bps=sum(o.price_shortfall_bps for o in orders) / len(orders) if orders else 0,
         avg_vwap_slippage_bps=sum(o.vwap_slippage_bps for o in orders) / len(orders) if orders else 0,
-        avg_fee_cost_bps=sum(o.fee_cost_bps for o in orders) / len(orders) if orders else 0,
+        avg_fee_cost_bps=_avg_fee_cost_bps(orders),
         avg_opportunity_cost_bps=sum(o.opportunity_cost_bps for o in orders) / len(orders) if orders else 0,
         avg_market_impact_bps=sum(o.market_impact_bps for o in orders) / len(orders) if orders else 0,
         avg_timing_cost_bps=sum(o.timing_cost_bps for o in orders) / len(orders) if orders else 0,

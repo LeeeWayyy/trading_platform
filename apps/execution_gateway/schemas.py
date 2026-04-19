@@ -1427,7 +1427,18 @@ class TCAMetricValue(BaseModel):
 
 
 class TCAAnalysisSummary(BaseModel):
-    """Aggregated TCA metrics summary for a date range."""
+    """Aggregated TCA metrics summary for a date range.
+
+    Breaking change (issue #158): ``avg_fee_cost_bps`` is now ``float | None``
+    (was ``float``). Returns ``None`` when there are zero orders, when all
+    orders have untrusted fee data (mixed/non-USD currencies), or when fee
+    data is otherwise unavailable. ``total_fees`` on ``TCAOrderDetail`` is
+    also now ``float | None`` for the same reason.
+    Internal consumers (web console) have been updated. External consumers
+    should handle ``null``. If external typed clients are added in the future,
+    introduce ``/api/v2/tca`` with a backwards-compatible default (e.g., 0.0)
+    and a deprecation period for v1.
+    """
 
     # Time range
     start_date: date
@@ -1447,7 +1458,7 @@ class TCAAnalysisSummary(BaseModel):
 
     # Cost metrics (in basis points)
     avg_implementation_shortfall_bps: float = Field(
-        ..., description="Average implementation shortfall (total cost)"
+        ..., description="Average implementation shortfall (excludes fee when fee_cost_bps is None)"
     )
     avg_price_shortfall_bps: float = Field(
         ..., description="Average price slippage component"
@@ -1455,8 +1466,8 @@ class TCAAnalysisSummary(BaseModel):
     avg_vwap_slippage_bps: float = Field(
         ..., description="Average VWAP benchmark slippage"
     )
-    avg_fee_cost_bps: float = Field(
-        ..., description="Average fee cost component"
+    avg_fee_cost_bps: float | None = Field(
+        ..., description="Average fee cost component (None when zero orders exist OR all orders have untrusted fee data; otherwise averages trustworthy values over total order count)"
     )
     avg_opportunity_cost_bps: float = Field(
         ..., description="Average opportunity cost (unfilled qty)"
@@ -1477,7 +1488,14 @@ class TCAAnalysisSummary(BaseModel):
 
 
 class TCAOrderDetail(BaseModel):
-    """TCA metrics for a single order."""
+    """TCA metrics for a single order.
+
+    Breaking change (issue #158): ``fee_cost_bps`` and ``total_fees`` are now
+    ``float | None`` (were ``float``). Return ``None`` when fee currency is
+    mixed or non-USD (summing fees across different currencies is invalid).
+    If external typed clients are added, introduce ``/api/v2/tca`` with a
+    backwards-compatible default and a deprecation period for v1.
+    """
 
     # Order identification
     client_order_id: str = Field(..., description="Client order ID")
@@ -1499,10 +1517,10 @@ class TCAOrderDetail(BaseModel):
     total_notional: float = Field(..., description="Total notional value", ge=0)
 
     # Cost decomposition (basis points)
-    implementation_shortfall_bps: float = Field(..., description="Total cost")
+    implementation_shortfall_bps: float = Field(..., description="Total cost (excludes fee component when fee_cost_bps is None)")
     price_shortfall_bps: float = Field(..., description="Price slippage")
     vwap_slippage_bps: float = Field(..., description="VWAP slippage")
-    fee_cost_bps: float = Field(..., description="Fee component")
+    fee_cost_bps: float | None = Field(..., description="Fee component (None if mixed/non-USD fee currencies)")
     opportunity_cost_bps: float = Field(..., description="Unfilled cost")
     market_impact_bps: float = Field(..., description="Permanent impact")
     timing_cost_bps: float = Field(..., description="Timing/spread cost")
@@ -1512,13 +1530,26 @@ class TCAOrderDetail(BaseModel):
     execution_duration_seconds: float = Field(
         ..., description="Time from first to last fill", ge=0
     )
-    total_fees: float = Field(..., description="Total fees paid", ge=0)
+    total_fees: float | None = Field(..., description="Total fees paid (None if mixed/non-USD fee currencies)")
 
     # Data quality
     warnings: list[str] = Field(default_factory=list)
     vwap_coverage_pct: float = Field(
         default=100.0, description="% of window with benchmark data", ge=0, le=100
     )
+
+    @model_validator(mode="after")
+    def _fee_fields_consistent(self) -> "TCAOrderDetail":
+        """Enforce that fee_cost_bps and total_fees are both None or both numeric."""
+        fee_bps_none = self.fee_cost_bps is None
+        total_fees_none = self.total_fees is None
+        if fee_bps_none != total_fees_none:
+            raise ValueError(
+                "fee_cost_bps and total_fees must both be None or both numeric; "
+                f"got fee_cost_bps={'None' if fee_bps_none else self.fee_cost_bps}, "
+                f"total_fees={'None' if total_fees_none else self.total_fees}"
+            )
+        return self
 
 
 class TCABenchmarkPoint(BaseModel):

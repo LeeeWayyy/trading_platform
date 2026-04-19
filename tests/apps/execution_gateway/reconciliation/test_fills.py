@@ -298,6 +298,7 @@ class TestBackfillFillMetadata:
                 "fill_qty": "100",
                 "fill_price": "150.00",
                 "source": "recon",
+                "fee_currency": "USD",
                 "_missing_qty": Decimal("100"),
             }
 
@@ -305,6 +306,9 @@ class TestBackfillFillMetadata:
 
             assert result is True
             db_client.append_fill_to_order_metadata.assert_called_once()
+            # Verify fee_currency is persisted for TCA currency-safety checks
+            call_kwargs = db_client.append_fill_to_order_metadata.call_args.kwargs
+            assert call_kwargs["fill_data"].get("fee_currency") == "USD"
 
     def test_returns_false_when_no_fill_needed(self) -> None:
         """Backfill returns False when synthetic fill calculation returns None."""
@@ -452,6 +456,7 @@ class TestBackfillFillMetadataFromOrder:
                 "fill_qty": "100",
                 "fill_price": "150.00",
                 "source": "recon_db",
+                "fee_currency": "USD",
                 "_missing_qty": Decimal("100"),
             }
 
@@ -460,6 +465,8 @@ class TestBackfillFillMetadataFromOrder:
             assert result is True
             call_kwargs = db_client.append_fill_to_order_metadata.call_args.kwargs
             assert call_kwargs["fill_data"]["source"] == "reconciliation_db_backfill"
+            # Verify fee_currency is persisted for TCA currency-safety checks
+            assert call_kwargs["fill_data"].get("fee_currency") == "USD"
 
     def test_uses_updated_at_when_no_filled_at(self) -> None:
         """Backfill uses updated_at when filled_at is not available."""

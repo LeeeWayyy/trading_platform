@@ -32,6 +32,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 
+from apps.execution_gateway import ALPACA_FEE_CURRENCY
 from apps.execution_gateway.app_context import AppContext
 from apps.execution_gateway.config import ExecutionGatewayConfig
 from apps.execution_gateway.database import status_rank_for
@@ -304,6 +305,7 @@ async def handle_order_webhook(
                         "fill_price": str(per_fill_price),
                         "realized_pl": str(realized_delta),
                         "timestamp": fill_timestamp.isoformat(),
+                        "fee_currency": ALPACA_FEE_CURRENCY,
                     },
                     conn=conn,
                 )
