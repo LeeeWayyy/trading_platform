@@ -1,34 +1,27 @@
 from __future__ import annotations
 
-import logging
-from collections.abc import Mapping
-from typing import Literal, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from starlette.responses import Response
-
-logger = logging.getLogger(__name__)
+from apps.web_console_ng.research_query import (
+    RESEARCH_ALLOWED_QUERY_KEYS,
+    sanitize_research_query_items,
+    normalize_research_tab,
+)
 
 ALLOWED_REDIRECT_PATHS = {
     "/",
     "/trade",
     "/research",
-    "/alpha-explorer",
-    "/backtest",
-    "/models",
     "/circuit-breaker",
     "/risk",
     "/admin",
     "/tax-lots",
     "/mfa-verify",
 }
+# Retired legacy routes intentionally fail closed to "/" rather than remapping.
+# This prevents stale bookmarks from silently mutating state in the new IA.
 
-LEGACY_REDIRECT_REMAP = {
-    "/manual-order": "/trade",
-    "/position-management": "/trade",
-}
-
-LEGACY_TRADE_REDIRECT_QUERY_KEYS = frozenset(
+TRADE_REDIRECT_QUERY_KEYS = frozenset(
     {
         "symbol",
         "side",
@@ -40,12 +33,9 @@ LEGACY_TRADE_REDIRECT_QUERY_KEYS = frozenset(
     }
 )
 ALLOWED_REDIRECT_QUERY_KEYS_BY_PATH: dict[str, frozenset[str]] = {
-    "/trade": LEGACY_TRADE_REDIRECT_QUERY_KEYS,
+    "/trade": TRADE_REDIRECT_QUERY_KEYS,
     "/admin": frozenset({"user_id", "tab", "view"}),
-    "/alpha-explorer": frozenset({"signal_id", "source", "strategy_id", "tab", "view"}),
-    "/backtest": frozenset({"id", "signal_id", "source", "backtest_job_id", "tab", "view"}),
-    "/models": frozenset({"id", "model_id", "strategy_id", "tab", "view"}),
-    "/research": frozenset({"tab", "signal_id", "source", "model_id", "strategy_id"}),
+    "/research": RESEARCH_ALLOWED_QUERY_KEYS,
     "/risk": frozenset({"symbol", "tab", "view"}),
     "/tax-lots": frozenset({"symbol", "tab", "view"}),
     "/circuit-breaker": frozenset({"tab", "view"}),
@@ -53,23 +43,6 @@ ALLOWED_REDIRECT_QUERY_KEYS_BY_PATH: dict[str, frozenset[str]] = {
     # It must be re-sanitized by the MFA page before any redirect action.
     "/mfa-verify": frozenset({"pending", "next"}),
 }
-
-LEGACY_TRADE_MARKER_COOKIE_NAME = "legacy_trade_from"
-LEGACY_TRADE_MARKER_MAX_AGE_SECONDS = 600
-LEGACY_TRADE_ALLOWED_MARKERS = frozenset(path.lstrip("/") for path in LEGACY_REDIRECT_REMAP)
-
-CookieSameSite = Literal["lax", "strict", "none"]
-
-
-def legacy_cookie_security_attrs(cookie_flags: Mapping[str, object]) -> tuple[bool, CookieSameSite]:
-    """Normalize cookie security fields used by legacy marker cookies."""
-    secure = bool(cookie_flags.get("secure", False))
-    samesite_raw = str(cookie_flags.get("samesite", "lax")).lower()
-    if samesite_raw not in {"lax", "strict", "none"}:
-        logger.warning("invalid_legacy_cookie_samesite_coerced_to_lax: %s", samesite_raw)
-        samesite_raw = "lax"
-    return secure, cast(CookieSameSite, samesite_raw)
-
 
 def normalize_root_path(root_path: str | None) -> str:
     """Normalize optional ASGI root_path to '/prefix' form."""
@@ -110,75 +83,6 @@ def trade_workspace_path(*, root_path: str | None) -> str:
     return with_root_path("/trade", root_path=root_path)
 
 
-def legacy_trade_marker_cookie_path(*, root_path: str | None) -> str:
-    """Scope legacy marker cookie to app root so '/' and '/trade' aliases both receive it."""
-    return normalize_root_path(root_path) or "/"
-
-
-def normalize_legacy_trade_marker(marker: str | None) -> str | None:
-    """Return allowlisted legacy marker value or None."""
-    normalized = str(marker or "").strip().lower().lstrip("/")
-    return normalized if normalized in LEGACY_TRADE_ALLOWED_MARKERS else None
-
-
-def legacy_trade_marker_from_redirect_path(
-    path: str | None, *, root_path: str | None = None
-) -> str | None:
-    """Extract legacy marker from a redirect path when it remaps to /trade."""
-    if not path:
-        return None
-    parsed = urlsplit(path)
-    if parsed.scheme or parsed.netloc:
-        return None
-    if not parsed.path.startswith("/"):
-        return None
-    raw_path = strip_root_path(parsed.path, root_path=root_path)
-    normalized_path = raw_path.rstrip("/") or "/"
-    if normalized_path not in LEGACY_REDIRECT_REMAP:
-        return None
-    return normalize_legacy_trade_marker(normalized_path.lstrip("/"))
-
-
-def set_legacy_trade_marker_cookie(
-    response: Response,
-    *,
-    marker: str | None,
-    root_path: str | None,
-    secure: bool,
-    samesite: CookieSameSite,
-) -> None:
-    """Set legacy trade marker cookie when marker is allowlisted."""
-    normalized_marker = normalize_legacy_trade_marker(marker)
-    if normalized_marker is None:
-        return
-    response.set_cookie(
-        key=LEGACY_TRADE_MARKER_COOKIE_NAME,
-        value=normalized_marker,
-        path=legacy_trade_marker_cookie_path(root_path=root_path),
-        max_age=LEGACY_TRADE_MARKER_MAX_AGE_SECONDS,
-        secure=secure,
-        httponly=True,
-        samesite=samesite,
-    )
-
-
-def clear_legacy_trade_marker_cookie(
-    response: Response,
-    *,
-    root_path: str | None,
-    secure: bool,
-    samesite: CookieSameSite,
-) -> None:
-    """Expire legacy trade marker cookie scoped to the trade workspace."""
-    response.delete_cookie(
-        key=LEGACY_TRADE_MARKER_COOKIE_NAME,
-        path=legacy_trade_marker_cookie_path(root_path=root_path),
-        secure=secure,
-        httponly=True,
-        samesite=samesite,
-    )
-
-
 def strip_root_path(path: str, *, root_path: str | None) -> str:
     """Strip configured ASGI root_path from a request path."""
     normalized_root = normalize_root_path(root_path)
@@ -214,16 +118,12 @@ def sanitize_redirect_path(path: str | None, *, root_path: str | None = None) ->
 
     raw_path = strip_root_path(parsed.path, root_path=root_path)
     normalized_path = raw_path.rstrip("/") or "/"
-    if normalized_path in LEGACY_REDIRECT_REMAP:
-        target_path = LEGACY_REDIRECT_REMAP[normalized_path]
-    else:
-        target_path = normalized_path
-
+    target_path = normalized_path
     if target_path not in ALLOWED_REDIRECT_PATHS:
         return "/"
-    allowed_query_keys = ALLOWED_REDIRECT_QUERY_KEYS_BY_PATH.get(target_path)
     parsed_items = parse_qsl(parsed.query, keep_blank_values=False)
-    if not parsed.query or not parsed_items:
+    allowed_query_keys = ALLOWED_REDIRECT_QUERY_KEYS_BY_PATH.get(target_path)
+    if not parsed_items:
         return target_path
     if not allowed_query_keys:
         return target_path
@@ -231,6 +131,20 @@ def sanitize_redirect_path(path: str | None, *, root_path: str | None = None) ->
     query_items: list[tuple[str, str]] = [
         (key, value) for key, value in parsed_items if key in allowed_query_keys
     ]
+    if target_path == "/research":
+        selected_tab: str | None = None
+        for key, value in query_items:
+            if key != "tab":
+                continue
+            normalized_tab = normalize_research_tab(value, default=None)
+            if normalized_tab is not None:
+                selected_tab = normalized_tab
+                break
+        query_items = sanitize_research_query_items(
+            query_items,
+            selected_tab=selected_tab,
+            include_tab=True,
+        )
     if not query_items:
         return target_path
     return target_path + "?" + urlencode(query_items, doseq=True)
@@ -238,19 +152,10 @@ def sanitize_redirect_path(path: str | None, *, root_path: str | None = None) ->
 
 __all__ = [
     "ALLOWED_REDIRECT_PATHS",
-    "LEGACY_TRADE_MARKER_COOKIE_NAME",
-    "LEGACY_TRADE_MARKER_MAX_AGE_SECONDS",
     "ALLOWED_REDIRECT_QUERY_KEYS_BY_PATH",
-    "LEGACY_REDIRECT_REMAP",
-    "LEGACY_TRADE_ALLOWED_MARKERS",
-    "LEGACY_TRADE_REDIRECT_QUERY_KEYS",
-    "clear_legacy_trade_marker_cookie",
-    "legacy_trade_marker_from_redirect_path",
-    "legacy_trade_marker_cookie_path",
-    "normalize_legacy_trade_marker",
+    "TRADE_REDIRECT_QUERY_KEYS",
     "normalize_root_path",
     "sanitize_redirect_path",
-    "set_legacy_trade_marker_cookie",
     "strip_root_path",
     "trade_workspace_path",
     "with_root_path_once",
