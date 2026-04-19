@@ -27,7 +27,7 @@ This document describes the CI/CD pipeline for the trading platform, including w
 | **ci-tests-coverage.yml** | PR, push to master | Core test suite + coverage | ~15-20min |
 | **backtest-regression.yml** | Selective paths | Validate backtest parity | ~5-10min |
 | **docker-build.yml** | PR, push to master | Build + push Docker images | ~8-12min |
-| **deploy-staging.yml** | Push to master | Deploy to staging environment | ~6-8min |
+| **deploy-staging.yml** | Push to master | Staging image smoke test on ephemeral runner (NOT a real deploy — see issue #164) | ~6-8min |
 | **markdown-link-check.yml** | Weekly + markdown changes | Validate documentation links | ~2-3min |
 | **pr-auto-review-request.yml** | PR open/sync | Auto-request AI code reviews | <30sec |
 | **repomix-context.yml** | PR | Generate AI review context | ~3-5min |
@@ -160,7 +160,13 @@ matrix:
 
 ---
 
-### 4. deploy-staging.yml (Staging Deployment)
+### 4. deploy-staging.yml (Staging Image Smoke Test)
+
+> **Scope (issue #164):** Despite the filename, this workflow is a smoke test,
+> not a deployment. Both jobs run on an ephemeral `ubuntu-latest` runner; no
+> remote host, self-hosted runner, or cluster is touched. A passing run proves
+> the staging images start cleanly and enforce paper-trading mode — it does
+> not update any persistent environment.
 
 **Trigger:**
 ```yaml
@@ -171,20 +177,20 @@ on:
 ```
 
 **Safety gates:**
-1. **Credential validation job** (runs first):
+1. **Credential validation job** (`validate-credentials`, runs first):
    - Verify `ALPACA_PAPER_API_KEY` exists
    - Verify `ALPACA_PAPER_API_SECRET` exists
    - **Block live API keys:** Fail if `ALPACA_LIVE_API_KEY` found in staging
    - Verify `DRY_RUN=true` flag
 
-2. **Deployment job** (depends on validation):
-   - Pull latest Docker images
-   - Stop existing services
-   - Start services with paper trading credentials
+2. **Smoke test job** (`smoke-test`, depends on validation):
+   - Pull latest Docker images from GHCR
+   - Bring compose stack up on the runner (localhost only)
    - Wait for health checks (max 120 seconds)
    - Run smoke tests:
      - Health endpoints: `/health` for all services
      - Paper trading verification: Check `dry_run=true` and `alpaca_paper=true`
+   - Runner (and compose stack) discarded on job completion
 
 **Environment variables:**
 ```yaml
@@ -813,7 +819,7 @@ jobs:
 │   ├── ci-tests-coverage.yml          # Main test suite
 │   ├── backtest-regression.yml        # Backtest parity validation
 │   ├── docker-build.yml               # Container image builds
-│   ├── deploy-staging.yml             # Staging deployment
+│   ├── deploy-staging.yml             # Staging image smoke test (ephemeral, see #164)
 │   ├── markdown-link-check.yml        # Documentation validation
 │   ├── pr-auto-review-request.yml     # Automated review requests
 │   └── repomix-context.yml            # AI review context generation

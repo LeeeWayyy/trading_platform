@@ -1,6 +1,18 @@
-# Staging Deployment Runbook
+# Staging Image Smoke Test Runbook
 
-This runbook covers staging environment deployment, credential management, and troubleshooting.
+> **Scope note (issue #164):** The workflow `.github/workflows/deploy-staging.yml`
+> (historical filename) is a **post-build image smoke test**, not a real
+> deployment. It runs on an ephemeral `ubuntu-latest` GitHub runner: it pulls
+> the latest images from GHCR, starts them with `docker-compose`, hits
+> `/health` and `/api/v1/config` on `localhost`, then the runner is discarded.
+> No remote host / cluster / self-hosted runner is involved. A real staging
+> deployment would require additional infrastructure (SSH target, self-hosted
+> runner, or `kubectl apply`) and is explicitly out of scope for this workflow.
+> Treat passing runs as "images start cleanly and enforce paper-trading mode",
+> **not** as "release to a persistent staging environment".
+
+This runbook covers the staging-image smoke test workflow, credential
+management for it, and troubleshooting.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -14,12 +26,15 @@ This runbook covers staging environment deployment, credential management, and t
 
 ## Overview
 
-**Staging environment characteristics:**
-- **Purpose:** Pre-production testing with paper trading
+**Workflow characteristics:**
+- **Purpose:** Post-build smoke test of the staging image set on an ephemeral
+  GitHub runner. Catches image-level regressions and paper-trading-mode drift.
+  NOT a release to a persistent staging environment.
 - **Trading mode:** Paper trading ONLY (DRY_RUN=true, ALPACA_PAPER=true)
-- **Credentials:** Alpaca paper trading API keys
-- **Deployment:** Automated via GitHub Actions on merge to main/master
-- **Monitoring:** Full observability stack (Prometheus, Grafana, Loki)
+- **Credentials:** Alpaca paper trading API keys (paper-only; live keys blocked)
+- **Trigger:** Runs via GitHub Actions on merge to main/master, or manually
+- **Runtime:** `ubuntu-latest` ephemeral runner; compose stack discarded on
+  runner teardown
 
 **Safety guarantees:**
 - Live API keys are blocked by GitHub Environments
@@ -86,7 +101,7 @@ Required secrets for staging environment:
 # Settings → Environments → staging → Update secrets
 
 # 2. Trigger deployment
-# Actions → Deploy to Staging → Run workflow → main branch
+# Actions → Staging Image Smoke Test → Run workflow → main branch
 
 # 3. Verify deployment
 curl http://staging.example.com:8001/health
@@ -99,9 +114,9 @@ docker compose -f docker-compose.staging.yml logs execution_gateway | grep -i "a
 
 ---
 
-## Deployment Process
+## Smoke Test Process
 
-### Automatic Deployment
+### Automatic Run
 
 Triggered automatically on:
 - Merge to `main` or `master` branch
@@ -109,20 +124,23 @@ Triggered automatically on:
 
 Workflow: `.github/workflows/deploy-staging.yml`
 
-**Deployment steps:**
+**Steps:**
 
-1. **Credential Validation** (Job 1)
+1. **Credential Validation** (Job 1: `validate-credentials`)
    - Verify paper API credentials exist
    - Block live API keys
    - Validate DRY_RUN=true
 
-2. **Deploy** (Job 2)
+2. **Smoke Test** (Job 2: `smoke-test`)
    - Pull latest Docker images from ghcr.io
-   - Stop existing services gracefully
-   - Start services with new images
+   - Bring compose stack up on the runner
    - Wait for health checks (120s timeout)
-   - Run smoke tests
-   - Capture deployment info
+   - Hit `/health` and `/api/v1/config` on localhost
+   - Capture image info; runner + stack discarded on job end
+
+> **Reminder:** Job 2 runs on the GitHub runner, not on a remote host. A
+> passing run means "images start and enforce paper mode", not "a persistent
+> staging environment was updated".
 
 **View deployment status:**
 
@@ -141,7 +159,7 @@ docker compose -f docker-compose.staging.yml logs -f
 
 **Trigger manual deployment:**
 
-1. Go to: Actions → Deploy to Staging
+1. Go to: Actions → Staging Image Smoke Test
 2. Click "Run workflow"
 3. Select branch: `main`
 4. Click "Run workflow"
@@ -308,7 +326,7 @@ https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.ym
 
 ```bash
 # Trigger manual workflow with previous commit
-# Actions → Deploy to Staging → Run workflow → Select commit SHA
+# Actions → Staging Image Smoke Test → Run workflow → Select commit SHA
 ```
 
 **3. Verify rollback:**

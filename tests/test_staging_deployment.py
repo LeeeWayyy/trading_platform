@@ -101,28 +101,34 @@ class TestDeployStagingWorkflow:
         assert "exit 1" in content, "Workflow should exit with error if live API keys detected"
 
     def test_workflow_deployment_depends_on_validation(self, project_root: Path) -> None:
-        """Test that deployment job depends on credential validation."""
+        """Test that smoke-test job depends on credential validation.
+
+        Historically the second job was named 'deploy-staging' and implied a
+        real deployment. Per issue #164 the workflow was honestly scoped as an
+        image smoke test and the job renamed to 'smoke-test'. The safety
+        ordering (credential validation must run first) is preserved.
+        """
         workflow_path = project_root / ".github" / "workflows" / "deploy-staging.yml"
         with open(workflow_path) as f:
             config = yaml.safe_load(f)
 
         jobs = config["jobs"]
 
-        # Check for deploy-staging job
-        assert "deploy-staging" in jobs, "Workflow missing 'deploy-staging' job"
+        # Check for smoke-test job (renamed from deploy-staging in #164)
+        assert "smoke-test" in jobs, "Workflow missing 'smoke-test' job"
 
-        deploy_job = jobs["deploy-staging"]
+        smoke_job = jobs["smoke-test"]
 
-        # Check that deploy-staging depends on validate-credentials
-        assert "needs" in deploy_job, "deploy-staging job must have 'needs' dependency"
+        # Check that smoke-test depends on validate-credentials
+        assert "needs" in smoke_job, "smoke-test job must have 'needs' dependency"
 
-        needs = deploy_job["needs"]
+        needs = smoke_job["needs"]
         if isinstance(needs, str):
             needs = [needs]
 
         assert (
             "validate-credentials" in needs
-        ), "deploy-staging must depend on validate-credentials (safety check)"
+        ), "smoke-test must depend on validate-credentials (safety check)"
 
     def test_workflow_runs_smoke_tests(self, project_root: Path) -> None:
         """Test that workflow runs smoke tests after deployment."""
