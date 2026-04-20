@@ -33,7 +33,7 @@ management for it, and troubleshooting.
   NOT a release to a persistent staging environment.
 - **Trading mode:** Paper trading ONLY (DRY_RUN=true, ALPACA_PAPER=true)
 - **Credentials:** Alpaca paper trading API keys (paper-only; live keys blocked)
-- **Trigger:** Runs via GitHub Actions on merge to main/master, or manually
+- **Trigger:** Runs via GitHub Actions on merge to master, or manually
 - **Runtime:** `ubuntu-latest` ephemeral runner; compose stack discarded on
   runner teardown
 
@@ -102,7 +102,7 @@ Required secrets for staging environment:
 # Settings → Environments → staging → Update secrets
 
 # 2. Trigger smoke test
-# Actions → Staging Image Smoke Test → Run workflow → main branch
+# Actions → Staging Image Smoke Test → Run workflow → master branch
 
 # 3. Verify the run (no persistent host exists — check Actions UI)
 #    Visit: Actions → Staging Image Smoke Test → latest run
@@ -124,7 +124,7 @@ workflow logs on the ephemeral runner.
 ### Automatic Run
 
 Triggered automatically on:
-- Merge to `main` or `master` branch
+- Merge to `master` branch
 - Successful completion of CI tests
 
 Workflow: `.github/workflows/deploy-staging.yml`
@@ -152,7 +152,7 @@ Workflow: `.github/workflows/deploy-staging.yml`
 ```bash
 # GitHub Actions UI is the ONLY place to view smoke-test status.
 # The runner is ephemeral — there is no persistent host to shell into.
-https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.yml
+https://github.com/YOUR_ORG/trading-platform/actions/workflows/deploy-staging.yml
 ```
 
 Open the latest workflow run to see:
@@ -189,7 +189,7 @@ docker compose -f docker-compose.staging.yml down
 
 1. Go to: Actions → Staging Image Smoke Test
 2. Click "Run workflow"
-3. Select branch: `main`
+3. Select branch: `master`
 4. Click "Run workflow"
 
 **Manual smoke-test use cases:**
@@ -354,7 +354,7 @@ from reaching the smoke test.**
 
 ```bash
 # Check GitHub Actions history for the last green run
-https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.yml
+https://github.com/YOUR_ORG/trading-platform/actions/workflows/deploy-staging.yml
 
 # Note the commit SHA of the last successful smoke-test run.
 ```
