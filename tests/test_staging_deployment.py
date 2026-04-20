@@ -100,7 +100,7 @@ class TestDeployStagingWorkflow:
         # Check that workflow exits with error if live keys found
         assert "exit 1" in content, "Workflow should exit with error if live API keys detected"
 
-    def test_workflow_deployment_depends_on_validation(self, project_root: Path) -> None:
+    def test_workflow_smoke_test_depends_on_validation(self, project_root: Path) -> None:
         """Test that smoke-test job depends on credential validation.
 
         Historically the second job was named 'deploy-staging' and implied a
@@ -131,7 +131,7 @@ class TestDeployStagingWorkflow:
         ), "smoke-test must depend on validate-credentials (safety check)"
 
     def test_workflow_runs_smoke_tests(self, project_root: Path) -> None:
-        """Test that workflow runs smoke tests after deployment."""
+        """Test that workflow runs smoke tests as part of the smoke-test job."""
         workflow_path = project_root / ".github" / "workflows" / "deploy-staging.yml"
         with open(workflow_path) as f:
             content = f.read()
@@ -335,14 +335,24 @@ class TestStagingDeploymentDocumentation:
             "live" in content.lower() or "production" in content.lower()
         ), "Runbook should warn about live/production credentials"
 
-    def test_runbook_covers_rollback_procedures(self, project_root: Path) -> None:
-        """Test that runbook covers rollback procedures."""
-        runbook_path = project_root / "docs" / "RUNBOOKS" / "staging-deployment.md"
-        content = runbook_path.read_text()
+    def test_runbook_covers_previous_version_testing(self, project_root: Path) -> None:
+        """Test that runbook explains how to test previous image versions.
 
-        # Check for rollback procedures
-        assert "rollback" in content.lower(), "Runbook should cover rollback procedures"
-        assert "emergency" in content.lower(), "Runbook should document emergency procedures"
+        Per issue #164 the workflow is an ephemeral image smoke test with no
+        remote host to roll back, so the runbook describes re-running the
+        smoke test against a previous commit SHA plus local reproduction.
+        """
+        runbook_path = project_root / "docs" / "RUNBOOKS" / "staging-deployment.md"
+        content = runbook_path.read_text().lower()
+
+        # The runbook must explain the (absence of) rollback semantics and
+        # describe how to re-test a previous version.
+        assert "rollback" in content, (
+            "Runbook should explicitly address rollback (even if only to note "
+            "no remote rollback exists)"
+        )
+        assert "previous" in content, "Runbook should describe testing previous image versions"
+        assert "previous_sha" in content, "Runbook should show how to target a previous image SHA"
 
 
 # =============================================================================
