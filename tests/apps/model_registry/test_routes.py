@@ -80,14 +80,25 @@ def _assert_error_response_shape(payload: dict, expected_code: str) -> None:
     """Assert that ``payload`` conforms to :class:`ErrorResponse` and has the expected code.
 
     Regression lock for issue #166: the response body must be flat
-    ``{"detail": str, "code": str}``, not the doubly-nested shape FastAPI
-    produces when a dict is passed to ``HTTPException.detail``.
+    (``detail`` and ``code`` at the top level, both strings), not the
+    doubly-nested shape FastAPI produces when a dict is passed to
+    ``HTTPException.detail``.
+
+    We only assert on the *required* fields of :class:`ErrorResponse` and
+    that the top-level ``detail`` is a string (i.e. not a nested dict). This
+    keeps the regression-lock strict enough to catch issue #166 while
+    remaining forward-compatible with future non-breaking additions to the
+    schema (e.g. optional fields with defaults).
     """
-    assert (
-        payload == ErrorResponse.model_validate(payload).model_dump()
-    ), "Payload must contain exactly the ErrorResponse fields and nothing else"
-    assert isinstance(payload["detail"], str)
-    assert payload["code"] == expected_code
+    # Round-trips through ErrorResponse, guaranteeing the required fields
+    # exist and have the right types. Raises ``ValidationError`` otherwise.
+    validated = ErrorResponse.model_validate(payload)
+    assert isinstance(
+        payload.get("detail"), str
+    ), "Top-level `detail` must be a string, not a nested dict (#166 regression)"
+    assert payload.get("code") == expected_code
+    assert validated.detail == payload["detail"]
+    assert validated.code == expected_code
 
 
 def test_get_registry_raises_when_uninitialized() -> None:

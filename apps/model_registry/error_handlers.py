@@ -22,6 +22,8 @@ from fastapi.exception_handlers import http_exception_handler as default_http_ex
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from apps.model_registry.schemas import ErrorResponse
+
 
 def _is_detail_code_mapping(detail: Any) -> TypeGuard[dict[str, Any]]:
     """Return True iff ``detail`` is a mapping containing ``detail`` and ``code`` string keys."""
@@ -44,13 +46,22 @@ async def flatten_http_exception_handler(request: Request, exc: Exception) -> Re
 
     The signature accepts ``Exception`` to match Starlette's exception-handler
     protocol; callers must only register this for (Starlette)``HTTPException``
-    subclasses, which :func:`install_error_handlers` does.
+    subclasses, which :func:`install_error_handlers` does. For extra safety
+    against misregistration (and against Python running with ``-O`` where
+    ``assert`` statements are stripped), we verify the type explicitly and
+    fall back to the default handler for anything unexpected.
     """
-    assert isinstance(exc, StarletteHTTPException), (
-        "flatten_http_exception_handler must be registered for HTTPException only"
-    )
+    if not isinstance(exc, StarletteHTTPException):
+        return await default_http_exception_handler(request, exc)  # type: ignore[arg-type]
+
     if _is_detail_code_mapping(exc.detail):
-        payload = {"detail": exc.detail["detail"], "code": exc.detail["code"]}
+        # Build the payload via ``ErrorResponse`` so serialization is driven
+        # by the Pydantic model — any future schema changes (e.g. added
+        # fields with defaults) stay in sync automatically.
+        payload = ErrorResponse(
+            detail=exc.detail["detail"],
+            code=exc.detail["code"],
+        ).model_dump()
         return JSONResponse(
             status_code=exc.status_code,
             content=payload,
