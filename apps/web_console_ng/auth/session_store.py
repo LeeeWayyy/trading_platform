@@ -256,8 +256,9 @@ class ServerSessionStore:
 
             try:
                 decrypted = self.fernet.decrypt(data).decode("utf-8")
-            except (TypeError, AttributeError) as exc:
+            except (InvalidToken, TypeError, AttributeError, ValueError) as exc:
                 # Cryptographic errors: corrupt data, wrong key, or invalid input
+                # ValueError covers UnicodeDecodeError from .decode("utf-8") on malformed bytes
                 logger.warning(
                     "Session decryption failed",
                     extra={
@@ -502,8 +503,9 @@ class ServerSessionStore:
                 },
             )
             return None
-        except (TypeError, AttributeError, ValueError, KeyError) as exc:
-            # Data corruption or invalid session structure
+        except (InvalidToken, TypeError, AttributeError, ValueError, KeyError) as exc:
+            # Data corruption or invalid session structure.
+            # ValueError covers UnicodeDecodeError from .decode("utf-8") on malformed bytes.
             logger.warning(
                 "Session rotation failed - invalid session data",
                 extra={
@@ -512,6 +514,15 @@ class ServerSessionStore:
                     "error": str(exc),
                 },
             )
+            # Invalidate the corrupt session so callers see a clean logout
+            # rather than repeatedly hitting the same broken record.
+            try:
+                await self.invalidate_session(old_session_id)
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                logger.debug(
+                    "rotate_session_cleanup_failed",
+                    extra={"old_session_id": old_session_id},
+                )
             return None
 
     async def invalidate_session(self, session_id: str) -> None:
@@ -524,8 +535,18 @@ class ServerSessionStore:
                 uid = _get_user_id(session)
                 if uid:
                     await self.redis.srem(f"{self.user_sessions_prefix}{uid}", session_id)  # type: ignore[misc]
-        except (redis.RedisError, json.JSONDecodeError, TypeError, AttributeError, InvalidToken) as exc:
-            logger.debug("reverse_index_cleanup_failed", extra={"session_id": session_id, "error": str(exc)})
+        except (
+            redis.RedisError,
+            json.JSONDecodeError,
+            TypeError,
+            AttributeError,
+            ValueError,
+            InvalidToken,
+        ) as exc:
+            # ValueError covers UnicodeDecodeError from .decode("utf-8") on malformed bytes
+            logger.debug(
+                "reverse_index_cleanup_failed", extra={"session_id": session_id, "error": str(exc)}
+            )
         await self.redis.delete(f"{self.session_prefix}{session_id}")
 
     async def invalidate_redis_sessions_for_user(self, user_id: str) -> int:
