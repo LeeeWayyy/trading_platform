@@ -1064,3 +1064,5 @@ async def test_rotate_session_invalid_token_returns_none(
 
     result = await session_store.rotate_session(session_id)
     assert result is None
+    # Session should have been invalidated (deleted from Redis).
+    assert await redis_client.get(f"{session_store.session_prefix}{session_id}") is None
