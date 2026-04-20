@@ -47,6 +47,17 @@ class AuthServiceConfig:
         )
 
 
+def get_internal_refresh_secret() -> str | None:
+    """Return the stripped ``INTERNAL_REFRESH_SECRET`` env var, or ``None`` if unset.
+
+    Single source of truth for how the secret is normalized (whitespace stripped,
+    empty treated as unset) — shared by startup validation in ``main.py`` and the
+    request-time comparison in ``routes/refresh.py`` so the two cannot drift.
+    See issue #176 for the whitespace-mismatch incident this prevents.
+    """
+    return os.getenv("INTERNAL_REFRESH_SECRET", "").strip() or None
+
+
 @lru_cache
 def get_redis_client() -> redis.asyncio.Redis:
     """Get Redis client singleton (DB 1 for sessions)."""
