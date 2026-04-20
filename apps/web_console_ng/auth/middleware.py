@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
+from urllib.parse import quote
 
 from nicegui import app, ui
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,7 +16,11 @@ from starlette.responses import Response
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.client_ip import extract_trusted_client_ip, is_trusted_ip
 from apps.web_console_ng.auth.cookie_config import CookieConfig
-from apps.web_console_ng.auth.redirects import sanitize_redirect_path
+from apps.web_console_ng.auth.redirects import (
+    sanitize_redirect_path,
+    strip_root_path,
+    with_root_path,
+)
 from apps.web_console_ng.auth.session_store import (
     SessionValidationError,
     get_session_store,
@@ -175,10 +180,24 @@ async def _validate_session_and_get_user(
 
 def _redirect_to_login(request: Request, reason: str = "session_expired") -> None:
     """Clear storage and redirect to login."""
-    app.storage.user.clear()
-    app.storage.user["redirect_after_login"] = sanitize_redirect_path(request.url.path)
-    app.storage.user["login_reason"] = reason
-    ui.navigate.to("/login")
+    root_path = str(request.scope.get("root_path", ""))
+    raw_path = str(request.scope.get("path", request.url.path))
+    raw_query = request.url.query
+    redirect_target = raw_path if not raw_query else f"{raw_path}?{raw_query}"
+    sanitized_target = sanitize_redirect_path(
+        redirect_target,
+        root_path=root_path,
+    )
+    login_path = with_root_path("/login", root_path=root_path)
+    redirect_url = login_path
+    try:
+        app.storage.user.clear()
+        app.storage.user["redirect_after_login"] = sanitized_target
+        app.storage.user["login_reason"] = reason
+    except RuntimeError as exc:
+        logger.debug("app.storage.user unavailable in _redirect_to_login: %s", exc)
+        redirect_url = f"{login_path}?next={quote(sanitized_target)}"
+    ui.navigate.to(redirect_url)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -211,23 +230,51 @@ class AuthMiddleware(BaseHTTPMiddleware):
     #      permissions independently of the UI layer.
     #   5. update_session_role() uses WATCH/MULTI optimistic locking to
     #      prevent stale-role restoration from concurrent writes.
-    _EXEMPT_PATH_PREFIXES = (
+    _EXEMPT_PREFIX_PATHS = (
         "/_nicegui",
+        "/_nicegui_ws",
         "/socket.io",  # NiceGUI WebSocket/socket.io endpoint (required for UI interactivity)
         "/health",
         "/healthz",
         "/readyz",
         "/dev/login",
-        "/login",
         "/mfa-verify",
-        "/auth/callback",  # OAuth2 callback must be accessible without session
-        "/auth/login",  # OAuth2 login redirect
+        "/auth/callback",  # OAuth2 callback family must be accessible without session
+        "/auth/login",  # OAuth2 login redirect family
         "/forgot-password",
     )
+    _EXEMPT_BOUNDARY_PATHS = (
+        "/favicon.ico",
+        "/login",
+    )
+    _NORMALIZED_EXEMPT_PREFIX_PATHS = tuple(
+        prefix.rstrip("/") or "/" for prefix in _EXEMPT_PREFIX_PATHS
+    )
+    _NORMALIZED_EXEMPT_BOUNDARY_PATHS = tuple(
+        prefix.rstrip("/") or "/" for prefix in _EXEMPT_BOUNDARY_PATHS
+    )
+    _EXEMPT_EXACT_PATHS = frozenset(
+        (*_NORMALIZED_EXEMPT_PREFIX_PATHS, *_NORMALIZED_EXEMPT_BOUNDARY_PATHS)
+    )
+
+    @classmethod
+    def _is_exempt_path(cls, normalized_app_request_path: str) -> bool:
+        if normalized_app_request_path in cls._EXEMPT_EXACT_PATHS:
+            return True
+        for prefix in cls._NORMALIZED_EXEMPT_PREFIX_PATHS:
+            if normalized_app_request_path.startswith(f"{prefix}/"):
+                return True
+        return False
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Response:
+        raw_request_path = str(request.scope.get("path", request.url.path))
+        normalized_request_path = raw_request_path.rstrip("/") or "/"
+        root_path = str(request.scope.get("root_path", ""))
+        normalized_app_request_path = (
+            strip_root_path(normalized_request_path, root_path=root_path).rstrip("/") or "/"
+        )
         # Skip static files, health checks, and auth entrypoints
-        if request.url.path.startswith(self._EXEMPT_PATH_PREFIXES):
+        if self._is_exempt_path(normalized_app_request_path):
             return await _call_next_with_disconnect_guard(request, call_next)
 
         # 1. mTLS Auto-Login (if enabled)
@@ -295,31 +342,43 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 from starlette.responses import RedirectResponse
 
                 # Preserve the original path for post-login redirect
-                original_path = sanitize_redirect_path(request.url.path)
-                redirect_url = f"/login?next={quote(original_path)}"
+                request_target = (
+                    raw_request_path
+                    if not request.url.query
+                    else f"{raw_request_path}?{request.url.query}"
+                )
+                original_path = sanitize_redirect_path(request_target, root_path=root_path)
+                login_path = with_root_path("/login", root_path=root_path)
+                redirect_url = f"{login_path}?next={quote(original_path)}"
                 response = RedirectResponse(url=redirect_url, status_code=302)
+                try:
+                    app.storage.user.clear()
+                    app.storage.user["redirect_after_login"] = original_path
+                except RuntimeError as exc:
+                    logger.debug(
+                        "app.storage.user unavailable during auth redirect state persistence: %s",
+                        exc,
+                    )
 
                 # Clear potentially invalid cookie to prevent redirect loops
                 # (e.g. if browser holds an old cookie with invalid signature)
                 cookie_cfg = CookieConfig.from_env()
                 cookie_name = cookie_cfg.get_cookie_name()
+                cookie_flags = cookie_cfg.get_cookie_flags()
+                cookie_path = str(cookie_flags.get("path", cookie_cfg.path))
+                cookie_domain = cast(str | None, cookie_flags.get("domain"))
 
                 # Delete with same path/domain settings as creation
-                effective_path = "/" if cookie_cfg.secure else cookie_cfg.path
-                domain = None if cookie_cfg.secure else cookie_cfg.domain
-
                 response.delete_cookie(
                     key=cookie_name,
-                    path=effective_path,
-                    domain=domain,
+                    path=cookie_path,
+                    domain=cookie_domain,
                     secure=cookie_cfg.secure,
                     httponly=cookie_cfg.httponly,
                     samesite=cast(Literal["lax", "strict", "none"], cookie_cfg.samesite),
                 )
-
                 return response
             return Response(status_code=401)
-
         return await _call_next_with_disconnect_guard(request, call_next)
 
     # P6T19: _override_role_from_db, _apply_role_override, _update_session_payload

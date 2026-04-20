@@ -364,11 +364,14 @@ class OrderEntryContext:
         self._dom_ladder = DOMLadderComponent(levels=levels)
         return self._dom_ladder.create()
 
-    def create_order_ticket(self) -> Any:
+    def create_order_ticket(self, *, show_execution_context_ribbon: bool = True) -> Any:
         """Create and configure the OrderTicket component.
 
         Creates the component, wires up safety verification callbacks,
         stores reference, and returns the UI card for embedding.
+
+        Args:
+            show_execution_context_ribbon: Render compact execution snapshot row on ticket.
 
         Returns:
             The OrderTicket UI card (nicegui element).
@@ -386,7 +389,9 @@ class OrderEntryContext:
             verify_circuit_breaker=self.get_verify_circuit_breaker(),
             verify_kill_switch=self.get_verify_kill_switch(),
         )
-        return self._order_ticket.create()
+        return self._order_ticket.create(
+            show_execution_context_ribbon=show_execution_context_ribbon
+        )
 
     # NOTE: _on_market_context_price_updated was removed to avoid redundant double-dispatch.
     # OrderEntryContext._on_price_update now directly updates OrderTicket.

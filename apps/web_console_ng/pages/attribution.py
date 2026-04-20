@@ -30,6 +30,7 @@ from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from config.settings import get_settings
 from libs.data.data_providers.fama_french_local_provider import FamaFrenchLocalProvider
 from libs.platform.analytics.attribution import (
@@ -92,7 +93,7 @@ async def attribution_page(client: Client) -> None:
     # Validate user_id
     if not user_id:
         ui.notify("Session error: missing user ID. Please re-authenticate.", type="negative")
-        ui.navigate.to("/login")
+        ui.navigate.to(resolve_rooted_path_from_ui("/login", ui_module=ui))
         return
 
     # Check FF data directory exists

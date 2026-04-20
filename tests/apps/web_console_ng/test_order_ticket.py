@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -35,6 +37,7 @@ class TestOrderTicketState:
         assert state.limit_price is None
         assert state.stop_price is None
         assert state.time_in_force == "day"
+        assert state.execution_style == "instant"
 
     def test_custom_values(self) -> None:
         """State accepts custom values."""
@@ -45,6 +48,7 @@ class TestOrderTicketState:
             order_type="limit",
             limit_price=Decimal("150.00"),
             time_in_force="gtc",
+            execution_style="twap",
         )
 
         assert state.symbol == "AAPL"
@@ -53,6 +57,7 @@ class TestOrderTicketState:
         assert state.order_type == "limit"
         assert state.limit_price == Decimal("150.00")
         assert state.time_in_force == "gtc"
+        assert state.execution_style == "twap"
 
 
 class TestOrderTicketInit:
@@ -262,6 +267,56 @@ class TestOrderTicketSafetyChecks:
 
         assert disabled is True
         assert "Risk limits loading" in reason
+
+    def test_blocks_when_twap_selected_with_non_day_tif(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """TWAP orders are blocked unless TIF is DAY."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._state.symbol = "AAPL"
+        component._state.quantity = 100
+        component._state.execution_style = "twap"
+        component._state.time_in_force = "gtc"
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_loaded = True
+        component._limits_last_updated = now
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert reason == "TWAP requires DAY time in force"
+
+    def test_blocks_when_twap_selected_for_stop_order_type(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """TWAP orders are blocked for stop-based order types."""
+        now = datetime.now(UTC)
+        component._safety_state_loaded = True
+        component._connection_read_only = False
+        component._kill_switch_engaged = False
+        component._circuit_breaker_tripped = False
+        component._state.symbol = "AAPL"
+        component._state.quantity = 100
+        component._state.execution_style = "twap"
+        component._state.order_type = "stop"
+        component._state.stop_price = Decimal("150")
+        component._state.time_in_force = "day"
+        component._position_last_updated = now
+        component._price_last_updated = now
+        component._buying_power_last_updated = now
+        component._limits_loaded = True
+        component._limits_last_updated = now
+
+        disabled, reason = component._should_disable_submission()
+
+        assert disabled is True
+        assert reason == "TWAP unavailable for stop-based order types"
 
 
 class TestStrategyModelExecutionGate:
@@ -1139,8 +1194,13 @@ class TestOrderTicketClosePreset:
         comp._side_toggle = MagicMock()
         return comp
 
-    def test_close_prefill_for_long_position(self, component: OrderTicketComponent) -> None:
+    def test_close_prefill_for_long_position(
+        self, component: OrderTicketComponent, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         component._current_position = 125
+
+        notify = MagicMock()
+        monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
 
         component._on_close_preset_selected()
 
@@ -1149,8 +1209,13 @@ class TestOrderTicketClosePreset:
         component._quantity_input.set_value.assert_called_once_with(125)
         component._side_toggle.set_value.assert_called_once_with("sell")
 
-    def test_close_prefill_for_short_position(self, component: OrderTicketComponent) -> None:
+    def test_close_prefill_for_short_position(
+        self, component: OrderTicketComponent, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         component._current_position = -40
+
+        notify = MagicMock()
+        monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
 
         component._on_close_preset_selected()
 
@@ -1345,6 +1410,11 @@ class TestOrderTicketIdempotency:
                             "limit_price": "",
                             "stop_price": "",
                             "time_in_force": "day",
+                            "execution_style": "instant",
+                            "twap_duration_minutes": None,
+                            "twap_interval_seconds": None,
+                            "twap_start_time": "",
+                            "twap_notional_acknowledged": False,
                         }
                     }
                 }
@@ -1384,6 +1454,11 @@ class TestOrderTicketIdempotency:
                             "limit_price": "",
                             "stop_price": "",
                             "time_in_force": "day",
+                            "execution_style": "instant",
+                            "twap_duration_minutes": None,
+                            "twap_interval_seconds": None,
+                            "twap_start_time": "",
+                            "twap_notional_acknowledged": False,
                         }
                     }
                 }
@@ -1426,6 +1501,11 @@ class TestOrderTicketIdempotency:
                             "limit_price": "",
                             "stop_price": "",
                             "time_in_force": "day",  # Stored TIF different
+                            "execution_style": "instant",
+                            "twap_duration_minutes": None,
+                            "twap_interval_seconds": None,
+                            "twap_start_time": "",
+                            "twap_notional_acknowledged": False,
                         }
                     }
                 }
@@ -1657,6 +1737,35 @@ class TestOrderTicketFormRecovery:
         assert component._state.time_in_force == "day"
 
     @pytest.mark.asyncio()
+    async def test_restores_execution_style_enum(self, component: OrderTicketComponent) -> None:
+        """Valid execution_style enum value is restored from pending form state."""
+        from unittest.mock import AsyncMock, patch
+
+        form_key = f"order_entry:{component._tab_session_id}"
+        component._state_manager.restore_state = AsyncMock(
+            return_value={
+                "pending_forms": {
+                    form_key: {
+                        "data": {
+                            "symbol": "AAPL",
+                            "side": "buy",
+                            "quantity": 25,
+                            "order_type": "limit",
+                            "limit_price": "100.00",
+                            "time_in_force": "day",
+                            "execution_style": "twap",
+                        }
+                    }
+                }
+            }
+        )
+
+        with patch("apps.web_console_ng.components.order_ticket.ui.notify"):
+            await component._restore_pending_form()
+
+        assert component._state.execution_style == "twap"
+
+    @pytest.mark.asyncio()
     async def test_restore_syncs_input_controls(self, component: OrderTicketComponent) -> None:
         """Restore syncs all input controls from state, not just labels."""
         from unittest.mock import AsyncMock, patch
@@ -1816,6 +1925,11 @@ class TestOrderTicketPreviewSnapshot:
             "qty_unit": "shares",
             "qty_unit_size": 1,
             "quantity_canonical_override": None,
+            "execution_style": "instant",
+            "twap_duration_minutes": None,
+            "twap_interval_seconds": None,
+            "twap_start_time": "",
+            "twap_notional_acknowledged": False,
         }
 
         assert component._validate_preview_snapshot() is True
@@ -1844,6 +1958,11 @@ class TestOrderTicketPreviewSnapshot:
             "qty_unit": "shares",
             "qty_unit_size": 1,
             "quantity_canonical_override": None,
+            "execution_style": "instant",
+            "twap_duration_minutes": None,
+            "twap_interval_seconds": None,
+            "twap_start_time": "",
+            "twap_notional_acknowledged": False,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1875,6 +1994,11 @@ class TestOrderTicketPreviewSnapshot:
             "qty_unit": "lots",
             "qty_unit_size": 1,  # stale mapping from preview time
             "quantity_canonical_override": None,
+            "execution_style": "instant",
+            "twap_duration_minutes": None,
+            "twap_interval_seconds": None,
+            "twap_start_time": "",
+            "twap_notional_acknowledged": False,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1903,6 +2027,11 @@ class TestOrderTicketPreviewSnapshot:
             "qty_unit": "shares",
             "qty_unit_size": 1,
             "quantity_canonical_override": None,
+            "execution_style": "instant",
+            "twap_duration_minutes": None,
+            "twap_interval_seconds": None,
+            "twap_start_time": "",
+            "twap_notional_acknowledged": False,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1931,6 +2060,11 @@ class TestOrderTicketPreviewSnapshot:
             "qty_unit": "shares",
             "qty_unit_size": 1,
             "quantity_canonical_override": None,
+            "execution_style": "instant",
+            "twap_duration_minutes": None,
+            "twap_interval_seconds": None,
+            "twap_start_time": "",
+            "twap_notional_acknowledged": False,
         }
 
         assert component._validate_preview_snapshot() is False
@@ -1959,9 +2093,372 @@ class TestOrderTicketPreviewSnapshot:
             "qty_unit": "shares",
             "qty_unit_size": 1,
             "quantity_canonical_override": None,
+            "execution_style": "instant",
+            "twap_duration_minutes": None,
+            "twap_interval_seconds": None,
+            "twap_start_time": "",
+            "twap_notional_acknowledged": False,
         }
 
         assert component._validate_preview_snapshot() is False
+
+
+class TestOrderTicketTWAPPreparation:
+    """Tests for TWAP pre-submit validation and payload generation."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create component with TWAP-compatible defaults."""
+        from unittest.mock import AsyncMock
+
+        client = MagicMock()
+        client.fetch_twap_preview = AsyncMock(return_value={})
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=["alpha"],
+        )
+        comp._state.symbol = "AAPL"
+        comp._state.side = "buy"
+        comp._state.quantity = 100
+        comp._state.order_type = "limit"
+        comp._state.limit_price = Decimal("150.00")
+        comp._state.time_in_force = "day"
+        return comp
+
+    @staticmethod
+    def _mock_twap_config(
+        component: OrderTicketComponent,
+        *,
+        duration_minutes: int = 30,
+        interval_seconds: int = 60,
+        start_time: datetime | None = None,
+        start_time_error: str | None = None,
+        acknowledged: bool = False,
+    ) -> MagicMock:
+        """Attach mocked TWAP config component state."""
+        twap_config = MagicMock()
+        twap_config.get_state.return_value = SimpleNamespace(
+            duration_minutes=duration_minutes,
+            interval_seconds=interval_seconds,
+            start_time=start_time,
+            start_time_error=start_time_error,
+            notional_acknowledged=acknowledged,
+        )
+        component._twap_config = twap_config
+        component._state.execution_style = "twap"
+        return twap_config
+
+    @pytest.mark.asyncio()
+    async def test_prepare_twap_returns_instant_fields_when_not_selected(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Instant execution bypasses TWAP preview validation."""
+        component._state.execution_style = "instant"
+        component._twap_config = MagicMock()
+
+        ok, fields, error = await component._prepare_twap_submission_fields(
+            symbol="AAPL",
+            canonical_quantity=100,
+        )
+
+        assert ok is True
+        assert error is None
+        assert fields == {"execution_style": "instant"}
+        component._twap_config.set_notional_warning.assert_called_with(None)
+        component._twap_config.set_preview_errors.assert_called_with(None)
+
+    @pytest.mark.asyncio()
+    async def test_prepare_twap_blocks_on_preview_validation_errors(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Preview validation errors fail closed and surface first error."""
+        from unittest.mock import AsyncMock
+
+        twap_config = self._mock_twap_config(component, acknowledged=True)
+        component._client.fetch_twap_preview = AsyncMock(
+            return_value={
+                "validation_errors": ["TWAP params invalid"],
+                "notional_warning": None,
+            }
+        )
+
+        ok, _fields, error = await component._prepare_twap_submission_fields(
+            symbol="AAPL",
+            canonical_quantity=100,
+        )
+
+        assert ok is False
+        assert error == "TWAP params invalid"
+        twap_config.set_preview.assert_called_once()
+        twap_config.set_preview_errors.assert_called_with(["TWAP params invalid"])
+
+    @pytest.mark.asyncio()
+    async def test_prepare_twap_requires_notional_acknowledgement(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Notional warning requires explicit acknowledgement before submit."""
+        from unittest.mock import AsyncMock
+
+        twap_config = self._mock_twap_config(component, acknowledged=False)
+        component._client.fetch_twap_preview = AsyncMock(
+            return_value={
+                "validation_errors": [],
+                "notional_warning": "Order may exceed max notional",
+            }
+        )
+
+        ok, _fields, error = await component._prepare_twap_submission_fields(
+            symbol="AAPL",
+            canonical_quantity=100,
+        )
+
+        assert ok is False
+        assert error == "TWAP requires acknowledgement for notional warning"
+        twap_config.set_notional_warning.assert_called_with("Order may exceed max notional")
+
+    @pytest.mark.asyncio()
+    async def test_prepare_twap_returns_payload_when_valid(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Valid TWAP selection returns expected submission fields."""
+        from unittest.mock import AsyncMock
+
+        start_time = datetime.now(UTC).replace(second=0, microsecond=0)
+        self._mock_twap_config(component, start_time=start_time, acknowledged=True)
+        component._client.fetch_twap_preview = AsyncMock(
+            return_value={
+                "validation_errors": [],
+                "notional_warning": None,
+                "slice_count": 30,
+            }
+        )
+
+        ok, fields, error = await component._prepare_twap_submission_fields(
+            symbol="AAPL",
+            canonical_quantity=100,
+        )
+
+        assert ok is True
+        assert error is None
+        assert fields["execution_style"] == "twap"
+        assert fields["twap_duration_minutes"] == 30
+        assert fields["twap_interval_seconds"] == 60
+        assert fields["start_time"] == start_time.isoformat()
+
+        preview_payload = component._client.fetch_twap_preview.await_args.args[0]
+        assert preview_payload["duration_minutes"] == 30
+        assert preview_payload["interval_seconds"] == 60
+        assert preview_payload["strategy_id"] == "alpha"
+        assert preview_payload["limit_price"] == "150.00"
+        assert "twap_duration_minutes" not in preview_payload
+        assert "twap_interval_seconds" not in preview_payload
+
+
+class TestOrderTicketExecutionStyleTransitions:
+    """Tests for execution-style compatibility state transitions."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create component with mocked dependencies."""
+        client = MagicMock()
+        state_manager = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=["alpha"],
+        )
+        comp._execution_style_selector = MagicMock()
+        comp._execution_style_selector.value.return_value = "twap"
+        comp._twap_config = MagicMock()
+        return comp
+
+    def test_tif_change_reverts_twap_to_instant(self, component: OrderTicketComponent) -> None:
+        """Non-DAY TIF forces TWAP back to instant and clears TWAP pending state."""
+        component._state.execution_style = "twap"
+        component._state.time_in_force = "day"
+        component._pending_twap_fields = {"execution_style": "twap"}
+        component._pending_twap_preview = {"slice_count": 10}
+        component._twap_notional_warning = "warn"
+        component._twap_notional_acknowledged = True
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            component._on_time_in_force_changed("gtc")
+
+        assert component._state.time_in_force == "gtc"
+        assert component._state.execution_style == "instant"
+        assert component._pending_twap_fields is None
+        assert component._pending_twap_preview is None
+        component._execution_style_selector.set_value.assert_called_with("instant")
+        component._twap_config.set_visibility.assert_called_with(False)
+        component._twap_config.set_notional_warning.assert_called_with(None)
+        component._twap_config.set_preview_errors.assert_called_with(None)
+        assert any(
+            "execution style reverted to INSTANT" in str(call.args[0])
+            for call in notify.call_args_list
+        )
+
+    def test_stop_order_type_disables_twap(self, component: OrderTicketComponent) -> None:
+        """Stop/stop-limit order types force instant execution style."""
+        component._state.execution_style = "twap"
+        component._pending_twap_fields = {"execution_style": "twap"}
+        component._pending_twap_preview = {"slice_count": 5}
+
+        component._on_order_type_changed("stop")
+
+        assert component._state.order_type == "stop"
+        assert component._state.execution_style == "instant"
+        assert component._pending_twap_fields is None
+        assert component._pending_twap_preview is None
+        component._execution_style_selector.set_value.assert_called_with("instant")
+        component._execution_style_selector.set_disabled.assert_called_with(
+            True, "TWAP unavailable for stop orders"
+        )
+        component._twap_config.set_visibility.assert_called_with(False)
+        component._twap_config.set_notional_warning.assert_called_with(None)
+        component._twap_config.set_preview_errors.assert_called_with(None)
+
+
+class TestOrderTicketSubmissionPayload:
+    """Tests for submit payload shape and pre-validation race handling."""
+
+    @pytest.fixture()
+    def component(self) -> OrderTicketComponent:
+        """Create component with submit pipeline dependencies mocked."""
+        from unittest.mock import AsyncMock
+
+        client = MagicMock()
+        client.submit_manual_order = AsyncMock(
+            return_value={"status": "accepted", "client_order_id": "cid-123"}
+        )
+        state_manager = MagicMock()
+        state_manager.clear_pending_form = AsyncMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        comp = OrderTicketComponent(
+            trading_client=client,
+            state_manager=state_manager,
+            connection_monitor=connection_monitor,
+            user_id="user1",
+            role="trader",
+            strategies=["alpha", "beta"],
+        )
+        comp._state.symbol = "AAPL"
+        comp._state.side = "buy"
+        comp._state.quantity = 10
+        comp._state.order_type = "market"
+        comp._state.time_in_force = "day"
+        comp._state.execution_style = "instant"
+        comp._pending_client_order_id = "cid-123"
+        comp._validate_preview_snapshot = MagicMock(return_value=True)
+        comp._should_disable_submission = MagicMock(return_value=(False, ""))
+        comp._verify_kill_switch = AsyncMock(return_value=True)
+        comp._verify_circuit_breaker = AsyncMock(return_value=True)
+        comp._clear_form = AsyncMock()
+        comp._connection_read_only = False
+        return comp
+
+    @pytest.mark.asyncio()
+    async def test_confirm_submit_includes_required_metadata(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Submit payload includes deterministic trade metadata and strategies."""
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            result = await component._confirm_and_submit()
+
+        assert result is True
+        submit_kwargs = component._client.submit_manual_order.await_args.kwargs
+        payload = submit_kwargs["order_data"]
+        assert payload["execution_style"] == "instant"
+        assert payload["reason"] == "Trade workspace instant order submission"
+        assert payload["requested_by"] == "user1"
+        assert "requested_at" in payload
+        assert submit_kwargs["strategies"] == ["alpha", "beta"]
+        notify.assert_any_call("Order submitted: cid-123", type="positive")
+
+    @pytest.mark.asyncio()
+    async def test_confirm_submit_includes_twap_fields(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """TWAP submit payload includes preview-approved TWAP fields."""
+        component._state.execution_style = "twap"
+        component._pending_twap_fields = {
+            "execution_style": "twap",
+            "twap_duration_minutes": 30,
+            "twap_interval_seconds": 60,
+            "start_time": "2026-04-17T09:30:00+00:00",
+        }
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                "apps.web_console_ng.components.order_ticket.ui.notify", MagicMock()
+            )
+            result = await component._confirm_and_submit()
+
+        assert result is True
+        payload = component._client.submit_manual_order.await_args.kwargs["order_data"]
+        assert payload["execution_style"] == "twap"
+        assert payload["twap_duration_minutes"] == 30
+        assert payload["twap_interval_seconds"] == 60
+        assert payload["start_time"] == "2026-04-17T09:30:00+00:00"
+        assert payload["reason"] == "Trade workspace twap order submission"
+
+    @pytest.mark.asyncio()
+    async def test_handle_submit_blocks_when_snapshot_changes_during_validation(
+        self, component: OrderTicketComponent
+    ) -> None:
+        """Submit path fails closed when form changes while TWAP preview is in-flight."""
+        from unittest.mock import AsyncMock
+
+        component._state.execution_style = "instant"
+        component._prepare_twap_submission_fields = AsyncMock(
+            side_effect=self._mutate_quantity_and_return_instant(component)
+        )
+        component._get_or_create_client_order_id = AsyncMock(return_value="cid-123")
+        component._show_preview_dialog = AsyncMock()
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            notify = MagicMock()
+            monkeypatch.setattr("apps.web_console_ng.components.order_ticket.ui.notify", notify)
+            result = await component._handle_submit()
+
+        assert result is False
+        component._get_or_create_client_order_id.assert_not_called()
+        component._show_preview_dialog.assert_not_called()
+        assert any(
+            "Order details changed during TWAP validation" in str(call.args[0])
+            for call in notify.call_args_list
+        )
+
+    @staticmethod
+    def _mutate_quantity_and_return_instant(
+        component: OrderTicketComponent,
+    ) -> Any:
+        """Return async side-effect that mutates form during validation."""
+
+        async def _side_effect(*_: Any, **__: Any) -> tuple[bool, dict[str, Any], str | None]:
+            component._state.quantity = 20
+            return (True, {"execution_style": "instant"}, None)
+
+        return _side_effect
 
 
 class TestOrderTicketUIDisable:

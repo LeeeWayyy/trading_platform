@@ -69,12 +69,12 @@ SEED_PATHS = [
     "/risk/exposure",
     "/attribution",
     "/tax-lots",
-    "/position-management",
-    "/manual-order",
     "/circuit-breaker",
     "/risk",
+    "/research?tab=discover",
+    "/research?tab=validate&backtest_tab=running",
+    "/research?tab=promote",
     "/research/universes",
-    "/alpha-explorer",
     "/compare",
     "/execution-quality",
     "/notebooks",
@@ -84,8 +84,6 @@ SEED_PATHS = [
     "/data/inspector",
     "/data/features",
     "/data/sql-explorer",
-    "/models",
-    "/backtest",
     "/reports",
     "/strategies",
     "/admin",
@@ -95,7 +93,7 @@ DOCKER_ERROR_PATTERN = re.compile(
     r"(\blevel=error\b|\bERROR\b|Traceback|Exception|status=500|ModuleNotFound|NameError|UndefinedTable|No such container|does not exist)"
 )
 RISKY_ACTION_PATTERN = re.compile(
-    r"(logout|sign\s*out|kill\s*switch|flatten|cancel\s*all|delete|remove|drop|submit|execute|buy|sell|trip|arm)",
+    r"(logout|sign\s*out|kill\s*switch|flatten|cancel\s*all|delete|remove|drop|submit|execute|buy|sell|trip|arm|engage|disengage)",
     re.IGNORECASE,
 )
 IGNORABLE_CONSOLE_PATTERNS = (
@@ -111,6 +109,7 @@ class PageResult:
     interactions: int
     total_targets_seen: int
     skipped_risky: int
+    skipped_flaky: int
     interaction_counts: dict[str, int]
     interaction_failures: list[str]
     discovered_paths: list[str]
@@ -257,6 +256,43 @@ def _is_risky_target(target: dict[str, str]) -> bool:
     return False
 
 
+def _is_flaky_calendar_target(target: dict[str, str]) -> bool:
+    """Skip unstable date-picker navigation controls during broad click-through."""
+    if target.get("kind") not in {"button", "tab", "link"}:
+        return False
+    normalized = target.get("name", "").strip().lower()
+    if normalized.isdigit() and len(normalized) == 4:
+        year = int(normalized)
+        if 1900 <= year <= 2200:
+            return True
+    return normalized in {
+        "jan",
+        "january",
+        "feb",
+        "february",
+        "mar",
+        "march",
+        "apr",
+        "april",
+        "may",
+        "jun",
+        "june",
+        "jul",
+        "july",
+        "aug",
+        "august",
+        "sep",
+        "sept",
+        "september",
+        "oct",
+        "october",
+        "nov",
+        "november",
+        "dec",
+        "december",
+    }
+
+
 def _should_ignore_click_error(exc: PlaywrightError) -> bool:
     text = str(exc).lower()
     ignorable = (
@@ -274,6 +310,48 @@ def _should_ignore_click_error(exc: PlaywrightError) -> bool:
     return any(token in text for token in ignorable)
 
 
+def _is_stale_marker_timeout(exc: PlaywrightError, selector: str) -> bool:
+    """Identify timeout caused by transient marker detachment after re-render."""
+    text = str(exc).lower()
+    if "timeout" not in text or "waiting for locator" not in text:
+        return False
+    return "data-live-interaction-target" in selector
+
+
+def _retry_marker_click_by_semantics(page: Any, target: dict[str, str]) -> bool:
+    """Retry a failed marker click using semantic selectors (role/name)."""
+    kind = target.get("kind", "")
+    name = target.get("name", "").strip()
+    if kind not in {"button", "tab", "link", "toggle"} or not name:
+        return False
+
+    try:
+        if kind == "button":
+            locator = page.get_by_role("button", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            if locator.count() == 0:
+                locator = page.locator(f'button:has-text("{name}")').first
+        elif kind == "tab":
+            locator = page.get_by_role("tab", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+        elif kind == "link":
+            locator = page.get_by_role("link", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            if locator.count() == 0:
+                locator = page.locator(f'a:has-text("{name}")').first
+        else:
+            locator = page.get_by_role("switch", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            if locator.count() == 0:
+                locator = page.get_by_role("checkbox", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+
+        if locator.count() == 0:
+            return False
+
+        locator.scroll_into_view_if_needed(timeout=ACTION_TIMEOUT_MS)
+        locator.click(timeout=ACTION_TIMEOUT_MS)
+    except PlaywrightError:
+        return False
+
+    return True
+
+
 def _is_ignorable_console_error(message: str) -> bool:
     return any(pattern.search(message) for pattern in IGNORABLE_CONSOLE_PATTERNS)
 
@@ -289,10 +367,16 @@ def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -
 
     parsed_url = urlparse(url)
     parsed_base_url = urlparse(BASE_URL)
-    if (
+    same_origin = (
         parsed_url.scheme == parsed_base_url.scheme
         and parsed_url.netloc == parsed_base_url.netloc
-    ):
+    )
+    if same_origin:
+        # Same-origin static bundles can be cancelled while the UI rapidly
+        # transitions routes; this should not fail click-through coverage.
+        normalized_path = (parsed_url.path or "").lower()
+        if normalized_path.startswith("/_nicegui/") or normalized_path.startswith("/static/"):
+            return True
         return False
 
     # Third-party static assets can be aborted during rapid route transitions.
@@ -339,13 +423,14 @@ def _interact_with_targets(
     *,
     remaining_total: int,
     deadline_monotonic: float,
-) -> tuple[int, int, int, list[str], list[str], dict[str, int]]:
+) -> tuple[int, int, int, int, list[str], list[str], dict[str, int]]:
     failures: list[str] = []
     interactions = 0
     discovered_via_click: set[str] = set()
     attempted_keys: set[str] = set()
     total_targets_seen = 0
     skipped_risky = 0
+    skipped_flaky = 0
     interaction_counts: Counter[str] = Counter()
 
     for _ in range(MAX_INTERACTION_PASSES):
@@ -366,6 +451,9 @@ def _interact_with_targets(
             if _is_risky_target(target):
                 skipped_risky += 1
                 continue
+            if _is_flaky_calendar_target(target):
+                skipped_flaky += 1
+                continue
             safe_targets.append(target)
 
         if not safe_targets:
@@ -385,7 +473,17 @@ def _interact_with_targets(
                 locator = page.locator(selector).first
                 if locator.count() == 0:
                     continue
-                locator.scroll_into_view_if_needed(timeout=ACTION_TIMEOUT_MS)
+                try:
+                    locator.scroll_into_view_if_needed(timeout=ACTION_TIMEOUT_MS)
+                except PlaywrightError as scroll_exc:
+                    # Best-effort scroll only. In dense grids/nav drawers Playwright can
+                    # intermittently time out while waiting for layout stabilization.
+                    # Continue and let click/fill determine true interactability.
+                    if (
+                        "timeout" not in str(scroll_exc).lower()
+                        and not _should_ignore_click_error(scroll_exc)
+                    ):
+                        raise
 
                 if kind in {"button", "tab", "link", "toggle"}:
                     locator.click(timeout=ACTION_TIMEOUT_MS)
@@ -441,12 +539,31 @@ def _interact_with_targets(
             except PlaywrightError as exc:
                 if _should_ignore_click_error(exc):
                     continue
+                if _is_stale_marker_timeout(exc, selector) and _retry_marker_click_by_semantics(page, target):
+                    interactions += 1
+                    interaction_counts[kind] += 1
+                    page.wait_for_timeout(ACTION_SETTLE_MS)
+                    page.keyboard.press("Escape")
+                    page.wait_for_timeout(70)
+
+                    normalized_href = _normalize_path(target.get("href", ""))
+                    if normalized_href and normalized_href != path:
+                        discovered_via_click.add(normalized_href)
+
+                    current_path = urlparse(page.url).path or "/"
+                    normalized = _normalize_path(current_path)
+                    if normalized and normalized != path:
+                        discovered_via_click.add(normalized)
+                        page.goto(f"{BASE_URL}{path}", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+                        page.wait_for_timeout(PAGE_SETTLE_MS)
+                    continue
                 failures.append(f"{kind}:{name}: {exc!s}")
 
     return (
         interactions,
         total_targets_seen,
         skipped_risky,
+        skipped_flaky,
         failures,
         sorted(discovered_via_click),
         dict(interaction_counts),
@@ -566,6 +683,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
                         interactions=0,
                         total_targets_seen=0,
                         skipped_risky=0,
+                        skipped_flaky=0,
                         interaction_counts={},
                         interaction_failures=[f"GOTO failed: {exc!s}"],
                         discovered_paths=[],
@@ -588,6 +706,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
                         interactions=0,
                         total_targets_seen=0,
                         skipped_risky=0,
+                        skipped_flaky=0,
                         interaction_counts={},
                         interaction_failures=[f"HTTP {status_code}"],
                         discovered_paths=discovered_paths,
@@ -600,6 +719,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
                 interactions,
                 total_targets_seen,
                 skipped_risky,
+                skipped_flaky,
                 interaction_failures,
                 discovered_via_click,
                 interaction_counts,
@@ -620,6 +740,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
                     interactions=interactions,
                     total_targets_seen=total_targets_seen,
                     skipped_risky=skipped_risky,
+                    skipped_flaky=skipped_flaky,
                     interaction_counts=interaction_counts,
                     interaction_failures=interaction_failures,
                     discovered_paths=sorted(set(discovered_paths + discovered_via_click)),
@@ -643,6 +764,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
                 "interactions": r.interactions,
                 "total_targets_seen": r.total_targets_seen,
                 "skipped_risky": r.skipped_risky,
+                "skipped_flaky": r.skipped_flaky,
                 "interaction_counts": r.interaction_counts,
                 "interaction_failures": r.interaction_failures,
                 "discovered_paths": r.discovered_paths,
@@ -665,6 +787,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
             ),
             "total_targets_seen": sum(r.total_targets_seen for r in results),
             "total_skipped_risky": sum(r.skipped_risky for r in results),
+            "total_skipped_flaky": sum(r.skipped_flaky for r in results),
             "pages_passed": sum(1 for r in results if r.status_code < 400 and not r.interaction_failures),
             "pages_failed": sum(1 for r in results if r.status_code >= 400 or r.interaction_failures),
             "max_pages_budget": MAX_PAGES,

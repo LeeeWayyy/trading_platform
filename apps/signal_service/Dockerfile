@@ -44,14 +44,21 @@ RUN python -m venv /opt/venv && \
         pip install --no-cache-dir -r requirements-local.txt; \
     fi
 
-# Copy qlib source and build from source for ARM64 compatibility (local mode only)
-# In CI mode, pyqlib is already installed from pip via requirements-ci.txt
-COPY qlib* /build/qlib_src/
+# Copy qlib source from optional external build context.
+# docker-compose passes this as build.additional_contexts. If not configured,
+# it falls back to an empty placeholder directory.
+COPY --from=qlib_src . /build/qlib_src/
 RUN . /opt/venv/bin/activate && \
-    if [ "$BUILD_MODE" != "ci" ] && [ -d "/build/qlib_src" ] && [ "$(ls -A /build/qlib_src 2>/dev/null)" ]; then \
+    if [ "$BUILD_MODE" != "ci" ] && \
+       [ -d "/build/qlib_src" ] && \
+       { [ -f "/build/qlib_src/setup.py" ] || [ -f "/build/qlib_src/pyproject.toml" ]; }; then \
         cd /build/qlib_src && \
         pip install --no-cache-dir cython numpy && \
+        SETUPTOOLS_SCM_PRETEND_VERSION=0.9.7 \
+        SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYQLIB=0.9.7 \
         pip install --no-cache-dir .; \
+    else \
+        echo "Skipping local qlib source install (qlib_src context missing setup.py/pyproject.toml)."; \
     fi
 
 

@@ -12,9 +12,21 @@ from nicegui import run, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.auth.redirects import with_root_path_once
+from apps.web_console_ng.backtest_tabs import (
+    BACKTEST_TAB_NEW,
+    normalize_backtest_tab,
+)
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.core.request_query import get_request_query_param
+from apps.web_console_ng.research_query import sanitize_research_query_items
+from apps.web_console_ng.research_tabs import (
+    TAB_DISCOVER,
+    TAB_PROMOTE,
+    TAB_VALIDATE,
+    VALID_RESEARCH_TABS,
+)
 from apps.web_console_ng.ui.layout import main_layout
 from libs.platform.web_console_auth.permissions import Permission, has_permission, is_admin
 
@@ -26,11 +38,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-TAB_DISCOVER = "discover"
-TAB_VALIDATE = "validate"
-TAB_PROMOTE = "promote"
-VALID_TABS = {TAB_DISCOVER, TAB_VALIDATE, TAB_PROMOTE}
-VALID_VALIDATE_BACKTEST_TABS = {"new", "running", "results"}
+VALID_TABS = set(VALID_RESEARCH_TABS)
 LIFECYCLE_FAILED = "FAILED"
 LIFECYCLE_LIVE = "LIVE"
 LIFECYCLE_SHADOW = "SHADOW"
@@ -78,16 +86,89 @@ def _should_render_validate_panel(*, selected_tab_id: str) -> bool:
     return selected_tab_id == TAB_VALIDATE
 
 
-def _build_research_tab_link(*, tab_id: str) -> str:
+def _build_research_tab_link(
+    *,
+    tab_id: str,
+    root_path: str | None = None,
+    query_items: list[tuple[str, str]] | None = None,
+) -> str:
     """Build canonical route for switching research workspace tabs."""
-    return "/research?" + urlencode({"tab": tab_id})
+    safe_items = _filter_research_tab_query_items(tab_id=tab_id, query_items=query_items or [])
+    query_payload = [("tab", tab_id), *safe_items]
+    target = "/research?" + urlencode(query_payload, doseq=True)
+    return with_root_path_once(target, root_path=root_path)
+
+
+def _filter_research_tab_query_items(
+    *,
+    tab_id: str,
+    query_items: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Retain only cross-tab-safe query params when switching workspace tabs."""
+    return sanitize_research_query_items(
+        query_items,
+        selected_tab=tab_id,
+        include_tab=False,
+    )
+
+
+def _get_request_root_path() -> str | None:
+    """Resolve request root_path when available."""
+    try:
+        request = ui.context.client.request
+    except (AttributeError, RuntimeError, LookupError):
+        return None
+    if request is None:
+        return None
+    return request.scope.get("root_path")
+
+
+def _get_request_query_items() -> list[tuple[str, str]]:
+    """Resolve current request query params as ordered key/value pairs."""
+    try:
+        request = ui.context.client.request
+    except (AttributeError, RuntimeError, LookupError):
+        return []
+    if request is None:
+        return []
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        return []
+    multi_items = getattr(query_params, "multi_items", None)
+    if callable(multi_items):
+        try:
+            return list(multi_items())
+        except RuntimeError:
+            if not _has_active_nicegui_request_context():
+                logger.debug("research_query_multi_items_unavailable")
+            else:
+                raise
+    items = getattr(query_params, "items", None)
+    if callable(items):
+        try:
+            return list(items())
+        except RuntimeError:
+            if not _has_active_nicegui_request_context():
+                return []
+            raise
+    return []
+
+
+def _has_active_nicegui_request_context() -> bool:
+    """Return whether NiceGUI request contextvar currently holds a request."""
+    from nicegui import storage
+
+    try:
+        return storage.request_contextvar.get() is not None
+    except (AttributeError, LookupError):
+        return False
 
 
 def _get_requested_research_tab() -> str:
     """Resolve requested tab from query string."""
     try:
         request = ui.context.client.request
-    except Exception:
+    except (AttributeError, RuntimeError, LookupError):
         return TAB_DISCOVER
     if request is None:
         return TAB_DISCOVER
@@ -149,33 +230,39 @@ def _get_research_workspace_service() -> ResearchWorkspaceService | None:
         return fresh_service
 
 
-def _build_validate_backtest_link(*, signal_id: str, source: str = "alpha_explorer") -> str:
+def _build_validate_backtest_link(
+    *,
+    signal_id: str,
+    source: str = "alpha_explorer",
+    root_path: str | None = None,
+) -> str:
     """Build a research workspace link that pre-fills Validate/New backtest form."""
-    return "/research?" + urlencode(
+    target = "/research?" + urlencode(
         {
             "tab": TAB_VALIDATE,
-            "backtest_tab": "new",
+            "backtest_tab": BACKTEST_TAB_NEW,
             "signal_id": signal_id,
             "source": source,
         }
     )
+    return with_root_path_once(target, root_path=root_path)
 
 
 def _get_requested_validate_backtest_tab() -> str:
     """Resolve selected backtest sub-tab from research query string."""
     try:
         request = ui.context.client.request
-    except Exception:
-        return "new"
+    except (AttributeError, RuntimeError, LookupError):
+        return BACKTEST_TAB_NEW
     if request is None:
-        return "new"
+        return BACKTEST_TAB_NEW
     raw_tab = get_request_query_param(
         request=request,
         key="backtest_tab",
-        default="new",
+        default=BACKTEST_TAB_NEW,
     )
-    normalized = str(raw_tab or "new").strip().lower()
-    return normalized if normalized in VALID_VALIDATE_BACKTEST_TABS else "new"
+    normalized = normalize_backtest_tab(str(raw_tab or ""), default=BACKTEST_TAB_NEW)
+    return normalized if normalized is not None else BACKTEST_TAB_NEW
 
 
 def _lifecycle_pill_classes(label: str) -> str:
@@ -234,6 +321,26 @@ def _is_optional_research_workspace_dependency(module_name: str | None) -> bool:
         module_name == package or module_name.startswith(f"{package}.")
         for package in _RESEARCH_WORKSPACE_OPTIONAL_PACKAGES
     )
+
+
+def _render_labeled_mono_field(label: str, value: str, *, min_width: str = "min-w-[120px]") -> None:
+    """Render compact label/value pair with mono value text."""
+    with ui.column().classes(f"gap-0 {min_width}"):
+        ui.label(label).classes("workspace-v2-field-label")
+        ui.label(value).classes("workspace-v2-data-mono text-[11px] text-slate-300 break-all")
+
+
+def _format_dataset_versions_for_display(dataset_version_ids: dict[str, Any] | None) -> str:
+    """Return compact deterministic dataset version summary string."""
+    if not dataset_version_ids:
+        return "—"
+    parts = [
+        f"{key}:{value}"
+        for key, value in sorted(dataset_version_ids.items(), key=lambda item: str(item[0]))
+    ]
+    if len(parts) > 6:
+        return ", ".join(parts[:6]) + ", ..."
+    return ", ".join(parts)
 
 
 async def _render_validate_tab(user: dict[str, Any]) -> None:
@@ -305,7 +412,11 @@ async def _render_validate_tab(user: dict[str, Any]) -> None:
                 )
 
 
-async def _render_discover_rows(service: ResearchWorkspaceService) -> None:
+async def _render_discover_rows(
+    service: ResearchWorkspaceService,
+    *,
+    root_path: str | None = None,
+) -> None:
     rows = await run.io_bound(service.list_research_signals, limit=300)
     if not rows:
         ui.label("No research signals found.").classes("text-slate-400")
@@ -314,32 +425,36 @@ async def _render_discover_rows(service: ResearchWorkspaceService) -> None:
     with ui.column().classes("w-full gap-2"):
         for row in rows:
             readiness, readiness_classes = _readiness_label(row.mean_ic, row.icir)
+            signal_id = row.signal_id or ""
             with ui.card().classes("w-full p-0 border border-slate-800 bg-slate-900/35"):
                 with ui.row().classes("w-full items-center justify-between px-3 py-2 border-b border-slate-800"):
                     ui.label(row.display_name).classes("text-sm font-semibold text-slate-100")
                     with ui.row().classes("items-center gap-1"):
-                        ui.label(row.research_status.upper()).classes("workspace-v2-pill")
+                        ui.label(str(row.research_status or "—").upper()).classes("workspace-v2-pill")
                         ui.label(readiness).classes(readiness_classes)
-                with ui.row().classes("w-full gap-3 px-3 py-2 text-xs text-slate-400"):
-                    ui.label(f"strategy={row.strategy_name}").classes("workspace-v2-data-mono")
-                    ui.label(f"version={row.version}").classes("workspace-v2-data-mono")
-                    ui.label(
-                        f"signal_id={row.signal_id[:12]}"
-                    ).classes("workspace-v2-data-mono")
+                with ui.row().classes("w-full gap-3 px-3 py-2"):
+                    _render_labeled_mono_field("Strategy", row.strategy_name)
+                    _render_labeled_mono_field("Version", row.version)
+                    _render_labeled_mono_field("Signal ID", (signal_id or "—")[:12])
                     if row.backtest_job_id:
-                        ui.label(f"backtest={row.backtest_job_id[:12]}").classes(
-                            "workspace-v2-data-mono"
-                        )
+                        _render_labeled_mono_field("Backtest Job", row.backtest_job_id[:12])
                 with ui.row().classes("w-full px-3 pb-3"):
-                    ui.button(
-                        "Backtest",
-                        on_click=lambda sid=row.signal_id: ui.navigate.to(
-                            _build_validate_backtest_link(signal_id=sid)
-                        ),
-                    ).props("flat")
+                    if signal_id:
+                        ui.button(
+                            "Backtest",
+                            on_click=lambda sid=signal_id: ui.navigate.to(
+                                _build_validate_backtest_link(signal_id=sid, root_path=root_path)
+                            ),
+                        ).props("flat")
+                    else:
+                        ui.label("No signal id").classes("text-xs text-slate-500")
 
 
-def _render_discover_candidate_rows(rows: list[LifecycleRow]) -> None:
+def _render_discover_candidate_rows(
+    rows: list[LifecycleRow],
+    *,
+    root_path: str | None = None,
+) -> None:
     """Render candidate model rows below alpha inventory in Discover."""
     candidates = _discover_candidate_rows(rows)
     with ui.card().classes("w-full p-4 border border-slate-800 bg-slate-900/35 mt-3"):
@@ -361,15 +476,20 @@ def _render_discover_candidate_rows(rows: list[LifecycleRow]) -> None:
                         _lifecycle_pill_classes(row.lifecycle_label)
                     )
                 with ui.row().classes("items-center gap-2 text-[11px] text-slate-500"):
-                    ui.label(f"ops={row.ops_status or '—'}").classes("workspace-v2-data-mono")
-                    ui.label(f"research={row.research_status or '—'}").classes(
-                        "workspace-v2-data-mono"
+                    ui.label(f"OPS {str(row.ops_status or '—').upper()}").classes(
+                        "workspace-v2-pill workspace-v2-pill-muted workspace-v2-data-mono"
+                    )
+                    ui.label(f"RESEARCH {str(row.research_status or '—').upper()}").classes(
+                        "workspace-v2-pill workspace-v2-pill-muted workspace-v2-data-mono"
                     )
                     if row.signal_id:
                         ui.button(
                             "Backtest",
                             on_click=lambda sid=row.signal_id: ui.navigate.to(
-                                _build_validate_backtest_link(signal_id=sid)
+                                _build_validate_backtest_link(
+                                    signal_id=sid,
+                                    root_path=root_path,
+                                )
                             ),
                         ).props("flat dense")
 
@@ -397,25 +517,43 @@ async def _render_promote_rows(
                     ui.label(row.lifecycle_label).classes(
                         _lifecycle_pill_classes(row.lifecycle_label)
                     )
-                with ui.row().classes("w-full gap-2 px-3 py-2 text-xs text-slate-400"):
-                    ui.label(f"ops={row.ops_status or '—'}").classes("workspace-v2-data-mono")
-                    ui.label(f"research={row.research_status or '—'}").classes(
-                        "workspace-v2-data-mono"
+                with ui.row().classes("w-full gap-3 px-3 py-2"):
+                    _render_labeled_mono_field(
+                        "Ops Status", str(row.ops_status or "—").upper(), min_width="min-w-[110px]"
                     )
-                    ui.label(f"link={row.linkage_key}").classes("workspace-v2-data-mono")
-                with ui.row().classes("w-full gap-2 px-3 pb-2 text-[11px] text-slate-500"):
-                    ui.label(
-                        f"backtest_job_id={row.backtest_job_id or '—'}"
-                    ).classes("workspace-v2-data-mono")
-                    ui.label(f"snapshot_id={row.snapshot_id or '—'}").classes(
-                        "workspace-v2-data-mono"
+                    _render_labeled_mono_field(
+                        "Research Status",
+                        str(row.research_status or "—").upper(),
+                        min_width="min-w-[110px]",
                     )
-                    ui.label(
-                        f"dataset_version_ids={row.dataset_version_ids or {}}"
-                    ).classes("workspace-v2-data-mono")
-                    ui.label(f"config_hash={row.config_hash or '—'}").classes(
-                        "workspace-v2-data-mono"
+                    _render_labeled_mono_field(
+                        "Link Key",
+                        row.linkage_key or "—",
+                        min_width="min-w-[180px]",
                     )
+                with ui.expansion("Provenance", icon="history").classes("w-full px-3 pb-2"):
+                    with ui.row().classes("w-full gap-3 pt-1"):
+                        _render_labeled_mono_field(
+                            "Backtest Job",
+                            row.backtest_job_id or "—",
+                            min_width="min-w-[180px]",
+                        )
+                        _render_labeled_mono_field(
+                            "Snapshot ID",
+                            row.snapshot_id or "—",
+                            min_width="min-w-[140px]",
+                        )
+                    with ui.row().classes("w-full gap-3 pt-1"):
+                        _render_labeled_mono_field(
+                            "Dataset Versions",
+                            _format_dataset_versions_for_display(row.dataset_version_ids),
+                            min_width="min-w-[260px]",
+                        )
+                        _render_labeled_mono_field(
+                            "Config Hash",
+                            row.config_hash or "—",
+                            min_width="min-w-[180px]",
+                        )
 
                 with ui.row().classes("w-full px-3 pb-3 gap-2"):
                     action = _resolve_promote_action(row, can_manage=can_manage)
@@ -450,11 +588,6 @@ async def research_workspace_page() -> None:
     """Research workspace with Discover / Validate / Promote tabs."""
     user = get_current_user()
 
-    if not config.FEATURE_RESEARCH_WORKSPACE:
-        ui.label("Research Workspace feature is disabled.").classes("text-lg")
-        ui.label("Set FEATURE_RESEARCH_WORKSPACE=true to enable.").classes("text-gray-500")
-        return
-
     can_view_discover = (
         config.FEATURE_ALPHA_EXPLORER
         and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
@@ -483,6 +616,8 @@ async def research_workspace_page() -> None:
         workspace_service = _get_research_workspace_service()
     can_manage = is_admin(user)
     requested_tab = _get_requested_research_tab()
+    request_root_path = _get_request_root_path()
+    request_query_items = _get_request_query_items()
     selected_tab_id = _resolve_selected_tab(
         requested_tab=requested_tab,
         accessible_tabs=accessible_tabs,
@@ -515,7 +650,7 @@ async def research_workspace_page() -> None:
 
     ui.label("Research Workspace").classes("text-2xl font-bold mb-2")
     ui.label(
-        "Consolidated Discover / Validate / Promote surface (legacy routes redirect here)."
+        "Consolidated Discover / Validate / Promote surface."
     ).classes("text-xs text-slate-400 mb-3")
 
     tab_map: dict[str, Any] = {}
@@ -539,7 +674,13 @@ async def research_workspace_page() -> None:
         target_tab_id = tab_id_by_value.get(target_value)
         if target_tab_id is None or target_tab_id == selected_tab_id:
             return
-        ui.navigate.to(_build_research_tab_link(tab_id=target_tab_id))
+        ui.navigate.to(
+            _build_research_tab_link(
+                tab_id=target_tab_id,
+                root_path=request_root_path,
+                query_items=request_query_items,
+            )
+        )
 
     tabs.on_value_change(_on_tab_change)
 
@@ -565,13 +706,20 @@ async def research_workspace_page() -> None:
                             "Discover unavailable: research registry dependency missing."
                         ).classes("text-slate-400")
                     else:
-                        await _render_discover_rows(workspace_service)
+                        await _render_discover_rows(workspace_service, root_path=request_root_path)
                     if lifecycle_rows:
-                        _render_discover_candidate_rows(lifecycle_rows)
+                        _render_discover_candidate_rows(
+                            lifecycle_rows,
+                            root_path=request_root_path,
+                        )
                     elif TAB_PROMOTE in tab_map:
                         ui.link(
                             "Linked lifecycle candidates are available in Promote tab.",
-                            _build_research_tab_link(tab_id=TAB_PROMOTE),
+                            _build_research_tab_link(
+                                tab_id=TAB_PROMOTE,
+                                root_path=request_root_path,
+                                query_items=request_query_items,
+                            ),
                         ).classes("text-xs text-slate-500 mt-2")
 
         if TAB_VALIDATE in tab_map:

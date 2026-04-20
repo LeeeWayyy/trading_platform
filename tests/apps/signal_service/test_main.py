@@ -38,6 +38,7 @@ from fastapi.testclient import TestClient
 from apps.signal_service.main import (
     _MAX_GENERATOR_CACHE_SIZE,
     PrecomputeRequest,
+    _allow_modelless_mode,
     _check_strategy_active,
     app,
     lifespan,
@@ -984,6 +985,29 @@ class TestGenerateSignalsRedisHandling:
 
 class TestSettingsInitialization:
     """Test Settings initialization in different environments."""
+
+    def test_allow_modelless_mode_is_strict_by_default_in_dev(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Dev environment should remain strict unless explicitly opted in."""
+        mock_settings = Mock()
+        mock_settings.testing = False
+        mock_settings.environment = "dev"
+        mock_settings.allow_modelless = False
+
+        assert _allow_modelless_mode(mock_settings) is False
+
+    def test_allow_modelless_mode_can_be_explicitly_enabled_in_dev(
+        self,
+    ) -> None:
+        """Local developer opt-in should allow modelless startup in dev."""
+        mock_settings = Mock()
+        mock_settings.testing = False
+        mock_settings.environment = "dev"
+        mock_settings.allow_modelless = True
+
+        assert _allow_modelless_mode(mock_settings) is True
 
     async def test_lifespan_dev_mode_fallback_to_defaults(
         self,

@@ -4,6 +4,8 @@ Market Data Service - FastAPI Application
 Real-time market data streaming service with WebSocket management.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time

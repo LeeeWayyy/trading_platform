@@ -311,8 +311,6 @@ async def test_nav_items_include_expected_routes(monkeypatch: pytest.MonkeyPatch
 
     expected_paths = [
         "/",
-        "/manual-order",
-        "/position-management",
         "/circuit-breaker",
         "/health",
         "/risk",
@@ -346,7 +344,6 @@ async def test_admin_item_hidden_for_non_admin(monkeypatch: pytest.MonkeyPatch) 
     targets = {link.target for link in fake_ui.links}
 
     assert "/admin" not in targets
-    assert "/position-management" not in targets
     assert "/" in targets
 
 
@@ -382,7 +379,6 @@ async def test_research_nav_hidden_when_discover_feature_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Research nav should not show for alpha-only users when discover feature is off."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_ALPHA_EXPLORER", False)
     monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
 

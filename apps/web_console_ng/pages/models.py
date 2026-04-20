@@ -16,14 +16,6 @@ import psycopg
 from nicegui import app, ui
 
 from apps.web_console_ng import config
-from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
-from apps.web_console_ng.core.database import get_db_pool
-from apps.web_console_ng.ui.layout import main_layout
-from libs.platform.web_console_auth.permissions import (
-    Permission,
-    has_permission,
-    is_admin,
-)
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
@@ -102,81 +94,6 @@ def _summarize_metrics(metrics: Any) -> str:
     if isinstance(win_rate, int | float):
         snippets.append(f"WR {win_rate:.1%}")
     return " · ".join(snippets) if snippets else "Metrics"
-
-
-@ui.page("/models")
-@requires_auth
-@main_layout
-async def models_page() -> None:
-    """Model Registry Browser page."""
-    if config.FEATURE_RESEARCH_WORKSPACE:
-        ui.navigate.to("/research?tab=promote")
-        return
-
-    user = get_current_user()
-
-    # Feature flag check
-    if not config.FEATURE_MODEL_REGISTRY:
-        ui.label("Model Registry Browser feature is disabled.").classes("text-lg")
-        ui.label("Set FEATURE_MODEL_REGISTRY=true to enable.").classes("text-gray-500")
-        return
-
-    # Permission check
-    if not has_permission(user, Permission.VIEW_MODELS):
-        ui.label("Permission denied: VIEW_MODELS required").classes("text-red-500 text-lg")
-        return
-
-    # Get async db pool
-    async_pool = get_db_pool()
-    if async_pool is None:
-        ui.label("Database not configured. Contact administrator.").classes("text-red-500")
-        return
-
-    service = _get_model_registry_service(async_pool)
-    can_manage = is_admin(user)
-
-    ui.label("Model Registry Browser").classes("text-2xl font-bold mb-2")
-    with ui.card().classes("w-full p-2 mb-2 border border-slate-800 bg-slate-900/35"):
-        with ui.row().classes("items-center justify-between gap-2"):
-            ui.label("Legacy page: use Research Workspace → Promote for consolidated flow.").classes(
-                "text-xs text-slate-300"
-            )
-            ui.link("Open /research", "/research?tab=promote").classes("text-xs")
-    ui.label(
-        "Dense model registry surface grouped by strategy with scoped promote/demote actions."
-    ).classes("text-xs text-slate-400 mb-3")
-
-    # Fetch strategies with models
-    try:
-        strategy_list = await service.list_strategies_with_models(user)
-    except psycopg.OperationalError as e:
-        logger.warning(
-            "model_registry_fetch_error",
-            extra={"error": str(e), "operation": "list_strategies"},
-        )
-        ui.label("Database error loading model registry.").classes("text-red-500")
-        return
-    except PermissionError as e:
-        ui.label(f"Permission denied: {e}").classes("text-red-500 text-lg")
-        return
-
-    if not strategy_list:
-        ui.label("No models found in registry.").classes("text-gray-500")
-        return
-
-    with ui.column().classes("w-full gap-3"):
-        for strategy in strategy_list:
-            strategy_name = str(strategy["strategy_name"])
-            with ui.card().classes("w-full p-0 border border-slate-800 bg-slate-900/30"):
-                with ui.row().classes("w-full items-center justify-between px-3 py-2 border-b border-slate-800"):
-                    ui.label(strategy_name).classes("text-sm font-semibold text-slate-100")
-                    model_count = strategy.get("model_count")
-                    if isinstance(model_count, int):
-                        ui.label(f"{model_count} versions").classes(
-                            "workspace-v2-pill workspace-v2-data-mono"
-                        )
-                with ui.column().classes("w-full p-3 gap-2"):
-                    await _render_strategy_models(service, strategy_name, user, can_manage)
 
 
 async def _render_strategy_models(

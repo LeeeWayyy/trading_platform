@@ -120,6 +120,17 @@ class Settings(BaseSettings):
         - Health check passes even without model
     """
 
+    allow_modelless: bool = False
+    """
+    Explicit opt-in to allow startup/health without a loaded model.
+
+    Safety default is fail-closed (`False`) so deployments do not report healthy
+    when signal generation is non-functional.
+
+    Example:
+        export ALLOW_MODELLESS=true  # Local dev opt-in only
+    """
+
     # ========================================================================
     # Database Configuration
     # ========================================================================

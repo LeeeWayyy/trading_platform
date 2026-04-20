@@ -159,8 +159,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Dashboard", "/", "dashboard", None),
                     ("Trade", "/trade", "candlestick_chart", None),
                     ("Research Workspace", "/research", "hub", None),
-                    ("Manual Controls", "/manual-order", "edit", None),
-                    ("Position Mgmt", "/position-management", "swap_vert", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
@@ -194,7 +192,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_groups: list[tuple[str, list[str]]] = [
                     (
                         "Execute",
-                        ["/", "/trade", "/manual-order", "/position-management", "/circuit-breaker"],
+                        ["/", "/trade", "/circuit-breaker"],
                     ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
@@ -231,33 +229,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Governance", ["/admin"]),
                 ]
 
-                if not config.FEATURE_RESEARCH_WORKSPACE:
-                    nav_items[:] = [item for item in nav_items if item[1] != "/research"]
-                    nav_items[2:2] = [
-                        ("Alpha Explorer", "/alpha-explorer", "hub", None),
-                        ("Backtest", "/backtest", "query_stats", None),
-                        ("Models", "/models", "precision_manufacturing", None),
-                    ]
-                    nav_groups = [
-                        (
-                            group_label,
-                            (
-                                [
-                                    "/alpha-explorer",
-                                    "/backtest",
-                                    "/models",
-                                    "/research/universes",
-                                    "/compare",
-                                    "/notebooks",
-                                    "/strategies",
-                                ]
-                                if group_label == "Research"
-                                else group_paths
-                            ),
-                        )
-                        for group_label, group_paths in nav_groups
-                    ]
-
                 nav_lookup = {path: (label, path, icon, role) for label, path, icon, role in nav_items}
 
                 def is_nav_item_visible(path: str) -> bool:
@@ -280,8 +251,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     # Research workspace is visible when any consolidated tab permission exists.
                     if path == "/research":
-                        if not config.FEATURE_RESEARCH_WORKSPACE:
-                            return False
                         can_view_discover = (
                             config.FEATURE_ALPHA_EXPLORER
                             and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
@@ -297,20 +266,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             or can_view_promote
                         ):
                             return False
-
-                    if path == "/alpha-explorer" and not has_permission(
-                        user, Permission.VIEW_ALPHA_SIGNALS
-                    ):
-                        return False
-
-                    if path == "/backtest" and not has_permission(user, Permission.VIEW_PNL):
-                        return False
-
-                    if path == "/models" and not (
-                        config.FEATURE_MODEL_REGISTRY
-                        and has_permission(user, Permission.VIEW_MODELS)
-                    ):
-                        return False
 
                     # Exposure link requires VIEW_STRATEGY_EXPOSURE
                     if path == "/risk/exposure" and not has_permission(
@@ -365,10 +320,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         not config.FEATURE_ALERTS
                         or not has_permission(user, Permission.VIEW_ALERTS)
                     ):
-                        return False
-
-                    # Position management is unavailable for viewer role.
-                    if path == "/position-management" and user_role == "viewer":
                         return False
 
                     return True
