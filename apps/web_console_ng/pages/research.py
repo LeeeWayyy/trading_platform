@@ -138,15 +138,34 @@ def _get_request_query_items() -> list[tuple[str, str]]:
     if callable(multi_items):
         try:
             return list(multi_items())
-        except RuntimeError:
-            logger.debug("research_query_multi_items_unavailable")
+        except RuntimeError as exc:
+            if _is_request_context_runtime_error(exc):
+                logger.debug("research_query_multi_items_unavailable")
+            else:
+                raise
     items = getattr(query_params, "items", None)
     if callable(items):
         try:
             return list(items())
-        except RuntimeError:
-            return []
+        except RuntimeError as exc:
+            if _is_request_context_runtime_error(exc):
+                return []
+            raise
     return []
+
+
+def _is_request_context_runtime_error(exc: RuntimeError) -> bool:
+    """Return True only for expected detached-request runtime failures."""
+    message = str(exc).lower()
+    expected_tokens = (
+        "no context",
+        "request context",
+        "nicegui",
+        "contextvar",
+        "context var",
+        "slot",
+    )
+    return any(token in message for token in expected_tokens)
 
 
 def _get_requested_research_tab() -> str:

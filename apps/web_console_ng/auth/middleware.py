@@ -366,9 +366,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 cookie_name = cookie_cfg.get_cookie_name()
                 cookie_flags = cookie_cfg.get_cookie_flags()
                 cookie_path = str(cookie_flags.get("path", cookie_cfg.path))
-                cookie_domain = (
-                    None if cookie_cfg.secure else cast(str | None, cookie_flags.get("domain"))
-                )
+                cookie_domain = cast(str | None, cookie_flags.get("domain"))
 
                 # Delete with same path/domain settings as creation
                 response.delete_cookie(
