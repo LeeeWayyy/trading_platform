@@ -458,6 +458,43 @@ class TestPriceChartSymbolChange:
         assert (datetime.now(UTC) - component._symbol_changed_at).total_seconds() < 1
 
     @pytest.mark.asyncio()
+    async def test_symbol_change_without_candles_shows_no_data_overlay(
+        self, component: PriceChartComponent
+    ) -> None:
+        """No historical candles should show waiting overlay."""
+        with (
+            patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
+            patch.object(component, "_fetch_candle_data", return_value=[]),
+            patch.object(component, "_fetch_execution_markers", return_value=[]),
+            patch.object(component, "_update_chart_data", new_callable=AsyncMock),
+            patch.object(component, "_show_no_data_overlay", new_callable=AsyncMock) as mock_show,
+            patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
+        ):
+            await component.on_symbol_changed("AAPL")
+
+        mock_show.assert_awaited_once_with("AAPL")
+        mock_hide.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_symbol_change_with_candles_hides_no_data_overlay(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Historical candles should hide waiting overlay."""
+        candles = [CandleData(time=1, open=100, high=100, low=100, close=100, volume=1)]
+        with (
+            patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
+            patch.object(component, "_fetch_candle_data", return_value=candles),
+            patch.object(component, "_fetch_execution_markers", return_value=[]),
+            patch.object(component, "_update_chart_data", new_callable=AsyncMock),
+            patch.object(component, "_show_no_data_overlay", new_callable=AsyncMock) as mock_show,
+            patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
+        ):
+            await component.on_symbol_changed("AAPL")
+
+        mock_hide.assert_awaited_once()
+        mock_show.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_symbol_change_to_none_clears_symbol_changed_at(
         self, component: PriceChartComponent
     ) -> None:
@@ -530,6 +567,24 @@ class TestPriceChartExecutionMarkers:
 
         assert markers == []
         assert client.calls == [100]
+
+
+class TestPriceChartRealtimeUpdates:
+    """Tests for live candle updates."""
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_hides_no_data_overlay(self) -> None:
+        """First live tick should hide no-data overlay and seed first candle."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(101.25, datetime.now(UTC))
+
+        component._hide_no_data_overlay.assert_awaited_once()
+        assert len(component._candles) == 1
+        assert component._candles[0].close == 101.25
 
 
 class TestPriceChartDispose:

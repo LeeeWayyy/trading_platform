@@ -239,6 +239,9 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-trader}:${POSTGRES_PASSWORD:-trader}@postgres:5432/${POSTGRES_DB:-trader}
       - REDIS_URL=redis://redis:6379/0
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
+      # Local dev default: allow startup without a registered model artifact.
+      # Override with ALLOW_MODELLESS=false when validating fail-closed startup.
+      - ALLOW_MODELLESS=${ALLOW_MODELLESS:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-file:./artifacts/mlruns}
     volumes:

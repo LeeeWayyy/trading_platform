@@ -64,6 +64,7 @@ class EventPublisher:
     CHANNEL_SIGNALS = "signals.generated"
     CHANNEL_ORDERS = "orders.executed"
     CHANNEL_POSITIONS = "positions.updated"
+    HIGH_FREQUENCY_CHANNEL_PREFIXES = ("price.updated.", "level2.")
 
     def __init__(self, redis_client: RedisClient):
         """
@@ -100,10 +101,13 @@ class EventPublisher:
             # Publish to channel
             num_subscribers = self.redis.publish(channel, message)
 
-            logger.info(
-                f"Published {event.event_type} to '{channel}' "  # type: ignore[attr-defined]
-                f"({num_subscribers} subscribers)"
+            event_type = getattr(event, "event_type", channel)
+            log_fn = (
+                logger.debug
+                if channel.startswith(self.HIGH_FREQUENCY_CHANNEL_PREFIXES)
+                else logger.info
             )
+            log_fn("Published %s to '%s' (%s subscribers)", event_type, channel, num_subscribers)
 
             return num_subscribers
 

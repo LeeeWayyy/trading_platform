@@ -9,6 +9,7 @@ Tests cover:
 - Error handling
 """
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import Mock
 
@@ -103,6 +104,47 @@ class TestEventPublisherPublish:
 
         # Should return None on error (graceful degradation)
         assert num_subscribers is None
+
+    def test_publish_price_channel_logs_at_debug(self, mock_publisher, caplog):
+        """High-frequency price channels should log at DEBUG, not INFO."""
+        publisher, mock_redis = mock_publisher
+        mock_redis.publish.return_value = 3
+
+        event = Mock()
+        event.event_type = "price.updated"
+        event.model_dump_json.return_value = '{"event_type":"price.updated"}'
+
+        with caplog.at_level(logging.DEBUG):
+            publisher.publish("price.updated.AAPL", event)
+
+        assert any(
+            rec.levelno == logging.DEBUG and "price.updated.AAPL" in rec.getMessage()
+            for rec in caplog.records
+        )
+        assert not any(
+            rec.levelno == logging.INFO and "price.updated.AAPL" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_publish_signal_channel_logs_at_info(self, mock_publisher, caplog):
+        """Normal control-plane events should continue logging at INFO."""
+        publisher, mock_redis = mock_publisher
+        mock_redis.publish.return_value = 1
+        event = SignalEvent(
+            timestamp=datetime.now(UTC),
+            strategy_id="alpha_baseline",
+            symbols=["AAPL"],
+            num_signals=1,
+            as_of_date="2025-01-17",
+        )
+
+        with caplog.at_level(logging.INFO):
+            publisher.publish("signals.generated", event)
+
+        assert any(
+            rec.levelno == logging.INFO and "signals.generated" in rec.getMessage()
+            for rec in caplog.records
+        )
 
 
 class TestEventPublisherSignalEvents:
