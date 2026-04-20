@@ -425,25 +425,29 @@ async def _render_discover_rows(
     with ui.column().classes("w-full gap-2"):
         for row in rows:
             readiness, readiness_classes = _readiness_label(row.mean_ic, row.icir)
+            signal_id = row.signal_id or ""
             with ui.card().classes("w-full p-0 border border-slate-800 bg-slate-900/35"):
                 with ui.row().classes("w-full items-center justify-between px-3 py-2 border-b border-slate-800"):
                     ui.label(row.display_name).classes("text-sm font-semibold text-slate-100")
                     with ui.row().classes("items-center gap-1"):
-                        ui.label(row.research_status.upper()).classes("workspace-v2-pill")
+                        ui.label(str(row.research_status or "—").upper()).classes("workspace-v2-pill")
                         ui.label(readiness).classes(readiness_classes)
                 with ui.row().classes("w-full gap-3 px-3 py-2"):
                     _render_labeled_mono_field("Strategy", row.strategy_name)
                     _render_labeled_mono_field("Version", row.version)
-                    _render_labeled_mono_field("Signal ID", row.signal_id[:12])
+                    _render_labeled_mono_field("Signal ID", (signal_id or "—")[:12])
                     if row.backtest_job_id:
                         _render_labeled_mono_field("Backtest Job", row.backtest_job_id[:12])
                 with ui.row().classes("w-full px-3 pb-3"):
-                    ui.button(
-                        "Backtest",
-                        on_click=lambda sid=row.signal_id: ui.navigate.to(
-                            _build_validate_backtest_link(signal_id=sid, root_path=root_path)
-                        ),
-                    ).props("flat")
+                    if signal_id:
+                        ui.button(
+                            "Backtest",
+                            on_click=lambda sid=signal_id: ui.navigate.to(
+                                _build_validate_backtest_link(signal_id=sid, root_path=root_path)
+                            ),
+                        ).props("flat")
+                    else:
+                        ui.label("No signal id").classes("text-xs text-slate-500")
 
 
 def _render_discover_candidate_rows(
@@ -522,7 +526,11 @@ async def _render_promote_rows(
                         str(row.research_status or "—").upper(),
                         min_width="min-w-[110px]",
                     )
-                    _render_labeled_mono_field("Link Key", row.linkage_key, min_width="min-w-[180px]")
+                    _render_labeled_mono_field(
+                        "Link Key",
+                        row.linkage_key or "—",
+                        min_width="min-w-[180px]",
+                    )
                 with ui.expansion("Provenance", icon="history").classes("w-full px-3 pb-2"):
                     with ui.row().classes("w-full gap-3 pt-1"):
                         _render_labeled_mono_field(

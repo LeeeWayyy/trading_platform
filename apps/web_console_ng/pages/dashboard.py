@@ -1184,10 +1184,18 @@ async def dashboard(client: Client) -> None:
             return True
         return False
 
-    if cancel_symbol_orders_btn is None or flatten_all_positions_btn is None:
+    expects_cancel_button = can_cancel_all_orders(user_role=user_role)
+    expects_flatten_button = can_flatten_all_positions(user_role=user_role)
+    if (expects_cancel_button and cancel_symbol_orders_btn is None) or (
+        expects_flatten_button and flatten_all_positions_btn is None
+    ):
         logger.error(
             "dashboard_bulk_action_buttons_missing",
-            extra={"client_id": client_id},
+            extra={
+                "client_id": client_id,
+                "expects_cancel_button": expects_cancel_button,
+                "expects_flatten_button": expects_flatten_button,
+            },
         )
 
     _set_bulk_action_buttons_enabled(True)
