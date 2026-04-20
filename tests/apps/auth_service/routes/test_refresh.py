@@ -146,9 +146,10 @@ def test_internal_refresh_secret_env_is_stripped(
     try:
         assert reloaded.INTERNAL_REFRESH_SECRET == "shared-secret"
     finally:
-        # Restore module state to whatever the current environment dictates so
-        # later tests see a clean slate.
-        monkeypatch.delenv("INTERNAL_REFRESH_SECRET", raising=False)
+        # Restore the original environment (including any pre-existing
+        # INTERNAL_REFRESH_SECRET value) before reloading so later tests see a
+        # clean module state rather than the delenv-forced ``None``.
+        monkeypatch.undo()
         importlib.reload(refresh_module)
 
 
@@ -162,7 +163,7 @@ def test_internal_refresh_secret_whitespace_only_becomes_none(
     try:
         assert reloaded.INTERNAL_REFRESH_SECRET is None
     finally:
-        monkeypatch.delenv("INTERNAL_REFRESH_SECRET", raising=False)
+        monkeypatch.undo()
         importlib.reload(refresh_module)
 
 
@@ -219,7 +220,7 @@ def test_refresh_internal_bypass_succeeds_when_env_has_whitespace(
             enforce_binding=False,
         )
     finally:
-        monkeypatch.delenv("INTERNAL_REFRESH_SECRET", raising=False)
+        monkeypatch.undo()
         importlib.reload(refresh_module)
 
 

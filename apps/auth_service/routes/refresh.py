@@ -19,8 +19,7 @@ INTERNAL_REFRESH_HEADER = "X-Internal-Auth"
 # Without stripping, a secret configured with stray whitespace would pass
 # startup checks but silently fail ``secrets.compare_digest`` at request time
 # (see issue #176).
-_INTERNAL_REFRESH_SECRET_RAW = os.getenv("INTERNAL_REFRESH_SECRET", "").strip()
-INTERNAL_REFRESH_SECRET: str | None = _INTERNAL_REFRESH_SECRET_RAW or None
+INTERNAL_REFRESH_SECRET: str | None = os.getenv("INTERNAL_REFRESH_SECRET", "").strip() or None
 
 
 @router.post("/refresh")
