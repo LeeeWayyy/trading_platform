@@ -388,6 +388,17 @@ class AlpacaMarketDataStream:
                     logger.warning(
                         "WebSocket connection closed unexpectedly, will reconnect immediately."
                     )
+                    # Count this flapping reconnect cycle. Without this, clean-return
+                    # reconnect loops (stream.run() returns while _running is True)
+                    # are invisible to the market_data_reconnect_attempts_total metric,
+                    # weakening reconnect-rate alerts and dashboards.
+                    if self._reconnect_attempts_counter is not None:
+                        try:
+                            self._reconnect_attempts_counter.inc()
+                        except Exception:  # pragma: no cover - defensive
+                            logger.debug(
+                                "Failed to increment reconnect_attempts_total", exc_info=True
+                            )
 
             except Exception as e:
                 self._connected = False

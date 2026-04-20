@@ -271,6 +271,9 @@ class PositionBasedSubscription:
                         f"{sorted(new_symbols)}"
                     )
                 except SubscriptionError as e:
+                    # Mark sync as error so Prometheus alerting reflects partial failures
+                    # that would otherwise be hidden behind status="success".
+                    sync_status = "error"
                     logger.error(f"Failed to subscribe to new symbols: {e}")
 
             # H5 Fix: Unsubscribe with source="position" - only removes position source
@@ -283,6 +286,9 @@ class PositionBasedSubscription:
                         f"{sorted(closed_symbols)}"
                     )
                 except SubscriptionError as e:
+                    # Mark sync as error so Prometheus alerting reflects partial failures
+                    # that would otherwise be hidden behind status="success".
+                    sync_status = "error"
                     logger.error(f"Failed to unsubscribe from closed symbols: {e}")
 
             # Log summary

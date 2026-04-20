@@ -188,6 +188,39 @@ class TestReconnectAttemptsCounter:
         assert _counter_value(reconnect_counter) == 2.0
 
 
+class TestReconnectAttemptsCleanReturn:
+    """Clean-return reconnect cycles (stream.run() returns while _running is True)
+    must also be counted; otherwise flapping connections silently undercount."""
+
+    @pytest.mark.asyncio()
+    async def test_clean_return_while_running_increments_counter(
+        self, stream: AlpacaMarketDataStream, reconnect_counter: Counter
+    ) -> None:
+        assert _counter_value(reconnect_counter) == 0.0
+
+        call_count = {"n": 0}
+
+        def fake_run() -> None:
+            call_count["n"] += 1
+            # First two cycles: return normally (clean close). After that, raise
+            # to let the ConnectionError bail us out of the retry loop.
+            if call_count["n"] >= 3:
+                raise RuntimeError("stop")
+            # Return normally with _running still True -> flapping reconnect.
+
+        stream.stream.run = fake_run
+        stream._max_reconnect_attempts = 1  # first exception will bail
+
+        with patch("libs.data.market_data.alpaca_stream.asyncio.sleep", new=AsyncMock()):
+            from libs.data.market_data.exceptions import ConnectionError as MDConnErr
+
+            with pytest.raises(MDConnErr):
+                await stream.start()
+
+        # Two clean-return flaps + one exception-path reconnect = 3 increments.
+        assert _counter_value(reconnect_counter) == 3.0
+
+
 class TestPositionSyncsCounter:
     """Each position-sync cycle increments the counter with a status label."""
 
@@ -257,6 +290,57 @@ class TestPositionSyncsCounter:
             await mgr._sync_subscriptions()
 
         assert _counter_value(syncs_counter, status="error") == 1.0
+
+    @pytest.mark.asyncio()
+    async def test_subscribe_failure_increments_error(self, syncs_counter: Counter) -> None:
+        """Inner SubscriptionError on subscribe_symbols must flip status to error."""
+        from libs.data.market_data.exceptions import SubscriptionError
+
+        mock_stream = AsyncMock(spec=AlpacaMarketDataStream)
+        mock_stream.get_subscribed_symbols.return_value = []
+        mock_stream.subscribe_symbols = AsyncMock(side_effect=SubscriptionError("bad"))
+        mock_stream.unsubscribe_symbols = AsyncMock()
+
+        mgr = PositionBasedSubscription(
+            stream=mock_stream,
+            execution_gateway_url="http://gw",
+            sync_interval=1,
+            initial_sync=False,
+            syncs_counter=syncs_counter,
+        )
+
+        with patch.object(mgr, "_fetch_position_symbols", new=AsyncMock(return_value={"AAPL"})):
+            await mgr._sync_subscriptions()
+
+        assert _counter_value(syncs_counter, status="error") == 1.0
+        assert _counter_value(syncs_counter, status="success") == 0.0
+
+    @pytest.mark.asyncio()
+    async def test_unsubscribe_failure_increments_error(self, syncs_counter: Counter) -> None:
+        """Inner SubscriptionError on unsubscribe_symbols must flip status to error."""
+        from libs.data.market_data.exceptions import SubscriptionError
+
+        mock_stream = AsyncMock(spec=AlpacaMarketDataStream)
+        # Pretend MSFT was previously subscribed so closed_symbols is non-empty.
+        mock_stream.get_subscribed_symbols.return_value = ["MSFT"]
+        mock_stream.subscribe_symbols = AsyncMock()
+        mock_stream.unsubscribe_symbols = AsyncMock(side_effect=SubscriptionError("bad"))
+
+        mgr = PositionBasedSubscription(
+            stream=mock_stream,
+            execution_gateway_url="http://gw",
+            sync_interval=1,
+            initial_sync=False,
+            syncs_counter=syncs_counter,
+        )
+        # Seed last_position_symbols so MSFT shows up as "closed" this cycle.
+        mgr._last_position_symbols = {"MSFT"}
+
+        with patch.object(mgr, "_fetch_position_symbols", new=AsyncMock(return_value=set())):
+            await mgr._sync_subscriptions()
+
+        assert _counter_value(syncs_counter, status="error") == 1.0
+        assert _counter_value(syncs_counter, status="success") == 0.0
 
     @pytest.mark.asyncio()
     async def test_multiple_syncs_accumulate(
