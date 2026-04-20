@@ -235,6 +235,7 @@ class LightweightChartsLoader:
 
                 # Wait for library to be ready
                 ready_timed_out = True
+                last_ready_check_error: Exception | None = None
                 for _ in range(100):  # Max 5 seconds
                     try:
                         ready = await run_js("window.__lwc_ready === true")
@@ -245,8 +246,9 @@ class LightweightChartsLoader:
                             ready_timed_out = False
                             cls._ready = True
                             return
-                    except Exception:
-                        pass  # JavaScript may not be ready yet
+                    except Exception as exc:
+                        # JavaScript may not be ready yet; keep last error for timeout context.
+                        last_ready_check_error = exc
                     await asyncio.sleep(0.05)
             except Exception:
                 cls._loaded = False
@@ -255,6 +257,11 @@ class LightweightChartsLoader:
 
             cls._loaded = False
             if ready_timed_out:
+                if last_ready_check_error is not None:
+                    raise RuntimeError(
+                        "Timed out waiting for Lightweight Charts readiness flag "
+                        f"(last readiness check error: {last_ready_check_error})"
+                    ) from last_ready_check_error
                 raise RuntimeError("Timed out waiting for Lightweight Charts readiness flag")
 
     @classmethod
