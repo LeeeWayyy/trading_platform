@@ -511,6 +511,18 @@ class OrderTicketComponent:
         """Track explicit acknowledgement for TWAP notional warnings."""
         self._twap_notional_acknowledged = acknowledged
 
+    def _reset_twap_state(self, *, hide_config: bool = True) -> None:
+        """Reset pending TWAP preview/state and clear transient TWAP warnings."""
+        if self._twap_config is not None:
+            if hide_config:
+                self._twap_config.set_visibility(False)
+            self._twap_config.set_notional_warning(None)
+            self._twap_config.set_preview_errors(None)
+        self._pending_twap_fields = None
+        self._pending_twap_preview = None
+        self._twap_notional_warning = None
+        self._twap_notional_acknowledged = False
+
     def _on_time_in_force_changed(self, value: Any) -> None:
         """Handle TIF selection change with TWAP compatibility guardrails."""
         raw_tif = str(value).strip().lower()
@@ -530,14 +542,7 @@ class OrderTicketComponent:
                 and self._execution_style_selector.value() != "instant"
             ):
                 self._execution_style_selector.set_value("instant")
-            if self._twap_config is not None:
-                self._twap_config.set_visibility(False)
-                self._twap_config.set_notional_warning(None)
-                self._twap_config.set_preview_errors(None)
-            self._pending_twap_fields = None
-            self._pending_twap_preview = None
-            self._twap_notional_warning = None
-            self._twap_notional_acknowledged = False
+            self._reset_twap_state(hide_config=True)
 
     def _is_twap_selected(self) -> bool:
         """Return whether TWAP execution style is currently selected."""
@@ -773,14 +778,7 @@ class OrderTicketComponent:
                     True, "TWAP unavailable for stop orders"
                 )
                 self._state.execution_style = "instant"
-                if self._twap_config is not None:
-                    self._twap_config.set_visibility(False)
-                    self._twap_config.set_notional_warning(None)
-                    self._twap_config.set_preview_errors(None)
-                self._pending_twap_fields = None
-                self._pending_twap_preview = None
-                self._twap_notional_warning = None
-                self._twap_notional_acknowledged = False
+                self._reset_twap_state(hide_config=True)
             else:
                 self._execution_style_selector.set_disabled(False)
                 if self._twap_config is not None:

@@ -98,17 +98,11 @@ def _allow_modelless_mode(current_settings: Settings) -> bool:
     Safety default: strict model gating stays enabled unless testing is true,
     the environment is explicitly test-like, or an opt-in env flag is set.
     """
-    settings_environment = str(getattr(current_settings, "environment", "production")).strip().lower()
-    testing_value = getattr(current_settings, "testing", False)
-    allow_modelless_value = getattr(current_settings, "allow_modelless", False)
-    testing_mode = testing_value if isinstance(testing_value, bool) else False
-    allow_modelless_env = (
-        allow_modelless_value if isinstance(allow_modelless_value, bool) else False
-    )
-    return testing_mode or settings_environment in {
+    settings_environment = str(current_settings.environment).strip().lower()
+    return current_settings.testing is True or settings_environment in {
         "test",
         "testing",
-    } or allow_modelless_env
+    } or current_settings.allow_modelless is True
 
 
 # Configure logging
