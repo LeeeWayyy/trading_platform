@@ -99,13 +99,13 @@ def _allow_modelless_mode(current_settings: Settings) -> bool:
     the environment is explicitly test-like, or an opt-in env flag is set.
     """
     settings_environment = str(getattr(current_settings, "environment", "production")).strip().lower()
-    allow_modelless_env = os.getenv("SIGNAL_SERVICE_ALLOW_MODELLESS", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    return bool(getattr(current_settings, "testing", False)) or settings_environment in {
+    testing_value = getattr(current_settings, "testing", False)
+    allow_modelless_value = getattr(current_settings, "allow_modelless", False)
+    testing_mode = testing_value if isinstance(testing_value, bool) else False
+    allow_modelless_env = (
+        allow_modelless_value if isinstance(allow_modelless_value, bool) else False
+    )
+    return testing_mode or settings_environment in {
         "test",
         "testing",
     } or allow_modelless_env

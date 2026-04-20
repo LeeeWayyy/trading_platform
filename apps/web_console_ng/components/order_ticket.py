@@ -1640,7 +1640,7 @@ class OrderTicketComponent:
                 strategies=self._strategies,
             )
         except Exception as exc:
-            logger.warning("TWAP preview failed before submit: %s", exc)
+            logger.warning("TWAP preview failed before submit: %s", exc, exc_info=True)
             return (False, {}, "Unable to validate TWAP plan")
 
         self._pending_twap_preview = preview_response

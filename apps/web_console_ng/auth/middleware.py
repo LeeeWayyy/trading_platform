@@ -253,16 +253,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
     _NORMALIZED_EXEMPT_BOUNDARY_PATHS = tuple(
         prefix.rstrip("/") or "/" for prefix in _EXEMPT_BOUNDARY_PATHS
     )
+    _EXEMPT_EXACT_PATHS = frozenset(
+        (*_NORMALIZED_EXEMPT_PREFIX_PATHS, *_NORMALIZED_EXEMPT_BOUNDARY_PATHS)
+    )
 
     @classmethod
     def _is_exempt_path(cls, normalized_app_request_path: str) -> bool:
+        if normalized_app_request_path in cls._EXEMPT_EXACT_PATHS:
+            return True
         for prefix in cls._NORMALIZED_EXEMPT_PREFIX_PATHS:
-            if normalized_app_request_path == prefix:
-                return True
             if normalized_app_request_path.startswith(f"{prefix}/"):
-                return True
-        for prefix in cls._NORMALIZED_EXEMPT_BOUNDARY_PATHS:
-            if normalized_app_request_path == prefix:
                 return True
         return False
 

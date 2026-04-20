@@ -994,19 +994,18 @@ class TestSettingsInitialization:
         mock_settings = Mock()
         mock_settings.testing = False
         mock_settings.environment = "dev"
-        monkeypatch.delenv("SIGNAL_SERVICE_ALLOW_MODELLESS", raising=False)
+        mock_settings.allow_modelless = False
 
         assert _allow_modelless_mode(mock_settings) is False
 
     def test_allow_modelless_mode_can_be_explicitly_enabled_in_dev(
         self,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Local developer opt-in should allow modelless startup in dev."""
         mock_settings = Mock()
         mock_settings.testing = False
         mock_settings.environment = "dev"
-        monkeypatch.setenv("SIGNAL_SERVICE_ALLOW_MODELLESS", "true")
+        mock_settings.allow_modelless = True
 
         assert _allow_modelless_mode(mock_settings) is True
 

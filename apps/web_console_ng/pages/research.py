@@ -138,8 +138,8 @@ def _get_request_query_items() -> list[tuple[str, str]]:
     if callable(multi_items):
         try:
             return list(multi_items())
-        except RuntimeError as exc:
-            if _is_request_context_runtime_error(exc):
+        except RuntimeError:
+            if not _has_active_nicegui_request_context():
                 logger.debug("research_query_multi_items_unavailable")
             else:
                 raise
@@ -147,25 +147,21 @@ def _get_request_query_items() -> list[tuple[str, str]]:
     if callable(items):
         try:
             return list(items())
-        except RuntimeError as exc:
-            if _is_request_context_runtime_error(exc):
+        except RuntimeError:
+            if not _has_active_nicegui_request_context():
                 return []
             raise
     return []
 
 
-def _is_request_context_runtime_error(exc: RuntimeError) -> bool:
-    """Return True only for expected detached-request runtime failures."""
-    message = str(exc).lower()
-    expected_tokens = (
-        "no context",
-        "request context",
-        "nicegui",
-        "contextvar",
-        "context var",
-        "slot",
-    )
-    return any(token in message for token in expected_tokens)
+def _has_active_nicegui_request_context() -> bool:
+    """Return whether NiceGUI request contextvar currently holds a request."""
+    from nicegui import storage
+
+    try:
+        return storage.request_contextvar.get() is not None
+    except (AttributeError, LookupError):
+        return False
 
 
 def _get_requested_research_tab() -> str:

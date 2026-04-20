@@ -54,8 +54,8 @@ RUN . /opt/venv/bin/activate && \
        { [ -f "/build/qlib_src/setup.py" ] || [ -f "/build/qlib_src/pyproject.toml" ]; }; then \
         cd /build/qlib_src && \
         pip install --no-cache-dir cython numpy && \
-        SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
-        SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYQLIB=0.0.0 \
+        SETUPTOOLS_SCM_PRETEND_VERSION=0.9.7 \
+        SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYQLIB=0.9.7 \
         pip install --no-cache-dir .; \
     else \
         echo "Skipping local qlib source install (qlib_src context missing setup.py/pyproject.toml)."; \
