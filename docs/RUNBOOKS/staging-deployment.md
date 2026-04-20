@@ -17,10 +17,11 @@ management for it, and troubleshooting.
 ## Table of Contents
 - [Overview](#overview)
 - [Credential Management](#credential-management)
-- [Deployment Process](#deployment-process)
+- [Smoke Test Process](#smoke-test-process)
 - [Smoke Tests](#smoke-tests)
 - [Troubleshooting](#troubleshooting)
-- [Rollback Procedures](#rollback-procedures)
+- [Testing Previous Image Versions](#testing-previous-image-versions)
+- [Monitoring and Alerts](#monitoring-and-alerts)
 
 ---
 
@@ -39,7 +40,7 @@ management for it, and troubleshooting.
 **Safety guarantees:**
 - Live API keys are blocked by GitHub Environments
 - DRY_RUN=true enforced at multiple levels
-- Credential validation runs before deployment
+- Credential validation runs before the smoke test
 - Smoke tests verify paper trading mode active
 
 ---
@@ -75,7 +76,7 @@ Required secrets for staging environment:
 **4. Add protection rules (recommended):**
 
 - ✅ Required reviewers: 1
-- ✅ Wait timer: 0 minutes (staging can deploy immediately)
+- ✅ Wait timer: 0 minutes (smoke tests can run immediately)
 - ❌ Do NOT allow administrators to bypass
 
 **5. CRITICAL: Never add these secrets to staging:**
@@ -90,8 +91,8 @@ Required secrets for staging environment:
 
 1. Generate new paper API keys from Alpaca dashboard
 2. Update `ALPACA_PAPER_API_KEY` and `ALPACA_PAPER_API_SECRET` in staging environment
-3. Trigger manual deployment via GitHub Actions
-4. Verify smoke tests pass
+3. Trigger manual smoke test via GitHub Actions
+4. Verify smoke tests pass on the runner (check workflow logs)
 5. Revoke old API keys in Alpaca dashboard
 
 **Rotation checklist:**
@@ -100,17 +101,21 @@ Required secrets for staging environment:
 # 1. Update secrets in GitHub UI
 # Settings → Environments → staging → Update secrets
 
-# 2. Trigger deployment
+# 2. Trigger smoke test
 # Actions → Staging Image Smoke Test → Run workflow → main branch
 
-# 3. Verify deployment
-curl http://staging.example.com:8001/health
-curl http://staging.example.com:8002/health
-curl http://staging.example.com:8003/health
+# 3. Verify the run (no persistent host exists — check Actions UI)
+#    Visit: Actions → Staging Image Smoke Test → latest run
+#    Confirm `validate-credentials` and `smoke-test` jobs are green.
 
-# 4. Check logs for any authentication errors
-docker compose -f docker-compose.staging.yml logs execution_gateway | grep -i "auth\|key"
+# 4. Inspect authentication in the runner's step logs
+#    In the smoke-test job, open the "Show container logs" / "Collect logs"
+#    step and grep for auth/key errors in the execution_gateway output.
 ```
+
+**Note:** There is no persistent staging host (`staging.example.com` is not a
+real endpoint). Rotation is verified purely through the GitHub Actions
+workflow logs on the ephemeral runner.
 
 ---
 
@@ -142,38 +147,64 @@ Workflow: `.github/workflows/deploy-staging.yml`
 > passing run means "images start and enforce paper mode", not "a persistent
 > staging environment was updated".
 
-**View deployment status:**
+**View smoke-test status (automatic and manual runs):**
 
 ```bash
-# GitHub UI
+# GitHub Actions UI is the ONLY place to view smoke-test status.
+# The runner is ephemeral — there is no persistent host to shell into.
 https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.yml
+```
 
-# Check running services
+Open the latest workflow run to see:
+- `validate-credentials` job status
+- `smoke-test` job status, including per-step logs and container output
+  (`docker compose ps`, `docker compose logs`, captured inside the job).
+
+**Local reproduction (optional):**
+
+If you want to reproduce the smoke test on your workstation against the same
+images the workflow pulls, you can run a local compose stack. These commands
+target *your local Docker daemon*, not any remote staging host:
+
+```bash
+# Pull the images the workflow uses
+docker compose -f docker-compose.staging.yml pull
+
+# Bring the stack up locally
+docker compose -f docker-compose.staging.yml up -d
+
+# Check running services on your machine
 docker compose -f docker-compose.staging.yml ps
 
 # View logs
 docker compose -f docker-compose.staging.yml logs -f
+
+# Tear down when done
+docker compose -f docker-compose.staging.yml down
 ```
 
-### Manual Deployment
+### Manual Smoke Test Run
 
-**Trigger manual deployment:**
+**Trigger a manual smoke test:**
 
 1. Go to: Actions → Staging Image Smoke Test
 2. Click "Run workflow"
 3. Select branch: `main`
 4. Click "Run workflow"
 
-**Manual deployment use cases:**
-- Testing configuration changes
-- After credential rotation
-- Rollback to previous version (select commit SHA)
+**Manual smoke-test use cases:**
+- Testing configuration changes before merging
+- After credential rotation (verify keys are valid)
+- Re-testing a previous image version (see
+  [Testing Previous Image Versions](#testing-previous-image-versions))
 
 ---
 
 ## Smoke Tests
 
-Smoke tests run automatically after deployment to verify system health.
+Smoke tests run automatically as part of the workflow's `smoke-test` job,
+against the images pulled onto the ephemeral runner. They are the primary
+signal of image health — there is no separate "post-deploy" phase.
 
 **Test 1: Health Checks**
 
@@ -293,7 +324,8 @@ docker compose -f docker-compose.staging.yml config | grep -A 5 "execution_gatew
 **Symptoms:**
 - Workflow fails with error: "ALPACA_LIVE_API_KEY found in staging environment"
 
-**This is EXPECTED BEHAVIOR - the workflow is preventing unsafe deployment.**
+**This is EXPECTED BEHAVIOR - the workflow is preventing unsafe credentials
+from reaching the smoke test.**
 
 **Solutions:**
 
@@ -309,105 +341,112 @@ docker compose -f docker-compose.staging.yml config | grep -A 5 "execution_gatew
 
 ---
 
-## Rollback Procedures
+## Testing Previous Image Versions
 
-### Quick Rollback (Manual)
+> **No remote rollback exists.** Because the smoke test runs on an ephemeral
+> runner and discards the stack at job end, there is nothing to "roll back" on
+> a remote host. The procedures below describe how to re-run the smoke test
+> against a previous image version, and how to reproduce that locally.
 
-**1. Identify last good deployment:**
+### Re-run Smoke Test Against a Previous Version
+
+**1. Identify the last good image version:**
 
 ```bash
-# Check GitHub Actions history
+# Check GitHub Actions history for the last green run
 https://github.com/YOUR_ORG/trading_platform/actions/workflows/deploy-staging.yml
 
-# Note commit SHA of last successful deployment
+# Note the commit SHA of the last successful smoke-test run.
 ```
 
-**2. Redeploy previous version:**
+**2. Trigger the workflow on that SHA:**
 
-```bash
-# Trigger manual workflow with previous commit
-# Actions → Staging Image Smoke Test → Run workflow → Select commit SHA
+```
+# In GitHub UI: Actions → Staging Image Smoke Test → Run workflow
+# Branch/Ref: select the commit SHA (or a tag) of the last good version.
 ```
 
-**3. Verify rollback:**
+**3. Verify the re-run:**
 
 ```bash
-# Check deployment info
-docker compose -f docker-compose.staging.yml logs | grep "Commit SHA"
-
-# Run smoke tests
-curl -f http://localhost:8001/health
-curl -f http://localhost:8002/health
-curl -f http://localhost:8003/health
+# There is no remote host to curl. Verify in the Actions UI:
+# Open the run → smoke-test job → confirm health check and
+# /api/v1/config assertions pass in the step logs.
 ```
 
-### Emergency Rollback (Stop services)
+### Local Reproduction of a Previous Version
 
-**If deployment causes critical issues:**
+If you need to poke at the previous image set interactively on your
+workstation (e.g., to reproduce a smoke-test failure), you can run it
+locally. None of these commands touch any remote infrastructure:
 
 ```bash
-# Stop all services immediately
+# Stop any stack from a prior local run
 docker compose -f docker-compose.staging.yml down
 
-# Optional: preserve data volumes
-docker compose -f docker-compose.staging.yml down  # volumes preserved by default
+# Optional: wipe local volumes (WARNING: deletes local data)
+docker compose -f docker-compose.staging.yml down -v
 
-# Optional: completely wipe environment
-docker compose -f docker-compose.staging.yml down -v  # WARNING: deletes all data
-```
-
-**Restart with previous images:**
-
-```bash
-# Pull specific version
+# Pull specific image versions by SHA tag
 docker pull ghcr.io/YOUR_ORG/trading-platform-signal_service:PREVIOUS_SHA
 docker pull ghcr.io/YOUR_ORG/trading-platform-execution_gateway:PREVIOUS_SHA
 docker pull ghcr.io/YOUR_ORG/trading-platform-orchestrator:PREVIOUS_SHA
 
-# Tag as latest
+# Retag locally as :latest so compose picks them up
 docker tag ghcr.io/YOUR_ORG/trading-platform-signal_service:PREVIOUS_SHA \
   ghcr.io/YOUR_ORG/trading-platform-signal_service:latest
 
-# Restart services
+# Bring the local stack up
 docker compose -f docker-compose.staging.yml up -d
+
+# Run the same smoke checks the workflow runs
+curl -f http://localhost:8001/health
+curl -f http://localhost:8002/health
+curl -f http://localhost:8003/health
 ```
 
 ---
 
 ## Monitoring and Alerts
 
-### Access Monitoring Dashboards
+> **Scope note:** The smoke-test workflow does not expose a persistent
+> Grafana/Prometheus/Loki stack on a remote host. The URLs below only apply
+> when you run the compose stack locally for reproduction (see
+> [Local Reproduction](#manual-smoke-test-run)). In CI, observability
+> artifacts are limited to the workflow's step logs and any uploaded
+> artifacts.
+
+### Access Monitoring Dashboards (local reproduction only)
+
+When you run `docker compose -f docker-compose.staging.yml up -d` locally:
 
 **Grafana:**
-- URL: http://staging.example.com:3000
+- URL: http://localhost:3000
 - Username: admin
-- Password: (from `GRAFANA_PASSWORD` secret)
+- Password: (from your local `GRAFANA_PASSWORD` env var)
 
 **Prometheus:**
-- URL: http://staging.example.com:9090
+- URL: http://localhost:9090
 
 **Loki (logs):**
 - Access via Grafana → Explore → Loki datasource
 
-### Key Metrics to Monitor
+### Key Signals to Check in CI Logs
+
+Within the `smoke-test` job's step output:
 
 **Service health:**
 - All services respond to `/health` with 200 OK
-- Health check duration < 1 second
+- Health check completes within the 120 s workflow timeout
 
 **Trading safety:**
-- DRY_RUN=true in all logs
-- ALPACA_PAPER=true confirmed
-- No live API calls detected
+- DRY_RUN=true in container env dumps
+- ALPACA_PAPER=true confirmed via `/api/v1/config`
+- No live API calls (validation job blocks live keys)
 
-**Error rates:**
-- ERROR/CRITICAL log count < 10/hour
-- HTTP 5xx responses < 1%
-
-**Resource usage:**
-- CPU < 70%
-- Memory < 80%
-- Disk < 85%
+**Error signals (grep the captured container logs):**
+- Zero ERROR/CRITICAL lines during startup
+- No HTTP 5xx responses during smoke checks
 
 ---
 
