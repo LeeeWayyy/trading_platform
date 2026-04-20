@@ -558,19 +558,31 @@ class OrderTicketComponent:
 
     def _resolve_twap_preview_strategy_id(self) -> str | None:
         """Resolve deterministic strategy scope for TWAP preview authorization."""
+        available_strategy_ids = [
+            normalized
+            for strategy_id in self._strategies
+            if (normalized := str(strategy_id).strip())
+        ]
         snapshot_strategy_id = (
             str(self._execution_context_snapshot.strategy_id).strip()
             if self._execution_context_snapshot is not None
             and self._execution_context_snapshot.strategy_id is not None
             else ""
         )
-        if snapshot_strategy_id and snapshot_strategy_id in self._strategies:
+        if snapshot_strategy_id and snapshot_strategy_id in available_strategy_ids:
             return snapshot_strategy_id
 
-        for strategy_id in self._strategies:
-            normalized = str(strategy_id).strip()
-            if normalized:
-                return normalized
+        if len(available_strategy_ids) == 1:
+            return available_strategy_ids[0]
+
+        if len(available_strategy_ids) > 1:
+            logger.warning(
+                "twap_preview_strategy_ambiguous",
+                extra={
+                    "available_strategy_count": len(available_strategy_ids),
+                    "snapshot_strategy_id": snapshot_strategy_id or None,
+                },
+            )
 
         return None
 

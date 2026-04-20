@@ -1171,6 +1171,7 @@ async def dashboard(client: Client) -> None:
                 and can_flatten_all_positions(user_role=user_role)
                 and not workspace_connection_read_only
                 and not flatten_dialog_open
+                and kill_switch_engaged is False
             )
             if flatten_enabled:
                 flatten_all_positions_btn.enable()
@@ -1578,6 +1579,7 @@ async def dashboard(client: Client) -> None:
         _update_workspace_kill_switch_pill()
 
     await check_initial_kill_switch()
+    _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
 
     async def check_initial_circuit_breaker() -> None:
         """Fetch initial circuit breaker status on page load."""
@@ -1887,6 +1889,7 @@ async def dashboard(client: Client) -> None:
                             "Authentication token missing - please sign in again",
                             type="negative",
                         )
+                        dialog.close()
                         return
 
                     bulk_action_in_progress = True
