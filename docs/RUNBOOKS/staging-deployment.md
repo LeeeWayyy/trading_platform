@@ -392,9 +392,13 @@ docker pull ghcr.io/YOUR_ORG/trading-platform-signal_service:PREVIOUS_SHA
 docker pull ghcr.io/YOUR_ORG/trading-platform-execution_gateway:PREVIOUS_SHA
 docker pull ghcr.io/YOUR_ORG/trading-platform-orchestrator:PREVIOUS_SHA
 
-# Retag locally as :latest so compose picks them up
+# Retag all three locally as :latest so compose picks them up
 docker tag ghcr.io/YOUR_ORG/trading-platform-signal_service:PREVIOUS_SHA \
   ghcr.io/YOUR_ORG/trading-platform-signal_service:latest
+docker tag ghcr.io/YOUR_ORG/trading-platform-execution_gateway:PREVIOUS_SHA \
+  ghcr.io/YOUR_ORG/trading-platform-execution_gateway:latest
+docker tag ghcr.io/YOUR_ORG/trading-platform-orchestrator:PREVIOUS_SHA \
+  ghcr.io/YOUR_ORG/trading-platform-orchestrator:latest
 
 # Bring the local stack up
 docker compose -f docker-compose.staging.yml up -d
