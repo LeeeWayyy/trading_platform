@@ -188,12 +188,6 @@ class LightweightChartsLoader:
             if cls._ready:
                 return
 
-            # Previous attempt may have failed after setting _loaded=True.
-            # Reset so this call can retry instead of permanently failing.
-            if cls._loaded and not cls._ready:
-                logger.warning("Retrying Lightweight Charts load after incomplete prior attempt")
-                cls._loaded = False
-
             cls._loaded = True
 
             try:

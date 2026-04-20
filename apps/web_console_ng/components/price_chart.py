@@ -120,6 +120,7 @@ class PriceChartComponent:
         self._ui_client: Any | None = None
         self._missing_ui_client_warned: bool = False
         self._chart_init_lock = asyncio.Lock()
+        self._price_update_lock = asyncio.Lock()
         self._no_data_overlay_visible: bool = False
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
@@ -390,139 +391,140 @@ class PriceChartComponent:
         symbol: str | None = None,
     ) -> None:
         """Process incoming price update and update chart."""
-        if self._disposed:
-            return
-        if symbol is not None and symbol != self._current_symbol:
-            return
-
-        # Ensure chart exists even when historical bars are unavailable.
-        if not self._chart_initialized:
-            try:
-                await self._ensure_chart_initialized()
-            except Exception as exc:
-                logger.debug(f"Failed to initialize chart on tick update: {exc}")
+        async with self._price_update_lock:
+            if self._disposed:
                 return
-        if self._disposed or (symbol is not None and symbol != self._current_symbol):
-            return
+            if symbol is not None and symbol != self._current_symbol:
+                return
 
-        await self._hide_no_data_overlay()
+            # Ensure chart exists even when historical bars are unavailable.
+            if not self._chart_initialized:
+                try:
+                    await self._ensure_chart_initialized()
+                except Exception as exc:
+                    logger.debug(f"Failed to initialize chart on tick update: {exc}")
+                    return
+            if self._disposed or (symbol is not None and symbol != self._current_symbol):
+                return
 
-        # Hide stale overlay on valid update
-        if self._last_realtime_update:
-            await self._hide_stale_overlay()
-        if self._disposed or (symbol is not None and symbol != self._current_symbol):
-            return
+            await self._hide_no_data_overlay()
 
-        bucket_start = (
-            int(tick_time.timestamp()) // self.CANDLE_INTERVAL_SECONDS
-        ) * self.CANDLE_INTERVAL_SECONDS
+            # Hide stale overlay on valid update
+            if self._last_realtime_update:
+                await self._hide_stale_overlay()
+            if self._disposed or (symbol is not None and symbol != self._current_symbol):
+                return
 
-        if not self._candles:
-            seeded_candle = CandleData(
-                time=bucket_start,
-                open=price,
-                high=price,
-                low=price,
-                close=price,
-                volume=None,
-            )
-            self._candles = [seeded_candle]
-            try:
-                await self._run_javascript(
-                    f"""
-                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
-                    if (chartRef) {{
-                        chartRef.candlestickSeries.setData([{json.dumps({
-                            "time": seeded_candle.time,
-                            "open": seeded_candle.open,
-                            "high": seeded_candle.high,
-                            "low": seeded_candle.low,
-                            "close": seeded_candle.close,
-                        })}]);
-                    }}
-                """
+            bucket_start = (
+                int(tick_time.timestamp()) // self.CANDLE_INTERVAL_SECONDS
+            ) * self.CANDLE_INTERVAL_SECONDS
+
+            if not self._candles:
+                seeded_candle = CandleData(
+                    time=bucket_start,
+                    open=price,
+                    high=price,
+                    low=price,
+                    close=price,
+                    volume=None,
                 )
-            except Exception as exc:
-                logger.debug(f"Failed to seed chart from live tick: {exc}")
-            return
+                self._candles = [seeded_candle]
+                try:
+                    await self._run_javascript(
+                        f"""
+                        const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                        if (chartRef) {{
+                            chartRef.candlestickSeries.setData([{json.dumps({
+                                "time": seeded_candle.time,
+                                "open": seeded_candle.open,
+                                "high": seeded_candle.high,
+                                "low": seeded_candle.low,
+                                "close": seeded_candle.close,
+                            })}]);
+                        }}
+                    """
+                    )
+                except Exception as exc:
+                    logger.debug(f"Failed to seed chart from live tick: {exc}")
+                return
 
-        # Update existing candle or start a new bucket candle
-        last_candle = self._candles[-1]
-        if bucket_start < last_candle.time:
-            # Ignore delayed/out-of-order ticks from older buckets.
-            return
-        if bucket_start > last_candle.time:
-            updated_candle = {
-                "time": bucket_start,
-                "open": price,
-                "high": price,
-                "low": price,
-                "close": price,
-            }
-            self._candles.append(
-                CandleData(
+            # Update existing candle or start a new bucket candle
+            last_candle = self._candles[-1]
+            if bucket_start < last_candle.time:
+                # Ignore delayed/out-of-order ticks from older buckets.
+                return
+            if bucket_start > last_candle.time:
+                updated_candle = {
+                    "time": bucket_start,
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                }
+                self._candles.append(
+                    CandleData(
+                        time=int(updated_candle["time"]),
+                        open=updated_candle["open"],
+                        high=updated_candle["high"],
+                        low=updated_candle["low"],
+                        close=updated_candle["close"],
+                        volume=None,
+                    )
+                )
+            else:
+                updated_candle = {
+                    "time": last_candle.time,
+                    "open": last_candle.open,
+                    "high": max(last_candle.high, price),
+                    "low": min(last_candle.low, price),
+                    "close": price,
+                }
+                self._candles[-1] = CandleData(
                     time=int(updated_candle["time"]),
                     open=updated_candle["open"],
                     high=updated_candle["high"],
                     low=updated_candle["low"],
                     close=updated_candle["close"],
-                    volume=None,
+                    volume=last_candle.volume,
                 )
-            )
-        else:
-            updated_candle = {
-                "time": last_candle.time,
-                "open": last_candle.open,
-                "high": max(last_candle.high, price),
-                "low": min(last_candle.low, price),
-                "close": price,
-            }
-            self._candles[-1] = CandleData(
-                time=int(updated_candle["time"]),
-                open=updated_candle["open"],
-                high=updated_candle["high"],
-                low=updated_candle["low"],
-                close=updated_candle["close"],
-                volume=last_candle.volume,
-            )
 
-        trimmed_history = False
-        # Keep bounded history in UI-only memory.
-        if len(self._candles) > 500:
-            self._candles = self._candles[-500:]
-            trimmed_history = True
+            trimmed_history = False
+            # Keep bounded history in UI-only memory.
+            if len(self._candles) > 500:
+                self._candles = self._candles[-500:]
+                trimmed_history = True
 
-        try:
-            if trimmed_history:
-                candles_payload = [
-                    {
-                        "time": candle.time,
-                        "open": candle.open,
-                        "high": candle.high,
-                        "low": candle.low,
-                        "close": candle.close,
-                    }
-                    for candle in self._candles
-                ]
-                await self._run_javascript(
-                    f"""
-                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
-                    if (chartRef) {{
-                        chartRef.candlestickSeries.setData({json.dumps(candles_payload)});
-                    }}
-                """
-                )
-            else:
-                await self._run_javascript(
-                    f"""
-                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
-                    if (chartRef) {{
-                        chartRef.candlestickSeries.update({json.dumps(updated_candle)});
-                    }}
-                """
-                )
-        except Exception as exc:
-            logger.debug(f"Failed to update chart: {exc}")
+            try:
+                if trimmed_history:
+                    candles_payload = [
+                        {
+                            "time": candle.time,
+                            "open": candle.open,
+                            "high": candle.high,
+                            "low": candle.low,
+                            "close": candle.close,
+                        }
+                        for candle in self._candles
+                    ]
+                    await self._run_javascript(
+                        f"""
+                        const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                        if (chartRef) {{
+                            chartRef.candlestickSeries.setData({json.dumps(candles_payload)});
+                        }}
+                    """
+                    )
+                else:
+                    await self._run_javascript(
+                        f"""
+                        const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                        if (chartRef) {{
+                            chartRef.candlestickSeries.update({json.dumps(updated_candle)});
+                        }}
+                    """
+                    )
+            except Exception as exc:
+                logger.debug(f"Failed to update chart: {exc}")
 
     # ================= Data Fetching =================
 
