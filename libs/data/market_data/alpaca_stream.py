@@ -74,6 +74,14 @@ class AlpacaMarketDataStream:
         self.price_ttl = price_ttl
         self._messages_received_counter = messages_received_counter
         self._reconnect_attempts_counter = reconnect_attempts_counter
+        # Pre-bind the labeled child once so the hot-path _handle_quote doesn't
+        # pay the per-message .labels() lookup (dict get + child construction)
+        # on every inbound WebSocket message.
+        self._quote_message_counter = (
+            messages_received_counter.labels(message_type="quote")
+            if messages_received_counter is not None
+            else None
+        )
 
         # Initialize Alpaca WebSocket client
         self.stream = StockDataStream(api_key, secret_key)
@@ -258,9 +266,11 @@ class AlpacaMarketDataStream:
         """
         # Record receipt of the message before any processing so the counter
         # reflects inbound WebSocket volume even if parsing/validation fails.
-        if self._messages_received_counter is not None:
+        # Use the pre-bound labeled child to avoid a per-message .labels()
+        # lookup on the WebSocket hot path.
+        if self._quote_message_counter is not None:
             try:
-                self._messages_received_counter.labels(message_type="quote").inc()
+                self._quote_message_counter.inc()
             except Exception:  # pragma: no cover - defensive: never let metrics break the stream
                 # Intentional deviation from "catch, log, re-raise" standard:
                 # a prometheus_client failure here would crash the quote
