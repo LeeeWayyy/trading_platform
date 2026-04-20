@@ -27,11 +27,24 @@ from libs.data.market_data.alpaca_stream import AlpacaMarketDataStream
 
 
 def _counter_value(counter: Counter, **labels: str) -> float:
-    """Return the current value of a Prometheus counter (label-aware)."""
-    if labels:
-        return counter.labels(**labels)._value.get()  # type: ignore[attr-defined]
-    # Unlabelled counters expose the value directly via ``_value``.
-    return counter._value.get()  # type: ignore[attr-defined]
+    """Return the current value of a Prometheus counter via the public API.
+
+    Uses ``Counter.collect()`` (public prometheus_client API) instead of the
+    private ``_value`` attribute so the test isn't coupled to internal
+    implementation details of prometheus_client.
+    """
+    for metric in counter.collect():
+        for sample in metric.samples:
+            # Counter exposes a ``<name>_total`` sample. Filter to that sample
+            # with the requested labels.
+            if not sample.name.endswith("_total"):
+                continue
+            if labels and sample.labels != labels:
+                continue
+            if not labels and sample.labels:
+                continue
+            return float(sample.value)
+    return 0.0
 
 
 @pytest.fixture()
@@ -168,7 +181,7 @@ class TestReconnectAttemptsCounter:
     ) -> None:
         assert _counter_value(reconnect_counter) == 0.0
 
-        # Fail twice, then bail by raising so we exit the retry loop quickly.
+        # Fail every iteration, bail after a few attempts.
         call_count = {"n": 0}
 
         def fake_run() -> None:
@@ -176,7 +189,7 @@ class TestReconnectAttemptsCounter:
             raise RuntimeError("boom")
 
         stream.stream.run = fake_run
-        stream._max_reconnect_attempts = 2  # bail after 2 attempts
+        stream._max_reconnect_attempts = 3  # bail after 3 attempts
 
         # Patch sleep to avoid the exponential backoff in tests.
         with patch("libs.data.market_data.alpaca_stream.asyncio.sleep", new=AsyncMock()):
@@ -185,12 +198,20 @@ class TestReconnectAttemptsCounter:
             with pytest.raises(MDConnErr):
                 await stream.start()
 
+        # Iteration 1 (initial connect) -> no increment (raises, attempts=1).
+        # Iteration 2 (reconnect) -> +1, raises (attempts=2).
+        # Iteration 3 (reconnect) -> +1, raises (attempts=3, bail).
+        # Reconnect attempts counted: 2 (one per reconnect iteration).
         assert _counter_value(reconnect_counter) == 2.0
 
 
 class TestReconnectAttemptsCleanReturn:
     """Clean-return reconnect cycles (stream.run() returns while _running is True)
-    must also be counted; otherwise flapping connections silently undercount."""
+    must also be counted; otherwise flapping connections silently undercount.
+
+    Counter increments are performed exactly once per reconnect iteration
+    (at the start of each loop pass after the first), so a single failed
+    reconnect following a clean close is not double-counted."""
 
     @pytest.mark.asyncio()
     async def test_clean_return_while_running_increments_counter(
@@ -202,14 +223,14 @@ class TestReconnectAttemptsCleanReturn:
 
         def fake_run() -> None:
             call_count["n"] += 1
-            # First two cycles: return normally (clean close). After that, raise
-            # to let the ConnectionError bail us out of the retry loop.
+            # First two cycles: return normally (clean close). Third cycle:
+            # raise to let the ConnectionError bail us out of the retry loop.
             if call_count["n"] >= 3:
                 raise RuntimeError("stop")
             # Return normally with _running still True -> flapping reconnect.
 
         stream.stream.run = fake_run
-        stream._max_reconnect_attempts = 1  # first exception will bail
+        stream._max_reconnect_attempts = 1  # first exception bails
 
         with patch("libs.data.market_data.alpaca_stream.asyncio.sleep", new=AsyncMock()):
             from libs.data.market_data.exceptions import ConnectionError as MDConnErr
@@ -217,8 +238,40 @@ class TestReconnectAttemptsCleanReturn:
             with pytest.raises(MDConnErr):
                 await stream.start()
 
-        # Two clean-return flaps + one exception-path reconnect = 3 increments.
-        assert _counter_value(reconnect_counter) == 3.0
+        # Iteration 1 (initial connect) -> no increment.
+        # Iteration 2 (reconnect after clean close) -> +1.
+        # Iteration 3 (reconnect after clean close, run raises) -> +1.
+        # The raise happens AFTER the top-of-iteration increment, so the same
+        # failed reconnect is not double-counted with the exception path.
+        assert _counter_value(reconnect_counter) == 2.0
+
+    @pytest.mark.asyncio()
+    async def test_clean_return_then_failure_not_double_counted(
+        self, stream: AlpacaMarketDataStream, reconnect_counter: Counter
+    ) -> None:
+        """Regression test: a single failed reconnect following a clean close
+        must be counted exactly once, not twice."""
+        assert _counter_value(reconnect_counter) == 0.0
+
+        call_count = {"n": 0}
+
+        def fake_run() -> None:
+            call_count["n"] += 1
+            # First cycle returns cleanly; second cycle raises (the reconnect).
+            if call_count["n"] >= 2:
+                raise RuntimeError("reconnect-failed")
+
+        stream.stream.run = fake_run
+        stream._max_reconnect_attempts = 1
+
+        with patch("libs.data.market_data.alpaca_stream.asyncio.sleep", new=AsyncMock()):
+            from libs.data.market_data.exceptions import ConnectionError as MDConnErr
+
+            with pytest.raises(MDConnErr):
+                await stream.start()
+
+        # Exactly one reconnect attempt (iteration 2), not two.
+        assert _counter_value(reconnect_counter) == 1.0
 
 
 class TestPositionSyncsCounter:
@@ -341,6 +394,32 @@ class TestPositionSyncsCounter:
 
         assert _counter_value(syncs_counter, status="error") == 1.0
         assert _counter_value(syncs_counter, status="success") == 0.0
+
+    @pytest.mark.asyncio()
+    async def test_cancelled_sync_does_not_increment(
+        self, mock_stream: AsyncMock, syncs_counter: Counter
+    ) -> None:
+        """CancelledError mid-sync (e.g. shutdown) must NOT record the cycle
+        as success — otherwise aborted cycles bias the monitoring signal."""
+        mgr = PositionBasedSubscription(
+            stream=mock_stream,
+            execution_gateway_url="http://gw",
+            sync_interval=1,
+            initial_sync=False,
+            syncs_counter=syncs_counter,
+        )
+
+        with patch.object(
+            mgr,
+            "_fetch_position_symbols",
+            new=AsyncMock(side_effect=asyncio.CancelledError()),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await mgr._sync_subscriptions()
+
+        # Neither success nor error should have been recorded.
+        assert _counter_value(syncs_counter, status="success") == 0.0
+        assert _counter_value(syncs_counter, status="error") == 0.0
 
     @pytest.mark.asyncio()
     async def test_multiple_syncs_accumulate(

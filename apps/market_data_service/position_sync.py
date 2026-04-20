@@ -242,7 +242,7 @@ class PositionBasedSubscription:
         1. Subscribes to new symbols (not currently subscribed)
         2. Unsubscribes from closed symbols (no longer have position)
         """
-        sync_status = "success"
+        sync_status: str | None = "success"
         try:
             # Fetch positions from Execution Gateway
             position_symbols = await self._fetch_position_symbols()
@@ -305,6 +305,12 @@ class PositionBasedSubscription:
             # Update tracking
             self._last_position_symbols = position_symbols
 
+        except asyncio.CancelledError:
+            # Task cancellation (e.g. shutdown) is not a sync outcome — skip
+            # the counter increment entirely so aborted cycles don't bias the
+            # success/error signal. Re-raise to honor cooperative cancellation.
+            sync_status = None
+            raise
         except SubscriptionError as e:
             sync_status = "error"
             logger.error(
@@ -339,10 +345,18 @@ class PositionBasedSubscription:
             )
         finally:
             # Record one observation per sync cycle for Prometheus alerting.
-            if self._syncs_counter is not None:
+            # sync_status is set to None when the cycle was cancelled mid-flight
+            # (shutdown), in which case we skip the increment so cancelled
+            # cycles don't bias the success/error monitoring signal.
+            if self._syncs_counter is not None and sync_status is not None:
                 try:
                     self._syncs_counter.labels(status=sync_status).inc()
                 except Exception:  # pragma: no cover - defensive
+                    # Intentional deviation from "catch, log, re-raise" standard:
+                    # a metrics backend failure must not mask the real sync
+                    # outcome. The counter is pure observability, so log and
+                    # continue; propagating would convert every metrics hiccup
+                    # into a sync-cycle failure.
                     logger.debug("Failed to increment position_syncs_total", exc_info=True)
 
     async def _fetch_position_symbols(self) -> set[str] | None:

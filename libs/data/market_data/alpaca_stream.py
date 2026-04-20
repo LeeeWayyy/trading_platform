@@ -262,6 +262,10 @@ class AlpacaMarketDataStream:
             try:
                 self._messages_received_counter.labels(message_type="quote").inc()
             except Exception:  # pragma: no cover - defensive: never let metrics break the stream
+                # Intentional deviation from "catch, log, re-raise" standard:
+                # a prometheus_client failure here would crash the quote
+                # handler for every inbound message. The counter is pure
+                # observability, so we log at debug and continue.
                 logger.debug("Failed to increment websocket_messages_received_total", exc_info=True)
 
         try:
@@ -357,8 +361,29 @@ class AlpacaMarketDataStream:
         """
         self._running = True
         retry_delay = 5  # Base delay in seconds
+        # Track whether this iteration is a reconnect (i.e. not the very first
+        # connection attempt). We count reconnect attempts at a single place —
+        # the top of each iteration after the first — so clean-return and
+        # exception paths don't both increment for the same logical reconnect.
+        is_reconnect_iteration = False
 
         while self._running and self._reconnect_attempts < self._max_reconnect_attempts:
+            # Count every reconnect attempt exactly once, at the start of the
+            # iteration. Skips the initial connection attempt. This covers both
+            # the clean-return ("flapping") path and the exception-driven path
+            # without double-counting a single failed reconnect after a clean
+            # close.
+            if is_reconnect_iteration and self._reconnect_attempts_counter is not None:
+                try:
+                    self._reconnect_attempts_counter.inc()
+                except Exception:  # pragma: no cover - defensive
+                    # Intentional deviation from "catch, log, re-raise" standard:
+                    # a metrics backend failure must not tear down the WebSocket
+                    # reconnect loop (which is already in a degraded state).
+                    # The monitoring counter is strictly observability, not a
+                    # correctness signal, so we log and swallow.
+                    logger.debug("Failed to increment reconnect_attempts_total", exc_info=True)
+
             try:
                 logger.info(
                     f"Starting WebSocket connection "
@@ -388,28 +413,17 @@ class AlpacaMarketDataStream:
                     logger.warning(
                         "WebSocket connection closed unexpectedly, will reconnect immediately."
                     )
-                    # Count this flapping reconnect cycle. Without this, clean-return
-                    # reconnect loops (stream.run() returns while _running is True)
-                    # are invisible to the market_data_reconnect_attempts_total metric,
-                    # weakening reconnect-rate alerts and dashboards.
-                    if self._reconnect_attempts_counter is not None:
-                        try:
-                            self._reconnect_attempts_counter.inc()
-                        except Exception:  # pragma: no cover - defensive
-                            logger.debug(
-                                "Failed to increment reconnect_attempts_total", exc_info=True
-                            )
+                    # Next iteration is a reconnect (flapping) — count it at the
+                    # top of the next loop pass.
+                    is_reconnect_iteration = True
 
             except Exception as e:
                 self._connected = False
                 self._reconnect_attempts += 1
-
-                # Record reconnect attempt for Prometheus alerting/dashboards.
-                if self._reconnect_attempts_counter is not None:
-                    try:
-                        self._reconnect_attempts_counter.inc()
-                    except Exception:  # pragma: no cover - defensive
-                        logger.debug("Failed to increment reconnect_attempts_total", exc_info=True)
+                # Next iteration is a reconnect — count it at the top of the
+                # next loop pass (avoids double-counting with the clean-return
+                # path when a reconnect follows a clean close).
+                is_reconnect_iteration = True
 
                 if self._reconnect_attempts >= self._max_reconnect_attempts:
                     logger.error("Max reconnection attempts reached. Giving up.")
