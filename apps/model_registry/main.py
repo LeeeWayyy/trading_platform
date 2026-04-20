@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 
 from libs.models.models import ManifestIntegrityError, ModelRegistry, RegistryManifestManager
 
+from .error_handlers import install_error_handlers
 from .routes import router, set_registry
 
 # =============================================================================
@@ -352,6 +353,11 @@ def _verify_cors_middleware_uses_shared_origins(target_app: FastAPI) -> None:
 # Routes
 # =============================================================================
 
+
+# Register custom error handlers BEFORE including the router so any HTTPException
+# raised from a route is flattened to the {"detail": str, "code": str} shape
+# declared by ErrorResponse (issue #166).
+install_error_handlers(app)
 
 app.include_router(router)
 
