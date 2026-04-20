@@ -10,7 +10,7 @@ Licensing Notes:
 
 Security Notes:
 - CDN assets loaded with SRI (Subresource Integrity) hash
-- CSP allowlist entry required: script-src unpkg.com
+- CSP allowlist entry required: script-src cdn.jsdelivr.net
 - Alternative: Host locally in /static/vendor/ for airgapped deployments
 """
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # CDN with SRI hash for supply-chain security
 # Hash generated via: curl -s "$CDN_URL" | openssl dgst -sha384 -binary | openssl base64 -A
 LIGHTWEIGHT_CHARTS_CDN = (
-    "https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
+    "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
 )
 LIGHTWEIGHT_CHARTS_SRI = "sha384-rcCMiCptH4kTlEbg0euOTUKWe72TESbrjElatnG+9BfbmUIV268UK/Pro5biJdGm"
 
