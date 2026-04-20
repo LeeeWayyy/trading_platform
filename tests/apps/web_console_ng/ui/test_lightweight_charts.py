@@ -67,6 +67,12 @@ async def test_loader_timeout_has_explicit_error(monkeypatch: pytest.MonkeyPatch
         await lightweight_charts.LightweightChartsLoader.ensure_loaded()
 
 
+def test_chart_init_js_resets_loading_promise_after_failure() -> None:
+    """Browser loader should reset promise on failure so later inits can retry."""
+    assert "window.__lwc_loading_promise = null;" in lightweight_charts.CHART_INIT_JS
+    assert "throw loadError;" in lightweight_charts.CHART_INIT_JS
+
+
 @pytest.mark.asyncio()
 async def test_price_chart_uses_sync_timer_callback_for_init(
     monkeypatch: pytest.MonkeyPatch,

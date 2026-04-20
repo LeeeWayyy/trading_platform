@@ -78,21 +78,24 @@ CHART_INIT_JS = """
         window.__lwc_loading_promise = window.__lwc_loading_promise || (async () => {{
             try {{
                 await loadScriptOnce('lwc-script-cdn-v410', '{cdn}', '{sri}');
-            }} catch (e) {{
+            }} catch (cdnError) {{
                 try {{
                     await loadScriptOnce('lwc-script-local-v410', '{local}');
                 }} catch (fallbackError) {{
                     console.warn('LightweightCharts load failed from CDN and local fallback', fallbackError);
+                    throw fallbackError;
                 }}
             }}
         }})();
 
         try {{
             await window.__lwc_loading_promise;
+        }} catch (loadError) {{
+            window.__lwc_loading_promise = null;
+            console.warn('LightweightCharts load promise failed; will retry on next init', loadError);
+            throw loadError;
         }} finally {{
-            if (typeof window.LightweightCharts !== 'undefined') {{
-                window.__lwc_ready = true;
-            }}
+            window.__lwc_ready = typeof window.LightweightCharts !== 'undefined';
         }}
     }}
 
