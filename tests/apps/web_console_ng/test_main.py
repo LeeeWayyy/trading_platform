@@ -218,8 +218,21 @@ def _install_dummy_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[_DummyApp, 
     auth_parent.routes = auth_routes_module
     auth_parent.logout = auth_logout_module
     monkeypatch.setitem(sys.modules, "apps.web_console_ng.auth", auth_parent)
+    pages_module = ModuleType("apps.web_console_ng.pages")
+    pages_module.__path__ = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "apps.web_console_ng.pages", pages_module)
+
+    # ``main.shutdown`` imports this symbol lazily; stub only the required module.
+    execution_quality_module = ModuleType("apps.web_console_ng.pages.execution_quality")
+
+    async def _close_shared_client() -> None:
+        return None
+
+    execution_quality_module.close_shared_client = _close_shared_client
     monkeypatch.setitem(
-        sys.modules, "apps.web_console_ng.pages", ModuleType("apps.web_console_ng.pages")
+        sys.modules,
+        "apps.web_console_ng.pages.execution_quality",
+        execution_quality_module,
     )
 
     dependencies_module = ModuleType("apps.web_console_ng.core.dependencies")
@@ -365,6 +378,20 @@ def test_socket_io_routes_registered(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert ("GET", "/socket.io/{path:path}") in module.app.routes
     assert ("POST", "/socket.io/{path:path}") in module.app.routes
+
+
+def test_retired_workspace_routes_not_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retired legacy paths are intentionally not mounted."""
+    module = _import_main(monkeypatch)
+
+    for path in (
+        "/manual-order",
+        "/position-management",
+        "/alpha-explorer",
+        "/backtest",
+        "/models",
+    ):
+        assert ("GET", path) not in module.app.routes
 
 
 def test_exception_handler_registered(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -112,3 +112,8 @@ def test_dashboard_has_trade_alias_route() -> None:
     """Dashboard page keeps '/' canonical and exposes '/trade' alias."""
     source = inspect.getsource(dashboard_module.dashboard)
     assert '@ui.page("/trade")' in source
+
+
+def test_dashboard_session_expiry_redirects_to_login() -> None:
+    source = inspect.getsource(dashboard_module.dashboard)
+    assert 'with_root_path("/login"' in source

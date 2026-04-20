@@ -22,21 +22,17 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 import pandas as pd
 from nicegui import run, ui
 
-from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.correlation_matrix import render_correlation_matrix
 from apps.web_console_ng.components.decay_curve import render_decay_curve
 from apps.web_console_ng.components.ic_chart import render_ic_chart
 from apps.web_console_ng.config import (
-    FEATURE_ALPHA_EXPLORER,
-    FEATURE_RESEARCH_WORKSPACE,
     MODEL_REGISTRY_DIR,
 )
-from apps.web_console_ng.ui.layout import main_layout
-from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
     from libs.web_console_services.alpha_explorer_service import (
@@ -48,6 +44,18 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
+
+
+def _build_validate_backtest_link(*, signal_id: str, source: str = "alpha_explorer") -> str:
+    """Build consolidated Research/Validate route from alpha context."""
+    return "/research?" + urlencode(
+        {
+            "tab": "validate",
+            "backtest_tab": "new",
+            "signal_id": signal_id,
+            "source": source,
+        }
+    )
 
 
 @lru_cache(maxsize=1)
@@ -92,54 +100,6 @@ def _get_alpha_service() -> AlphaExplorerService | None:
 def get_alpha_service() -> AlphaExplorerService | None:
     """Public wrapper for reusable alpha-service resolution."""
     return _get_alpha_service()
-
-
-@ui.page("/alpha-explorer")
-@requires_auth
-@main_layout
-async def alpha_explorer_page() -> None:
-    """Legacy route alias for Discover tab in consolidated Research Workspace."""
-    if FEATURE_RESEARCH_WORKSPACE:
-        ui.navigate.to("/research?tab=discover")
-        return
-
-    user = get_current_user()
-
-    # Feature flag check
-    if not FEATURE_ALPHA_EXPLORER:
-        with ui.card().classes("w-full p-6"):
-            ui.label("Alpha Explorer feature is disabled.").classes("text-gray-500 text-center")
-            ui.label("Set FEATURE_ALPHA_EXPLORER=true to enable this feature.").classes(
-                "text-gray-400 text-sm text-center"
-            )
-        return
-
-    # Permission check
-    if not has_permission(user, Permission.VIEW_ALPHA_SIGNALS):
-        ui.notify("Permission denied: VIEW_ALPHA_SIGNALS required", type="negative")
-        with ui.card().classes("w-full p-6"):
-            ui.label("You don't have permission to view alpha signals.").classes(
-                "text-red-500 text-center"
-            )
-        return
-
-    # Try to get service
-    service = await run.io_bound(_get_alpha_service)
-
-    if service is None:
-        # Demo mode banner
-        with ui.card().classes("w-full p-3 mb-4 bg-amber-50 border border-amber-300"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("info", color="amber-700")
-                ui.label("Demo Mode: Service unavailable. Configure MODEL_REGISTRY_DIR.").classes(
-                    "text-amber-700"
-                )
-
-        _render_demo_mode()
-        return
-
-    # Real mode with service
-    await _render_alpha_explorer(service, user)
 
 
 async def _render_alpha_explorer(service: AlphaExplorerService, user: dict[str, Any]) -> None:
@@ -366,9 +326,7 @@ async def _render_signal_details(
 
             # Launch backtest button
             def launch_backtest() -> None:
-                ui.navigate.to(
-                    f"/backtest?signal_id={selected.signal_id}&source=alpha_explorer"
-                )
+                ui.navigate.to(_build_validate_backtest_link(signal_id=selected.signal_id))
 
             ui.button("Launch Backtest", icon="play_arrow", on_click=launch_backtest).classes(
                 "w-full mb-2"
@@ -610,4 +568,4 @@ def _render_demo_mode() -> None:
     )
 
 
-__all__ = ["alpha_explorer_page"]
+__all__ = ["get_alpha_service"]

@@ -10,7 +10,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
@@ -49,14 +48,6 @@ class _El:
     def on_click(self, fn: Callable[..., Any] | None) -> _El:
         self._on_click = fn
         return self
-
-
-def test_models_page_redirects_to_research_promote() -> None:
-    """Legacy models page should redirect users to consolidated Promote tab."""
-    source = inspect.getsource(models_module.models_page)
-
-    assert 'ui.navigate.to("/research?tab=promote")' in source
-    assert '"/research?tab=promote"' in source
 
 
 class _UI:
@@ -443,3 +434,8 @@ class TestRenderStrategyModels:
 
         label_texts = [el.label for el in dummy.labels]
         assert any("denied" in t.lower() or "access" in t.lower() for t in label_texts)
+
+
+def test_legacy_models_route_handler_removed() -> None:
+    """Legacy /models route handler should no longer be defined."""
+    assert not hasattr(models_module, "models_page")

@@ -23,6 +23,9 @@ import httpx
 from apps.web_console_ng import config
 from apps.web_console_ng.core.retry import with_retry
 
+DEFAULT_REQUEST_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
+TWAP_PREVIEW_TIMEOUT = httpx.Timeout(4.0, connect=2.0)
+
 
 class AsyncTradingClient:
     """Async HTTP client for trading API calls."""
@@ -56,7 +59,7 @@ class AsyncTradingClient:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
                 base_url=config.EXECUTION_GATEWAY_URL,
-                timeout=httpx.Timeout(5.0, connect=2.0),
+                timeout=DEFAULT_REQUEST_TIMEOUT,
                 headers={"Content-Type": "application/json"},
             )
         if self._market_data_client is None:
@@ -65,7 +68,7 @@ class AsyncTradingClient:
                 raise RuntimeError("Market data service URL not configured")
             self._market_data_client = httpx.AsyncClient(
                 base_url=market_data_url,
-                timeout=httpx.Timeout(5.0, connect=2.0),
+                timeout=DEFAULT_REQUEST_TIMEOUT,
                 headers={"Content-Type": "application/json"},
             )
 
@@ -331,7 +334,12 @@ class AsyncTradingClient:
     ) -> dict[str, Any]:
         """Fetch TWAP slicing preview (POST)."""
         headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._client.post("/api/v1/orders/twap-preview", headers=headers, json=payload)
+        resp = await self._client.post(
+            "/api/v1/orders/twap-preview",
+            headers=headers,
+            json=payload,
+            timeout=TWAP_PREVIEW_TIMEOUT,
+        )
         resp.raise_for_status()
         return self._json_dict(resp)
 

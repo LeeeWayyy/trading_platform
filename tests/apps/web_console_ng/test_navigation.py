@@ -325,8 +325,6 @@ def test_navigation_item_structure() -> None:
         ("Dashboard", "/", "dashboard", None),
         ("Trade", "/trade", "candlestick_chart", None),
         ("Research Workspace", "/research", "hub", None),
-        ("Manual Controls", "/manual-order", "edit", None),
-        ("Position Mgmt", "/position-management", "swap_vert", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
@@ -743,7 +741,6 @@ async def test_research_link_visible_with_models_permission_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Research workspace link stays visible when only Promote-tab permission exists."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
     await _run_layout(monkeypatch, current_path="/")
 
@@ -775,7 +772,6 @@ async def test_research_link_hidden_with_models_permission_only_when_registry_fl
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Research workspace link is hidden when Promote tab is feature-disabled."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
     monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", False)
     await _run_layout(monkeypatch, current_path="/")
 
@@ -807,7 +803,6 @@ async def test_research_link_hidden_without_workspace_permissions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Research workspace link is hidden when no consolidated-tab permission exists."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", True)
     await _run_layout(monkeypatch, current_path="/")
 
     fake_ui = _FakeUI()
@@ -832,34 +827,3 @@ async def test_research_link_hidden_without_workspace_permissions(
 
     targets = {link.target for link in fake_ui.links}
     assert "/research" not in targets
-
-
-@pytest.mark.asyncio()
-async def test_research_link_hidden_when_workspace_flag_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Research workspace link is hidden when consolidated workspace is disabled."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", False)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
-
-    fake_ui = await _run_layout(monkeypatch, current_path="/")
-
-    targets = {link.target for link in fake_ui.links}
-    assert "/research" not in targets
-
-
-@pytest.mark.asyncio()
-async def test_legacy_research_links_visible_when_workspace_flag_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Legacy research routes remain visible during workspace rollback."""
-    monkeypatch.setattr(layout_module.config, "FEATURE_RESEARCH_WORKSPACE", False)
-    monkeypatch.setattr(layout_module.config, "FEATURE_MODEL_REGISTRY", True)
-
-    fake_ui = await _run_layout(monkeypatch, current_path="/")
-
-    targets = {link.target for link in fake_ui.links}
-    assert "/research" not in targets
-    assert "/alpha-explorer" in targets
-    assert "/backtest" in targets
-    assert "/models" in targets

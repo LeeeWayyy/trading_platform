@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from nicegui import ui
 
@@ -36,7 +36,9 @@ from apps.web_console_ng.components.execution_gate import (
     is_strategy_execution_safe,
     normalize_execution_status,
 )
+from apps.web_console_ng.components.execution_style_selector import ExecutionStyleSelector
 from apps.web_console_ng.components.quantity_presets import QuantityPresetsComponent
+from apps.web_console_ng.components.twap_config import TWAPConfig
 from apps.web_console_ng.utils.time import parse_iso_timestamp, validate_and_normalize_symbol
 
 if TYPE_CHECKING:
@@ -66,6 +68,7 @@ class OrderTicketState:
     limit_price: Decimal | None = None
     stop_price: Decimal | None = None
     time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day"
+    execution_style: Literal["instant", "twap"] = "instant"
 
 
 class OrderTicketComponent:
@@ -138,6 +141,8 @@ class OrderTicketComponent:
         self._limit_price_input: ui.number | None = None
         self._stop_price_input: ui.number | None = None
         self._time_in_force_select: ui.select | None = None
+        self._execution_style_selector: ExecutionStyleSelector | None = None
+        self._twap_config: TWAPConfig | None = None
         self._submit_button: ActionButton | None = None
         self._clear_button: ui.button | None = None
         self._disabled_banner: ui.label | None = None
@@ -149,6 +154,7 @@ class OrderTicketComponent:
         self._execution_context_label: ui.label | None = None
         self._execution_context_state_label: ui.label | None = None
         self._quantity_presets: QuantityPresetsComponent | None = None
+        self._root_card: ui.card | None = None
 
         # State
         self._state = OrderTicketState()
@@ -161,6 +167,10 @@ class OrderTicketComponent:
         self._qty_unit: str = self.DEFAULT_QTY_UNIT
         self._qty_unit_size: int = 1
         self._state_quantity_canonical_override: int | None = None
+        self._twap_notional_acknowledged: bool = False
+        self._twap_notional_warning: str | None = None
+        self._pending_twap_fields: dict[str, Any] | None = None
+        self._pending_twap_preview: dict[str, Any] | None = None
 
         # Safety state (FAIL-CLOSED defaults)
         self._kill_switch_engaged: bool = True  # Default: engaged (unsafe)
@@ -205,6 +215,7 @@ class OrderTicketComponent:
         self._model_status: str = "unknown"
         self._execution_gate_reason: str | None = None
         self._execution_context_snapshot: ExecutionContextSnapshot | None = None
+        self._show_execution_context_ribbon: bool = True
 
     async def initialize(self, timer_tracker: Callable[[ui.timer], None]) -> None:
         """Initialize with timer tracking.
@@ -220,9 +231,11 @@ class OrderTicketComponent:
         # This ensures we don't start in false fail-closed state if already connected
         self._connection_read_only = self._connection_monitor.is_read_only()
 
-    def create(self) -> ui.card:
+    def create(self, *, show_execution_context_ribbon: bool = True) -> ui.card:
         """Create and return the order ticket UI."""
         with ui.card().classes("workspace-v2-panel workspace-v2-ticket") as card:
+            self._root_card = card
+            self._show_execution_context_ribbon = show_execution_context_ribbon
             self._disabled_banner = ui.label("").classes(
                 "hidden workspace-v2-banner workspace-v2-banner-negative"
             )
@@ -288,8 +301,46 @@ class OrderTicketComponent:
                     self._time_in_force_select = ui.select(
                         ["day", "gtc", "ioc", "fok"],
                         value="day",
-                        on_change=lambda e: setattr(self._state, "time_in_force", e.value),
+                        on_change=lambda e: self._on_time_in_force_changed(e.value),
                     ).classes("workspace-v2-input")
+
+            def _on_execution_style_change(value: str) -> None:
+                normalized: Literal["instant", "twap"] = (
+                    "twap" if str(value).strip().lower() == "twap" else "instant"
+                )
+                if normalized == "twap" and (twap_reason := self._twap_incompatibility_reason()):
+                    notify_message = twap_reason
+                    if twap_reason == "TWAP requires DAY time in force":
+                        notify_message = f"{twap_reason}; execution style reverted to INSTANT"
+                    ui.notify(notify_message, type="warning")
+                    normalized = "instant"
+                    if (
+                        self._execution_style_selector is not None
+                        and self._execution_style_selector.value() != "instant"
+                    ):
+                        self._execution_style_selector.set_value("instant")
+                self._state.execution_style = normalized
+                if self._twap_config is not None:
+                    self._twap_config.set_visibility(normalized == "twap")
+                    if normalized != "twap":
+                        self._twap_config.set_notional_warning(None)
+                        self._twap_config.set_preview_errors(None)
+                if normalized != "twap":
+                    self._pending_twap_fields = None
+                    self._pending_twap_preview = None
+                    self._twap_notional_warning = None
+                    self._twap_notional_acknowledged = False
+
+            self._execution_style_selector = ExecutionStyleSelector(
+                on_change=_on_execution_style_change
+            )
+            self._execution_style_selector.create().classes("w-full mt-2")
+            self._twap_config = TWAPConfig(
+                on_change=lambda: None,
+                on_ack_change=self._set_twap_acknowledged,
+            )
+            self._twap_config.create().classes("w-full mt-2")
+            self._twap_config.set_visibility(False)
 
             with ui.row().classes("w-full gap-2 mt-2 items-end"):
                 self._limit_price_input = ui.number(
@@ -314,13 +365,18 @@ class OrderTicketComponent:
                     "workspace-v2-pill workspace-v2-pill-warning"
                 )
 
-            with ui.row().classes("w-full items-center justify-between mt-1"):
-                self._execution_context_label = ui.label("Context: --").classes(
-                    "workspace-v2-kv workspace-v2-data-mono"
-                )
-                self._execution_context_state_label = ui.label("BLOCKED").classes(
-                    "workspace-v2-pill workspace-v2-pill-warning"
-                )
+            if show_execution_context_ribbon:
+                with ui.row().classes("w-full items-center justify-between mt-1"):
+                    self._execution_context_label = ui.label("Context: --").classes(
+                        "workspace-v2-kv workspace-v2-data-mono"
+                    )
+                    self._execution_context_state_label = ui.label("BLOCKED").classes(
+                        "workspace-v2-pill workspace-v2-pill-warning"
+                    )
+            else:
+                # Dashboard uses Strategy Context as the single source of execution context.
+                self._execution_context_label = None
+                self._execution_context_state_label = None
 
             with ui.element("div").classes("workspace-v2-impact-track"):
                 self._impact_bar_fill = ui.element("div").classes(
@@ -450,6 +506,85 @@ class OrderTicketComponent:
             self._update_side_action_styles()
             self._update_buying_power_impact()
             self._update_quantity_presets_context()
+
+    def _set_twap_acknowledged(self, acknowledged: bool) -> None:
+        """Track explicit acknowledgement for TWAP notional warnings."""
+        self._twap_notional_acknowledged = acknowledged
+
+    def _reset_twap_state(self, *, hide_config: bool = True) -> None:
+        """Reset pending TWAP preview/state and clear transient TWAP warnings."""
+        if self._twap_config is not None:
+            if hide_config:
+                self._twap_config.set_visibility(False)
+            self._twap_config.set_notional_warning(None)
+            self._twap_config.set_preview_errors(None)
+        self._pending_twap_fields = None
+        self._pending_twap_preview = None
+        self._twap_notional_warning = None
+        self._twap_notional_acknowledged = False
+
+    def _on_time_in_force_changed(self, value: Any) -> None:
+        """Handle TIF selection change with TWAP compatibility guardrails."""
+        raw_tif = str(value).strip().lower()
+        if raw_tif in {"day", "gtc", "ioc", "fok"}:
+            tif_value = cast(Literal["day", "gtc", "ioc", "fok"], raw_tif)
+        else:
+            tif_value = "day"
+        self._state.time_in_force = tif_value
+        if self._is_twap_selected() and (twap_reason := self._twap_incompatibility_reason()):
+            ui.notify(
+                f"{twap_reason}; execution style reverted to INSTANT",
+                type="warning",
+            )
+            self._state.execution_style = "instant"
+            if (
+                self._execution_style_selector is not None
+                and self._execution_style_selector.value() != "instant"
+            ):
+                self._execution_style_selector.set_value("instant")
+            self._reset_twap_state(hide_config=True)
+
+    def _is_twap_selected(self) -> bool:
+        """Return whether TWAP execution style is currently selected."""
+        return self._state.execution_style == "twap"
+
+    def _twap_incompatibility_reason(self) -> str | None:
+        """Return compatibility error when TWAP is invalid for current ticket state."""
+        if self._state.order_type in {"stop", "stop_limit"}:
+            return "TWAP unavailable for stop-based order types"
+        if self._state.time_in_force != "day":
+            return "TWAP requires DAY time in force"
+        return None
+
+    def _resolve_twap_preview_strategy_id(self) -> str | None:
+        """Resolve deterministic strategy scope for TWAP preview authorization."""
+        available_strategy_ids = [
+            normalized
+            for strategy_id in self._strategies
+            if (normalized := str(strategy_id).strip())
+        ]
+        snapshot_strategy_id = (
+            str(self._execution_context_snapshot.strategy_id).strip()
+            if self._execution_context_snapshot is not None
+            and self._execution_context_snapshot.strategy_id is not None
+            else ""
+        )
+        if snapshot_strategy_id and snapshot_strategy_id in available_strategy_ids:
+            return snapshot_strategy_id
+
+        if len(available_strategy_ids) == 1:
+            return available_strategy_ids[0]
+
+        if len(available_strategy_ids) > 1:
+            logger.warning(
+                "twap_preview_strategy_ambiguous",
+                extra={
+                    "available_strategy_count": len(available_strategy_ids),
+                    "snapshot_strategy_id": snapshot_strategy_id or None,
+                },
+            )
+
+        return None
 
     def _on_quantity_changed(self, value: float | None) -> None:
         """Handle quantity input change."""
@@ -599,6 +734,17 @@ class OrderTicketComponent:
 
     def _update_side_action_styles(self) -> None:
         """Reflect selected side in action button emphasis."""
+        if self._root_card is not None:
+            self._root_card.classes(
+                remove="workspace-v2-ticket-side-buy workspace-v2-ticket-side-sell"
+            )
+            self._root_card.classes(
+                add=(
+                    "workspace-v2-ticket-side-buy"
+                    if self._state.side == "buy"
+                    else "workspace-v2-ticket-side-sell"
+                )
+            )
         if self._buy_action_button is not None:
             if self._state.side == "buy":
                 self._buy_action_button.classes(add="workspace-v2-action-active")
@@ -635,6 +781,20 @@ class OrderTicketComponent:
                 self._stop_price_input.classes(add="hidden")
                 self._stop_price_input.set_value(None)
                 self._state.stop_price = None
+
+        # TWAP is intentionally unavailable for stop-based order types.
+        if self._execution_style_selector is not None:
+            if order_type in {"stop", "stop_limit"}:
+                self._execution_style_selector.set_value("instant")
+                self._execution_style_selector.set_disabled(
+                    True, "TWAP unavailable for stop orders"
+                )
+                self._state.execution_style = "instant"
+                self._reset_twap_state(hide_config=True)
+            else:
+                self._execution_style_selector.set_disabled(False)
+                if self._twap_config is not None:
+                    self._twap_config.set_visibility(self._is_twap_selected())
 
         self._update_buying_power_impact()
 
@@ -1181,6 +1341,18 @@ class OrderTicketComponent:
         if self._time_in_force_select:
             self._time_in_force_select.set_value(self._state.time_in_force)
 
+        if self._execution_style_selector is not None:
+            self._execution_style_selector.set_value(self._state.execution_style)
+            if self._state.order_type in {"stop", "stop_limit"}:
+                self._execution_style_selector.set_value("instant")
+                self._execution_style_selector.set_disabled(True, "TWAP unavailable for stop orders")
+                self._state.execution_style = "instant"
+            else:
+                self._execution_style_selector.set_disabled(False)
+
+        if self._twap_config is not None:
+            self._twap_config.set_visibility(self._is_twap_selected())
+
     def _set_ui_disabled(self, disabled: bool, reason: str) -> None:
         """Set UI elements to disabled state.
 
@@ -1209,6 +1381,9 @@ class OrderTicketComponent:
 
         if self._time_in_force_select:
             self._time_in_force_select.set_enabled(not disabled)
+
+        if self._execution_style_selector is not None:
+            self._execution_style_selector.set_disabled(disabled)
 
         # Disable quantity presets
         if self._quantity_presets:
@@ -1303,6 +1478,9 @@ class OrderTicketComponent:
         if price_error:
             return (True, price_error)
 
+        if self._is_twap_selected() and (twap_reason := self._twap_incompatibility_reason()):
+            return (True, twap_reason)
+
         if not self._limits_loaded:
             return (True, "Risk limits loading...")
 
@@ -1393,6 +1571,115 @@ class OrderTicketComponent:
         age_s = (datetime.now(UTC) - self._limits_last_updated).total_seconds()
         return age_s > LIMITS_STALE_THRESHOLD_S
 
+    def _current_twap_snapshot_fields(self) -> dict[str, Any]:
+        """Capture TWAP-relevant form fields for idempotent preview validation."""
+        if not self._is_twap_selected() or self._twap_config is None:
+            return {
+                "execution_style": "instant",
+                "twap_duration_minutes": None,
+                "twap_interval_seconds": None,
+                "twap_start_time": "",
+                "twap_notional_acknowledged": False,
+            }
+
+        twap_state = self._twap_config.get_state("UTC")
+        start_time_iso = twap_state.start_time.isoformat() if twap_state.start_time else ""
+        return {
+            "execution_style": "twap",
+            "twap_duration_minutes": twap_state.duration_minutes,
+            "twap_interval_seconds": twap_state.interval_seconds,
+            "twap_start_time": start_time_iso,
+            "twap_notional_acknowledged": twap_state.notional_acknowledged,
+        }
+
+    async def _prepare_twap_submission_fields(
+        self,
+        *,
+        symbol: str,
+        canonical_quantity: int,
+    ) -> tuple[bool, dict[str, Any], str | None]:
+        """Validate TWAP selection and return submit payload fields."""
+        self._pending_twap_preview = None
+        self._twap_notional_warning = None
+        if not self._is_twap_selected():
+            if self._twap_config is not None:
+                self._twap_config.set_notional_warning(None)
+                self._twap_config.set_preview_errors(None)
+            return (True, {"execution_style": "instant"}, None)
+
+        if twap_reason := self._twap_incompatibility_reason():
+            return (False, {}, twap_reason)
+
+        if self._twap_config is None:
+            return (False, {}, "TWAP configuration is unavailable")
+
+        twap_state = self._twap_config.get_state("UTC")
+        self._twap_config.set_start_time_error(twap_state.start_time_error)
+        if twap_state.start_time_error:
+            return (False, {}, twap_state.start_time_error)
+
+        if twap_state.duration_minutes is None or twap_state.interval_seconds is None:
+            return (False, {}, "TWAP duration and interval are required")
+
+        preview_strategy_id = self._resolve_twap_preview_strategy_id()
+        if preview_strategy_id is None:
+            return (False, {}, "TWAP preview unavailable: no authorized strategy scope")
+
+        preview_payload: dict[str, Any] = {
+            "symbol": symbol,
+            "side": self._state.side,
+            "qty": canonical_quantity,
+            "order_type": self._state.order_type,
+            "time_in_force": self._state.time_in_force,
+            "duration_minutes": twap_state.duration_minutes,
+            "interval_seconds": twap_state.interval_seconds,
+            "strategy_id": preview_strategy_id,
+        }
+        if self._state.order_type == "limit":
+            if self._state.limit_price is None:
+                return (False, {}, "Limit orders require a limit price")
+            preview_payload["limit_price"] = str(self._state.limit_price)
+        if twap_state.start_time is not None:
+            preview_payload["start_time"] = twap_state.start_time.isoformat()
+
+        try:
+            preview_response = await self._client.fetch_twap_preview(
+                preview_payload,
+                user_id=self._user_id,
+                role=self._role,
+                strategies=self._strategies,
+            )
+        except Exception as exc:
+            logger.warning("TWAP preview failed before submit: %s", exc, exc_info=True)
+            ui.notify("Unable to validate TWAP plan", type="negative")
+            raise
+
+        self._pending_twap_preview = preview_response
+        self._twap_notional_warning = str(preview_response.get("notional_warning") or "") or None
+
+        preview_errors = [
+            str(item).strip()
+            for item in (preview_response.get("validation_errors") or [])
+            if str(item).strip()
+        ]
+        self._twap_config.set_preview(preview_response)
+        self._twap_config.set_preview_errors(preview_errors)
+        self._twap_config.set_notional_warning(self._twap_notional_warning)
+        if preview_errors:
+            return (False, {}, preview_errors[0])
+
+        if self._twap_notional_warning and not twap_state.notional_acknowledged:
+            return (False, {}, "TWAP requires acknowledgement for notional warning")
+
+        submission_fields: dict[str, Any] = {
+            "execution_style": "twap",
+            "twap_duration_minutes": twap_state.duration_minutes,
+            "twap_interval_seconds": twap_state.interval_seconds,
+        }
+        if twap_state.start_time is not None:
+            submission_fields["start_time"] = twap_state.start_time.isoformat()
+        return (True, submission_fields, None)
+
     def _validate_preview_snapshot(self) -> bool:
         """Validate current form state matches the preview snapshot.
 
@@ -1402,7 +1689,12 @@ class OrderTicketComponent:
         if self._preview_snapshot is None:
             return False
 
-        current = {
+        current = self._build_preview_snapshot()
+        return current == self._preview_snapshot
+
+    def _build_preview_snapshot(self) -> dict[str, Any]:
+        """Build immutable preview snapshot for idempotency checks."""
+        snapshot = {
             "symbol": self._state.symbol,
             "side": self._state.side,
             "quantity": self._state.quantity,
@@ -1417,8 +1709,8 @@ class OrderTicketComponent:
             "qty_unit_size": self._qty_unit_size,
             "quantity_canonical_override": self._state_quantity_canonical_override,
         }
-
-        return current == self._preview_snapshot
+        snapshot.update(self._current_twap_snapshot_fields())
+        return snapshot
 
     def _validate_order_type_prices(self) -> str | None:
         """Validate required prices based on order type."""
@@ -1654,24 +1946,41 @@ class OrderTicketComponent:
             ui.notify(f"Cannot submit: {reason}", type="negative")
             return False
 
+        try:
+            normalized_symbol = validate_and_normalize_symbol(self._state.symbol or "")
+        except ValueError:
+            ui.notify("Cannot submit: Invalid symbol format", type="negative")
+            return False
+
+        canonical_quantity = self._state_canonical_quantity()
+        if canonical_quantity is None:
+            ui.notify("Cannot submit: Enter quantity", type="negative")
+            return False
+
+        pre_validation_snapshot = self._build_preview_snapshot()
+        self._pending_twap_fields = None
+        twap_ok, twap_fields, twap_error = await self._prepare_twap_submission_fields(
+            symbol=normalized_symbol,
+            canonical_quantity=canonical_quantity,
+        )
+        if not twap_ok:
+            ui.notify(f"Cannot submit: {twap_error or 'TWAP validation failed'}", type="negative")
+            return False
+        if pre_validation_snapshot != self._build_preview_snapshot():
+            ui.notify(
+                (
+                    "Order details changed during TWAP validation "
+                    "(including acknowledgements). Please preview again."
+                ),
+                type="warning",
+            )
+            return False
+        self._pending_twap_fields = dict(twap_fields)
+
         self._pending_client_order_id = await self._get_or_create_client_order_id()
 
         # Snapshot form state at preview time for idempotency validation
-        self._preview_snapshot = {
-            "symbol": self._state.symbol,
-            "side": self._state.side,
-            "quantity": self._state.quantity,
-            "canonical_quantity": self._state_canonical_quantity(),
-            "order_type": self._state.order_type,
-            "limit_price": str(self._state.limit_price or ""),
-            "stop_price": str(self._state.stop_price or ""),
-            "time_in_force": self._state.time_in_force,
-            "qty_step": self._qty_step,
-            "min_qty": self._min_qty,
-            "qty_unit": self._qty_unit,
-            "qty_unit_size": self._qty_unit_size,
-            "quantity_canonical_override": self._state_quantity_canonical_override,
-        }
+        self._preview_snapshot = pre_validation_snapshot
 
         await self._show_preview_dialog()
         return None
@@ -1685,6 +1994,27 @@ class OrderTicketComponent:
             ui.label(f"Side: {self._state.side.upper()}")
             ui.label(f"Quantity: {self._state.quantity}")
             ui.label(f"Type: {self._state.order_type}")
+            ui.label(f"Execution: {self._state.execution_style.upper()}")
+            if self._state.execution_style == "twap":
+                twap_duration = (
+                    self._pending_twap_fields.get("twap_duration_minutes")
+                    if self._pending_twap_fields
+                    else None
+                )
+                twap_interval = (
+                    self._pending_twap_fields.get("twap_interval_seconds")
+                    if self._pending_twap_fields
+                    else None
+                )
+                twap_start_time = (
+                    self._pending_twap_fields.get("start_time")
+                    if self._pending_twap_fields
+                    else None
+                )
+                ui.label(f"TWAP Duration: {twap_duration} min")
+                ui.label(f"TWAP Interval: {twap_interval} sec")
+                if twap_start_time:
+                    ui.label(f"TWAP Start: {twap_start_time}")
 
             if self._state.limit_price:
                 ui.label(f"Limit Price: ${self._state.limit_price:.2f}")
@@ -1781,11 +2111,20 @@ class OrderTicketComponent:
             "order_type": self._state.order_type,
             "time_in_force": self._state.time_in_force,
             "client_order_id": self._pending_client_order_id,
+            "execution_style": self._state.execution_style,
+            "reason": f"Trade workspace {self._state.execution_style} order submission",
+            "requested_by": self._user_id,
+            "requested_at": datetime.now(UTC).isoformat(),
         }
         if self._state.limit_price is not None:
             order_data["limit_price"] = str(self._state.limit_price)
         if self._state.stop_price is not None:
             order_data["stop_price"] = str(self._state.stop_price)
+        if self._state.execution_style == "twap":
+            if not self._pending_twap_fields:
+                ui.notify("Cannot submit: TWAP preview is stale, please preview again", type="negative")
+                return False
+            order_data.update(self._pending_twap_fields)
 
         # Final connection check
         if self._connection_read_only:
@@ -1798,6 +2137,7 @@ class OrderTicketComponent:
                 order_data=order_data,
                 user_id=self._user_id,
                 role=self._role,
+                strategies=self._strategies,
             )
 
             if response.get("status") in ("pending_new", "new", "accepted"):
@@ -1836,6 +2176,7 @@ class OrderTicketComponent:
             # Fail-safe: generate new ID if state restoration fails
             return self._generate_intent_id()
 
+        twap_identity = self._current_twap_snapshot_fields()
         stored_intent_raw = pending_form.get("client_order_id")
         if stored_intent_raw and isinstance(stored_intent_raw, str):
             stored_intent: str = stored_intent_raw
@@ -1847,6 +2188,14 @@ class OrderTicketComponent:
                 and pending_form.get("limit_price") == str(self._state.limit_price or "")
                 and pending_form.get("stop_price") == str(self._state.stop_price or "")
                 and pending_form.get("time_in_force") == self._state.time_in_force
+                and pending_form.get("execution_style") == twap_identity.get("execution_style")
+                and pending_form.get("twap_duration_minutes")
+                == twap_identity.get("twap_duration_minutes")
+                and pending_form.get("twap_interval_seconds")
+                == twap_identity.get("twap_interval_seconds")
+                and pending_form.get("twap_start_time") == twap_identity.get("twap_start_time")
+                and pending_form.get("twap_notional_acknowledged")
+                == twap_identity.get("twap_notional_acknowledged")
             ):
                 return stored_intent
 
@@ -1864,6 +2213,13 @@ class OrderTicketComponent:
                     "limit_price": str(self._state.limit_price or ""),
                     "stop_price": str(self._state.stop_price or ""),
                     "time_in_force": self._state.time_in_force,
+                    "execution_style": twap_identity.get("execution_style"),
+                    "twap_duration_minutes": twap_identity.get("twap_duration_minutes"),
+                    "twap_interval_seconds": twap_identity.get("twap_interval_seconds"),
+                    "twap_start_time": twap_identity.get("twap_start_time"),
+                    "twap_notional_acknowledged": twap_identity.get(
+                        "twap_notional_acknowledged"
+                    ),
                 },
             )
         except Exception as exc:
@@ -1936,6 +2292,9 @@ class OrderTicketComponent:
                     time_in_force=safe_parse_enum(  # type: ignore
                         "time_in_force", {"day", "gtc", "ioc", "fok"}, "day"
                     ),
+                    execution_style=safe_parse_enum(  # type: ignore
+                        "execution_style", {"instant", "twap"}, "instant"
+                    ),
                 )
                 self._state_quantity_canonical_override = None
                 self._pending_client_order_id = form_data.get("client_order_id")
@@ -1954,6 +2313,10 @@ class OrderTicketComponent:
         self._state = OrderTicketState()
         self._state_quantity_canonical_override = None
         self._pending_client_order_id = None
+        self._pending_twap_fields = None
+        self._pending_twap_preview = None
+        self._twap_notional_warning = None
+        self._twap_notional_acknowledged = False
 
         if self._symbol_input:
             self._symbol_input.set_value("")
@@ -1971,6 +2334,13 @@ class OrderTicketComponent:
             self._stop_price_input.classes(add="hidden")
         if self._time_in_force_select:
             self._time_in_force_select.set_value("day")
+        if self._execution_style_selector is not None:
+            self._execution_style_selector.set_disabled(False)
+            self._execution_style_selector.set_value("instant")
+        if self._twap_config is not None:
+            self._twap_config.set_notional_warning(None)
+            self._twap_config.set_preview_errors(None)
+            self._twap_config.set_visibility(False)
 
         self._update_ui_from_state()
 

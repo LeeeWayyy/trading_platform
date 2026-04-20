@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from starlette.requests import Request
@@ -20,17 +21,20 @@ def make_request() -> callable:
     def _make_request(
         *,
         path: str = "/",
+        query: str = "",
         headers: list[tuple[bytes, bytes]] | None = None,
         client: tuple[str, int] = ("203.0.113.10", 1234),
         cookies: dict[str, str] | None = None,
+        root_path: str = "",
     ) -> Request:
         scope = {
             "type": "http",
             "headers": headers or [],
             "client": client,
             "path": path,
+            "root_path": root_path,
             "scheme": "http",
-            "query_string": b"",
+            "query_string": query.encode(),
         }
         req = Request(scope)
         # Inject cookies if provided
@@ -76,6 +80,19 @@ def test_get_request_from_storage_prefers_contextvar(
     monkeypatch.setattr(nicegui, "ui", dummy_ui, raising=False)
 
     assert middleware_module._get_request_from_storage() is request
+
+
+def test_auth_middleware_exempt_path_uses_segment_boundaries() -> None:
+    assert middleware_module.AuthMiddleware._is_exempt_path("/login")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/login/reset")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/mfa-verify/submit")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/auth/login/callback")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/_nicegui/socket.io/")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/_nicegui_ws/socket.io/")
+    assert middleware_module.AuthMiddleware._is_exempt_path("/favicon.ico")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/metrics")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/metrics.prom")
+    assert not middleware_module.AuthMiddleware._is_exempt_path("/login-admin")
 
 
 def test_get_request_from_storage_falls_back_in_debug(
@@ -644,6 +661,12 @@ class TestAuthMiddleware:
         mock_cookie_cfg.domain = None
         mock_cookie_cfg.httponly = True
         mock_cookie_cfg.samesite = "lax"
+        mock_cookie_cfg.get_cookie_flags.return_value = {
+            "path": "/",
+            "secure": True,
+            "httponly": True,
+            "samesite": "lax",
+        }
 
         middleware = middleware_module.AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
@@ -654,6 +677,67 @@ class TestAuthMiddleware:
 
         assert response.status_code == 302
         assert "/login?next=" in response.headers.get("location", "")
+        assert any(
+            "trading_session=" in cookie and "Path=/" in cookie
+            for cookie in response.headers.getlist("set-cookie")
+        )
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize(
+        ("path", "query", "expected_next"),
+        [
+            (
+                "/alpha-explorer",
+                "signal_id=sig-1&drop=1",
+                "/",
+            ),
+            (
+                "/backtest",
+                "tab=compare&signal_id=sig-1",
+                "/",
+            ),
+            ("/models", "drop=1", "/"),
+        ],
+    )
+    async def test_dispatch_retired_research_routes_require_auth(
+        self,
+        make_request: callable,
+        monkeypatch: pytest.MonkeyPatch,
+        path: str,
+        query: str,
+        expected_next: str,
+    ) -> None:
+        """Unauthenticated retired research URLs should sanitize ``next`` to root."""
+        monkeypatch.setattr(middleware_module.config, "AUTH_TYPE", "cookie")
+        monkeypatch.setattr(middleware_module.config, "TRUSTED_PROXY_IPS", [])
+
+        request = make_request(path=path, query=query, headers=[(b"accept", b"text/html")])
+
+        mock_cookie_cfg = MagicMock()
+        mock_cookie_cfg.get_cookie_name.return_value = "trading_session"
+        mock_cookie_cfg.secure = True
+        mock_cookie_cfg.path = "/"
+        mock_cookie_cfg.domain = None
+        mock_cookie_cfg.httponly = True
+        mock_cookie_cfg.samesite = "lax"
+        mock_cookie_cfg.get_cookie_flags.return_value = {
+            "path": "/",
+            "secure": True,
+            "httponly": True,
+            "samesite": "lax",
+        }
+
+        middleware = middleware_module.AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("apps.web_console_ng.auth.middleware.CookieConfig") as mock_cc:
+            mock_cc.from_env.return_value = mock_cookie_cfg
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 302
+        parsed = urlparse(response.headers["location"])
+        assert parsed.path == "/login"
+        assert parse_qs(parsed.query).get("next") == [expected_next]
 
 
 class TestSessionMiddleware:

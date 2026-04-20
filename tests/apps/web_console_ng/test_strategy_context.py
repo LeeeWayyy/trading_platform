@@ -57,7 +57,6 @@ def test_resolve_context_links_respects_flags() -> None:
     assert resolve_context_links(
         show_strategy_link=True,
         show_model_link=True,
-        feature_research_workspace_enabled=True,
     ) == [
         ("Strategies", "/strategies"),
         ("Research Promote", "/research?tab=promote"),
@@ -65,27 +64,16 @@ def test_resolve_context_links_respects_flags() -> None:
     assert resolve_context_links(
         show_strategy_link=True,
         show_model_link=False,
-        feature_research_workspace_enabled=True,
     ) == [
         ("Strategies", "/strategies")
     ]
     assert resolve_context_links(
         show_strategy_link=False,
         show_model_link=True,
-        feature_research_workspace_enabled=True,
     ) == [
         ("Research Promote", "/research?tab=promote")
     ]
     assert resolve_context_links(
         show_strategy_link=False,
         show_model_link=False,
-        feature_research_workspace_enabled=True,
     ) == []
-
-
-def test_resolve_context_links_falls_back_to_models_when_workspace_disabled() -> None:
-    assert resolve_context_links(
-        show_strategy_link=False,
-        show_model_link=True,
-        feature_research_workspace_enabled=False,
-    ) == [("Models", "/models")]

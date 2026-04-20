@@ -85,7 +85,10 @@ class HydrationResult(TypedDict):
 
 
 from strategies.alpha_baseline.data_loader import T1DataProvider  # noqa: E402
-from strategies.alpha_baseline.features import get_alpha158_features  # noqa: E402
+from strategies.alpha_baseline.features import (  # noqa: E402
+    QlibUnavailableError,
+    get_alpha158_features,
+)
 from strategies.alpha_baseline.mock_features import get_mock_alpha158_features  # noqa: E402
 
 from .model_registry import ModelRegistry  # noqa: E402
@@ -471,6 +474,9 @@ class SignalGenerator:
                 AttributeError,
                 FileNotFoundError,
                 OSError,
+                ImportError,
+                ModuleNotFoundError,
+                QlibUnavailableError,
             ) as e:
                 if not self.allow_mock_feature_fallback:
                     logger.error(
@@ -1072,7 +1078,17 @@ class SignalGenerator:
                         extra={"symbol": symbol, "date": date_str, "error_type": type(e).__name__},
                     )
 
-        except (KeyError, ValueError, TypeError, AttributeError, FileNotFoundError, OSError) as e:
+        except (
+            KeyError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            FileNotFoundError,
+            OSError,
+            ImportError,
+            ModuleNotFoundError,
+            QlibUnavailableError,
+        ) as e:
             if not self.allow_mock_feature_fallback:
                 logger.error(
                     "Feature generation failed in non-dev/test environment; refusing mock fallback",

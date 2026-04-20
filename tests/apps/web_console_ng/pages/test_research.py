@@ -79,6 +79,20 @@ def test_get_requested_validate_backtest_tab_invalid_defaults(monkeypatch) -> No
     assert research_module._get_requested_validate_backtest_tab() == "new"
 
 
+def test_get_requested_validate_backtest_tab_compare_alias_maps_to_results(monkeypatch) -> None:
+    """Legacy compare sub-tab should map to results in consolidated workspace."""
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(
+            client=SimpleNamespace(
+                request=SimpleNamespace(scope={"query_string": b"backtest_tab=compare"})
+            )
+        )
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_requested_validate_backtest_tab() == "results"
+
+
 def test_build_validate_backtest_link() -> None:
     """Discover links should route to consolidated Research Validate tab."""
     result = research_module._build_validate_backtest_link(signal_id="sig-123")
@@ -86,6 +100,182 @@ def test_build_validate_backtest_link() -> None:
     assert result == (
         "/research?tab=validate&backtest_tab=new&signal_id=sig-123&source=alpha_explorer"
     )
+
+
+def test_build_validate_backtest_link_honors_root_path() -> None:
+    result = research_module._build_validate_backtest_link(
+        signal_id="sig-123",
+        root_path="/console",
+    )
+
+    assert result == (
+        "/console/research?tab=validate&backtest_tab=new&signal_id=sig-123&source=alpha_explorer"
+    )
+
+
+def test_build_research_tab_link_preserves_query_items() -> None:
+    result = research_module._build_research_tab_link(
+        tab_id=research_module.TAB_VALIDATE,
+        query_items=[
+            ("signal_id", "sig-1"),
+            ("tab", "discover"),
+            ("source", "alpha_explorer"),
+        ],
+    )
+
+    assert result == "/research?tab=validate&signal_id=sig-1&source=alpha_explorer"
+
+
+def test_build_research_tab_link_honors_root_path() -> None:
+    result = research_module._build_research_tab_link(
+        tab_id=research_module.TAB_PROMOTE,
+        root_path="/console",
+        query_items=[("signal_id", "sig-1")],
+    )
+
+    assert result == "/console/research?tab=promote&signal_id=sig-1"
+
+
+def test_build_research_tab_link_drops_backtest_tab_outside_validate() -> None:
+    result = research_module._build_research_tab_link(
+        tab_id=research_module.TAB_PROMOTE,
+        query_items=[
+            ("tab", "validate"),
+            ("backtest_tab", "running"),
+            ("signal_id", "sig-1"),
+        ],
+    )
+
+    assert result == "/research?tab=promote&signal_id=sig-1"
+
+
+def test_build_research_tab_link_drops_unknown_query_keys() -> None:
+    result = research_module._build_research_tab_link(
+        tab_id=research_module.TAB_DISCOVER,
+        query_items=[
+            ("foo", "bar"),
+            ("signal_id", "sig-1"),
+            ("tab", "validate"),
+        ],
+    )
+
+    assert result == "/research?tab=discover&signal_id=sig-1"
+
+
+def test_filter_research_tab_query_items_validate_normalizes_alias_and_skips_invalid() -> None:
+    result = research_module._filter_research_tab_query_items(
+        tab_id=research_module.TAB_VALIDATE,
+        query_items=[
+            ("foo", "bar"),
+            ("backtest_tab", "compare"),
+            ("backtest_tab", "invalid"),
+            ("signal_id", "sig-1"),
+        ],
+    )
+
+    assert result == [("backtest_tab", "results"), ("signal_id", "sig-1")]
+
+
+def test_filter_research_tab_query_items_drops_validate_only_keys_outside_validate() -> None:
+    result = research_module._filter_research_tab_query_items(
+        tab_id=research_module.TAB_PROMOTE,
+        query_items=[
+            ("backtest_job_id", "job-1"),
+            ("id", "res-1"),
+            ("signal_id", "sig-1"),
+            ("source", "alpha_explorer"),
+        ],
+    )
+
+    assert result == [("signal_id", "sig-1"), ("source", "alpha_explorer")]
+
+
+def test_build_research_tab_link_drops_invalid_backtest_tab_for_validate() -> None:
+    result = research_module._build_research_tab_link(
+        tab_id=research_module.TAB_VALIDATE,
+        query_items=[
+            ("tab", "discover"),
+            ("backtest_tab", "invalid"),
+            ("signal_id", "sig-1"),
+        ],
+    )
+
+    assert result == "/research?tab=validate&signal_id=sig-1"
+
+
+def test_build_research_tab_link_normalizes_compare_alias_for_validate() -> None:
+    result = research_module._build_research_tab_link(
+        tab_id=research_module.TAB_VALIDATE,
+        query_items=[
+            ("tab", "discover"),
+            ("backtest_tab", "compare"),
+            ("signal_id", "sig-1"),
+        ],
+    )
+
+    assert result == "/research?tab=validate&backtest_tab=results&signal_id=sig-1"
+
+
+def test_get_request_query_items_uses_query_params_multi_items(monkeypatch) -> None:
+    fake_request = SimpleNamespace(
+        query_params=SimpleNamespace(
+            multi_items=lambda: [("tab", "validate"), ("signal_id", "sig-1")]
+        )
+    )
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(client=SimpleNamespace(request=fake_request))
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_request_query_items() == [
+        ("tab", "validate"),
+        ("signal_id", "sig-1"),
+    ]
+
+
+def test_get_request_query_items_returns_empty_when_query_params_missing(monkeypatch) -> None:
+    fake_request = SimpleNamespace(scope={"query_string": b"tab=validate"})
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(client=SimpleNamespace(request=fake_request))
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_request_query_items() == []
+
+
+def test_get_request_query_items_falls_back_to_items(monkeypatch) -> None:
+    fake_request = SimpleNamespace(
+        query_params=SimpleNamespace(
+            items=lambda: [("tab", "discover"), ("source", "alpha_explorer")]
+        )
+    )
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(client=SimpleNamespace(request=fake_request))
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_request_query_items() == [
+        ("tab", "discover"),
+        ("source", "alpha_explorer"),
+    ]
+
+
+def test_get_request_query_items_falls_back_when_multi_items_runtime_error(monkeypatch) -> None:
+    fake_request = SimpleNamespace(
+        query_params=SimpleNamespace(
+            multi_items=lambda: (_ for _ in ()).throw(RuntimeError("no context")),
+            items=lambda: [("tab", "validate"), ("signal_id", "sig-1")],
+        )
+    )
+    fake_ui = SimpleNamespace(
+        context=SimpleNamespace(client=SimpleNamespace(request=fake_request))
+    )
+    monkeypatch.setattr(research_module, "ui", fake_ui)
+
+    assert research_module._get_request_query_items() == [
+        ("tab", "validate"),
+        ("signal_id", "sig-1"),
+    ]
 
 
 def test_get_research_workspace_service_process_cache(monkeypatch) -> None:
@@ -305,6 +495,13 @@ def test_discover_access_requires_alpha_feature_flag() -> None:
     assert "FEATURE_ALPHA_EXPLORER" in source
 
 
+def test_workspace_permission_denied_guard_present() -> None:
+    """Workspace should fail closed when user cannot access any consolidated tab."""
+    source = inspect.getsource(research_module.research_workspace_page)
+    assert "if not accessible_tabs:" in source
+    assert "Permission denied: one of VIEW_ALPHA_SIGNALS" in source
+
+
 def test_lifecycle_row_load_catches_specific_exceptions() -> None:
     """Lifecycle fetch should use targeted exception handling, not blanket catch."""
     source = inspect.getsource(research_module.research_workspace_page)
@@ -322,5 +519,5 @@ def test_discover_panel_lazy_renders_and_shows_candidate_rows() -> None:
     """Discover subtree should load only when selected and render lifecycle candidates."""
     source = inspect.getsource(research_module.research_workspace_page)
     assert "if selected_tab_id != TAB_DISCOVER:" in source
-    assert "await _render_discover_rows(workspace_service)" in source
-    assert "_render_discover_candidate_rows(lifecycle_rows)" in source
+    assert "await _render_discover_rows(workspace_service, root_path=request_root_path)" in source
+    assert "_render_discover_candidate_rows(" in source
