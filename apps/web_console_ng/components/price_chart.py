@@ -13,7 +13,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from nicegui import ui
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Staleness thresholds
 REALTIME_STALE_THRESHOLD_S = 60  # Show warning if no updates for 60s
 REALTIME_FALLBACK_THRESHOLD_S = 180  # Show fallback chart after 3 minutes
+MAX_FUTURE_TICK_SKEW_S = 60  # Drop ticks with timestamps too far in the future
 
 
 def _parse_interval_seconds(interval: str) -> int:
@@ -119,6 +120,7 @@ class PriceChartComponent:
         self._ui_client: Any | None = None
         self._missing_ui_client_warned: bool = False
         self._chart_init_lock = asyncio.Lock()
+        self._no_data_overlay_visible: bool = False
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
             # execute in the correct browser context.
@@ -349,6 +351,14 @@ class PriceChartComponent:
         if raw_timestamp:
             try:
                 parsed = parse_iso_timestamp(str(raw_timestamp))
+                if parsed > datetime.now(UTC) + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S):
+                    logger.warning(
+                        "PriceChart: future-skewed timestamp %s exceeds %ss threshold",
+                        raw_timestamp,
+                        MAX_FUTURE_TICK_SKEW_S,
+                    )
+                    self._last_realtime_update = None
+                    return
                 self._last_realtime_update = parsed
                 tick_time = parsed
             except (ValueError, TypeError):
@@ -444,9 +454,9 @@ class PriceChartComponent:
         if bucket_start > last_candle.time:
             updated_candle = {
                 "time": bucket_start,
-                "open": last_candle.close,
-                "high": max(last_candle.close, price),
-                "low": min(last_candle.close, price),
+                "open": price,
+                "high": price,
+                "low": price,
                 "close": price,
             }
             self._candles.append(
@@ -879,12 +889,13 @@ class PriceChartComponent:
                 overlay.style.display = 'flex';
             """
             )
+            self._no_data_overlay_visible = True
         except Exception as exc:
             logger.debug(f"Failed to show no-data overlay: {exc}")
 
     async def _hide_no_data_overlay(self) -> None:
         """Hide no-data overlay after candles become available."""
-        if self._disposed:
+        if self._disposed or not self._no_data_overlay_visible:
             return
 
         try:
@@ -895,6 +906,7 @@ class PriceChartComponent:
                 if (overlay) overlay.style.display = 'none';
             """
             )
+            self._no_data_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to hide no-data overlay: {exc}")
 
@@ -1082,6 +1094,7 @@ class PriceChartComponent:
         self._current_symbol = None
         self._candles = []
         self._markers = []
+        self._no_data_overlay_visible = False
         self._chart_initialized = False
 
 

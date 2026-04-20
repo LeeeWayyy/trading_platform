@@ -259,7 +259,6 @@ class LightweightChartsLoader:
             cls._loaded = False
             if ready_timed_out:
                 raise RuntimeError("Timed out waiting for Lightweight Charts readiness flag")
-            raise RuntimeError("Failed to load Lightweight Charts library")
 
     @classmethod
     def reset(cls) -> None:

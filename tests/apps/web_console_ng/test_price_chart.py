@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from apps.web_console_ng.components.price_chart import (
+    MAX_FUTURE_TICK_SKEW_S,
     REALTIME_STALE_THRESHOLD_S,
     CandleData,
     ExecutionMarker,
@@ -274,6 +275,25 @@ class TestPriceChartPriceData:
 
         # FAIL-CLOSED: timestamp None when invalid
         assert component._last_realtime_update is None
+
+    def test_set_price_data_rejects_future_skew_timestamp(
+        self, component: PriceChartComponent
+    ) -> None:
+        """set_price_data drops future-skewed ticks to avoid chart freeze."""
+        component._current_symbol = "AAPL"
+        future_ts = datetime.now(UTC) + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S + 5)
+
+        with patch("asyncio.create_task") as mock_create_task:
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": future_ts.isoformat(),
+                }
+            )
+
+        assert component._last_realtime_update is None
+        mock_create_task.assert_not_called()
 
     def test_set_price_data_ignored_when_disposed(self, component: PriceChartComponent) -> None:
         """set_price_data does nothing when disposed."""
@@ -633,6 +653,27 @@ class TestPriceChartRealtimeUpdates:
         js_payload = component._run_javascript.await_args.args[0]
         assert "setData(" in js_payload
 
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_new_bucket_uses_tick_as_open(self) -> None:
+        """New candles should use the first tick in the bucket as open/high/low/close."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(time=1200, open=100.0, high=101.0, low=99.0, close=100.5, volume=None),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(108.0, datetime.fromtimestamp(1500, UTC))
+
+        assert len(component._candles) == 2
+        newest = component._candles[-1]
+        assert newest.open == 108.0
+        assert newest.high == 108.0
+        assert newest.low == 108.0
+        assert newest.close == 108.0
+
 
 class TestPriceChartOverlays:
     """Tests for chart overlays."""
@@ -648,6 +689,17 @@ class TestPriceChartOverlays:
         js_payload = component._run_javascript.await_args.args[0]
         assert ".no-data-overlay-subtitle" in js_payload
         assert "Selected symbol:" in js_payload
+        assert component._no_data_overlay_visible is True
+
+    @pytest.mark.asyncio()
+    async def test_hide_no_data_overlay_skips_when_already_hidden(self) -> None:
+        """Hide should not trigger JS when overlay is already hidden."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._hide_no_data_overlay()
+
+        component._run_javascript.assert_not_awaited()
 
 
 class TestPriceChartDispose:
