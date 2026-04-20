@@ -308,19 +308,11 @@ class OrderTicketComponent:
                 normalized: Literal["instant", "twap"] = (
                     "twap" if str(value).strip().lower() == "twap" else "instant"
                 )
-                if normalized == "twap" and self._state.order_type in {"stop", "stop_limit"}:
-                    ui.notify("TWAP is not supported for stop-based order types", type="warning")
-                    normalized = "instant"
-                    if (
-                        self._execution_style_selector is not None
-                        and self._execution_style_selector.value() != "instant"
-                    ):
-                        self._execution_style_selector.set_value("instant")
-                if normalized == "twap" and self._state.time_in_force != "day":
-                    ui.notify(
-                        "TWAP requires DAY time in force; execution style reverted to INSTANT",
-                        type="warning",
-                    )
+                if normalized == "twap" and (twap_reason := self._twap_incompatibility_reason()):
+                    notify_message = twap_reason
+                    if twap_reason == "TWAP requires DAY time in force":
+                        notify_message = f"{twap_reason}; execution style reverted to INSTANT"
+                    ui.notify(notify_message, type="warning")
                     normalized = "instant"
                     if (
                         self._execution_style_selector is not None
@@ -527,9 +519,9 @@ class OrderTicketComponent:
         else:
             tif_value = "day"
         self._state.time_in_force = tif_value
-        if self._is_twap_selected() and tif_value != "day":
+        if self._is_twap_selected() and (twap_reason := self._twap_incompatibility_reason()):
             ui.notify(
-                "TWAP requires DAY time in force; execution style reverted to INSTANT",
+                f"{twap_reason}; execution style reverted to INSTANT",
                 type="warning",
             )
             self._state.execution_style = "instant"
@@ -550,6 +542,32 @@ class OrderTicketComponent:
     def _is_twap_selected(self) -> bool:
         """Return whether TWAP execution style is currently selected."""
         return self._state.execution_style == "twap"
+
+    def _twap_incompatibility_reason(self) -> str | None:
+        """Return compatibility error when TWAP is invalid for current ticket state."""
+        if self._state.order_type in {"stop", "stop_limit"}:
+            return "TWAP unavailable for stop-based order types"
+        if self._state.time_in_force != "day":
+            return "TWAP requires DAY time in force"
+        return None
+
+    def _resolve_twap_preview_strategy_id(self) -> str | None:
+        """Resolve deterministic strategy scope for TWAP preview authorization."""
+        snapshot_strategy_id = (
+            str(self._execution_context_snapshot.strategy_id).strip()
+            if self._execution_context_snapshot is not None
+            and self._execution_context_snapshot.strategy_id is not None
+            else ""
+        )
+        if snapshot_strategy_id and snapshot_strategy_id in self._strategies:
+            return snapshot_strategy_id
+
+        for strategy_id in self._strategies:
+            normalized = str(strategy_id).strip()
+            if normalized:
+                return normalized
+
+        return None
 
     def _on_quantity_changed(self, value: float | None) -> None:
         """Handle quantity input change."""
@@ -1450,11 +1468,8 @@ class OrderTicketComponent:
         if price_error:
             return (True, price_error)
 
-        if self._is_twap_selected():
-            if self._state.order_type in {"stop", "stop_limit"}:
-                return (True, "TWAP unavailable for stop-based order types")
-            if self._state.time_in_force != "day":
-                return (True, "TWAP requires DAY time in force")
+        if self._is_twap_selected() and (twap_reason := self._twap_incompatibility_reason()):
+            return (True, twap_reason)
 
         if not self._limits_loaded:
             return (True, "Risk limits loading...")
@@ -1582,11 +1597,8 @@ class OrderTicketComponent:
                 self._twap_config.set_preview_errors(None)
             return (True, {"execution_style": "instant"}, None)
 
-        if self._state.order_type in {"stop", "stop_limit"}:
-            return (False, {}, "TWAP is not supported for stop-based order types")
-
-        if self._state.time_in_force != "day":
-            return (False, {}, "TWAP requires time in force = DAY")
+        if twap_reason := self._twap_incompatibility_reason():
+            return (False, {}, twap_reason)
 
         if self._twap_config is None:
             return (False, {}, "TWAP configuration is unavailable")
@@ -1599,16 +1611,24 @@ class OrderTicketComponent:
         if twap_state.duration_minutes is None or twap_state.interval_seconds is None:
             return (False, {}, "TWAP duration and interval are required")
 
+        preview_strategy_id = self._resolve_twap_preview_strategy_id()
+        if preview_strategy_id is None:
+            return (False, {}, "TWAP preview unavailable: no authorized strategy scope")
+
         preview_payload: dict[str, Any] = {
             "symbol": symbol,
             "side": self._state.side,
             "qty": canonical_quantity,
             "order_type": self._state.order_type,
             "time_in_force": self._state.time_in_force,
-            "execution_style": "twap",
-            "twap_duration_minutes": twap_state.duration_minutes,
-            "twap_interval_seconds": twap_state.interval_seconds,
+            "duration_minutes": twap_state.duration_minutes,
+            "interval_seconds": twap_state.interval_seconds,
+            "strategy_id": preview_strategy_id,
         }
+        if self._state.order_type == "limit":
+            if self._state.limit_price is None:
+                return (False, {}, "Limit orders require a limit price")
+            preview_payload["limit_price"] = str(self._state.limit_price)
         if twap_state.start_time is not None:
             preview_payload["start_time"] = twap_state.start_time.isoformat()
 

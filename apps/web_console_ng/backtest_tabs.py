@@ -11,7 +11,6 @@ from apps.web_console_ng.core.workspace_tabs import (
     normalize_backtest_tab,
 )
 
-
 __all__ = [
     "BACKTEST_TAB_NEW",
     "BACKTEST_TAB_RUNNING",

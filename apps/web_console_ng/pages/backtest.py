@@ -29,6 +29,18 @@ from nicegui import run, ui
 from psycopg import errors as pg_errors
 
 from apps.web_console_ng import config
+from apps.web_console_ng.backtest_tabs import (
+    BACKTEST_TAB_NEW as _SHARED_BACKTEST_TAB_NEW,
+)
+from apps.web_console_ng.backtest_tabs import (
+    BACKTEST_TAB_RESULTS as _SHARED_BACKTEST_TAB_RESULTS,
+)
+from apps.web_console_ng.backtest_tabs import (
+    BACKTEST_TAB_RUNNING as _SHARED_BACKTEST_TAB_RUNNING,
+)
+from apps.web_console_ng.backtest_tabs import (
+    VALID_BACKTEST_TABS as _SHARED_VALID_BACKTEST_TABS,
+)
 from apps.web_console_ng.components.backtest_comparison_chart import (
     build_comparison_metrics,
     render_comparison_equity_curves,
@@ -46,18 +58,6 @@ from apps.web_console_ng.core.dependencies import get_sync_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.request_query import (
     get_request_query_param,
-)
-from apps.web_console_ng.backtest_tabs import (
-    BACKTEST_TAB_NEW as _SHARED_BACKTEST_TAB_NEW,
-)
-from apps.web_console_ng.backtest_tabs import (
-    BACKTEST_TAB_RESULTS as _SHARED_BACKTEST_TAB_RESULTS,
-)
-from apps.web_console_ng.backtest_tabs import (
-    BACKTEST_TAB_RUNNING as _SHARED_BACKTEST_TAB_RUNNING,
-)
-from apps.web_console_ng.backtest_tabs import (
-    VALID_BACKTEST_TABS as _SHARED_VALID_BACKTEST_TABS,
 )
 from apps.web_console_ng.ui.helpers import safe_classes
 from libs.platform.web_console_auth.permissions import Permission, has_permission

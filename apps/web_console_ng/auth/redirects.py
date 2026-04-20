@@ -4,8 +4,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from apps.web_console_ng.research_query import (
     RESEARCH_ALLOWED_QUERY_KEYS,
-    sanitize_research_query_items,
     normalize_research_tab,
+    sanitize_research_query_items,
 )
 
 ALLOWED_REDIRECT_PATHS = {

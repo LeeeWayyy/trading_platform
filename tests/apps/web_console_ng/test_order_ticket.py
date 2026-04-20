@@ -2253,6 +2253,14 @@ class TestOrderTicketTWAPPreparation:
         assert fields["twap_interval_seconds"] == 60
         assert fields["start_time"] == start_time.isoformat()
 
+        preview_payload = component._client.fetch_twap_preview.await_args.args[0]
+        assert preview_payload["duration_minutes"] == 30
+        assert preview_payload["interval_seconds"] == 60
+        assert preview_payload["strategy_id"] == "alpha"
+        assert preview_payload["limit_price"] == "150.00"
+        assert "twap_duration_minutes" not in preview_payload
+        assert "twap_interval_seconds" not in preview_payload
+
 
 class TestOrderTicketExecutionStyleTransitions:
     """Tests for execution-style compatibility state transitions."""
