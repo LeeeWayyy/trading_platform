@@ -46,7 +46,7 @@ def _parse_interval_seconds(interval: str) -> int:
     if not value_str.isdigit():
         raise ValueError(f"Invalid interval value: {interval!r}")
     value = int(value_str)
-    multiplier = {"s": 1, "m": 60, "h": 3600}.get(unit)
+    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(unit)
     if multiplier is None:
         raise ValueError(f"Unsupported interval unit: {interval!r}")
     return value * multiplier
@@ -438,6 +438,9 @@ class PriceChartComponent:
 
         # Update existing candle or start a new bucket candle
         last_candle = self._candles[-1]
+        if bucket_start < last_candle.time:
+            # Ignore delayed/out-of-order ticks from older buckets.
+            return
         if bucket_start > last_candle.time:
             updated_candle = {
                 "time": bucket_start,
@@ -457,9 +460,6 @@ class PriceChartComponent:
                 )
             )
         else:
-            if bucket_start < last_candle.time:
-                # Ignore delayed/out-of-order ticks from older buckets.
-                return
             updated_candle = {
                 "time": last_candle.time,
                 "open": last_candle.open,
@@ -476,19 +476,41 @@ class PriceChartComponent:
                 volume=last_candle.volume,
             )
 
+        trimmed_history = False
         # Keep bounded history in UI-only memory.
         if len(self._candles) > 500:
             self._candles = self._candles[-500:]
+            trimmed_history = True
 
         try:
-            await self._run_javascript(
-                f"""
-                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
-                if (chartRef) {{
-                    chartRef.candlestickSeries.update({json.dumps(updated_candle)});
-                }}
-            """
-            )
+            if trimmed_history:
+                candles_payload = [
+                    {
+                        "time": candle.time,
+                        "open": candle.open,
+                        "high": candle.high,
+                        "low": candle.low,
+                        "close": candle.close,
+                    }
+                    for candle in self._candles
+                ]
+                await self._run_javascript(
+                    f"""
+                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                    if (chartRef) {{
+                        chartRef.candlestickSeries.setData({json.dumps(candles_payload)});
+                    }}
+                """
+                )
+            else:
+                await self._run_javascript(
+                    f"""
+                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                    if (chartRef) {{
+                        chartRef.candlestickSeries.update({json.dumps(updated_candle)});
+                    }}
+                """
+                )
         except Exception as exc:
             logger.debug(f"Failed to update chart: {exc}")
 
@@ -841,6 +863,7 @@ class PriceChartComponent:
                     title.textContent = 'Awaiting live market data';
 
                     const subtitle = document.createElement('div');
+                    subtitle.className = 'no-data-overlay-subtitle';
                     subtitle.style.cssText = 'margin-top:4px;font-size:11px;color:#94a3b8;';
                     subtitle.textContent = 'Selected symbol: ' + {js_safe_symbol};
 
@@ -848,6 +871,10 @@ class PriceChartComponent:
                     card.appendChild(subtitle);
                     overlay.appendChild(card);
                     container.appendChild(overlay);
+                }}
+                const subtitle = overlay.querySelector('.no-data-overlay-subtitle');
+                if (subtitle) {{
+                    subtitle.textContent = 'Selected symbol: ' + {js_safe_symbol};
                 }}
                 overlay.style.display = 'flex';
             """

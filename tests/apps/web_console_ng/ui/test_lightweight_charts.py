@@ -48,6 +48,26 @@ async def test_loader_retries_after_failed_first_attempt(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio()
+async def test_loader_timeout_has_explicit_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Loader should raise a timeout-specific error when readiness flag never appears."""
+    lightweight_charts.LightweightChartsLoader.reset()
+
+    async def fake_run_javascript(script: str, *_args: object, **_kwargs: object) -> object:
+        if "window.__lwc_ready === true" in script:
+            return False
+        return None
+
+    async def fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(lightweight_charts.ui, "run_javascript", fake_run_javascript)
+    monkeypatch.setattr(lightweight_charts.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(RuntimeError, match="Timed out waiting for Lightweight Charts readiness flag"):
+        await lightweight_charts.LightweightChartsLoader.ensure_loaded()
+
+
+@pytest.mark.asyncio()
 async def test_price_chart_uses_sync_timer_callback_for_init(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

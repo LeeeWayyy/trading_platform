@@ -237,6 +237,7 @@ class LightweightChartsLoader:
                 )
 
                 # Wait for library to be ready
+                ready_timed_out = True
                 for _ in range(100):  # Max 5 seconds
                     try:
                         ready = await run_js("window.__lwc_ready === true")
@@ -244,6 +245,7 @@ class LightweightChartsLoader:
                             isinstance(ready, str) and ready.strip().lower() == "true"
                         )
                         if ready_bool:
+                            ready_timed_out = False
                             cls._ready = True
                             return
                     except Exception:
@@ -255,6 +257,8 @@ class LightweightChartsLoader:
                 raise
 
             cls._loaded = False
+            if ready_timed_out:
+                raise RuntimeError("Timed out waiting for Lightweight Charts readiness flag")
             raise RuntimeError("Failed to load Lightweight Charts library")
 
     @classmethod

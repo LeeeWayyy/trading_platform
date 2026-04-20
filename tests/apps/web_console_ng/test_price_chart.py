@@ -586,6 +586,69 @@ class TestPriceChartRealtimeUpdates:
         assert len(component._candles) == 1
         assert component._candles[0].close == 101.25
 
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_ignores_out_of_order_tick(self) -> None:
+        """Out-of-order ticks should not mutate the latest candle."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(time=1200, open=100.0, high=101.0, low=99.5, close=100.5, volume=None),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        before = component._candles.copy()
+        await component._handle_price_update(99.0, datetime.fromtimestamp(900, UTC))
+
+        assert component._candles == before
+        component._run_javascript.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_trim_syncs_chart_data(self) -> None:
+        """When Python history is trimmed, JS chart should be reset with setData."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(
+                time=300 * i,
+                open=100.0 + i,
+                high=101.0 + i,
+                low=99.0 + i,
+                close=100.5 + i,
+                volume=None,
+            )
+            for i in range(500)
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        last_time = component._candles[-1].time
+        await component._handle_price_update(900.0, datetime.fromtimestamp(last_time + 300, UTC))
+
+        assert len(component._candles) == 500
+        assert component._candles[-1].close == 900.0
+        component._run_javascript.assert_awaited()
+        js_payload = component._run_javascript.await_args.args[0]
+        assert "setData(" in js_payload
+
+
+class TestPriceChartOverlays:
+    """Tests for chart overlays."""
+
+    @pytest.mark.asyncio()
+    async def test_show_no_data_overlay_updates_symbol_text(self) -> None:
+        """Existing overlay subtitle should be refreshed when symbol changes."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._show_no_data_overlay("AAPL")
+
+        js_payload = component._run_javascript.await_args.args[0]
+        assert ".no-data-overlay-subtitle" in js_payload
+        assert "Selected symbol:" in js_payload
+
 
 class TestPriceChartDispose:
     """Tests for dispose/cleanup."""
