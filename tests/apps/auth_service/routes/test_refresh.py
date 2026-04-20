@@ -168,7 +168,7 @@ def test_internal_refresh_secret_whitespace_only_becomes_none(
 
 
 def test_refresh_internal_bypass_succeeds_when_env_has_whitespace(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression for #176: whitespace in env must not break compare_digest.
 

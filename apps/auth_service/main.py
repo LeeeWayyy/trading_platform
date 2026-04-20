@@ -18,7 +18,11 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from apps.auth_service.dependencies import get_config, get_oauth2_handler
+from apps.auth_service.dependencies import (
+    get_config,
+    get_internal_refresh_secret,
+    get_oauth2_handler,
+)
 from apps.auth_service.middleware.csp_middleware import CSPMiddleware
 from apps.auth_service.routes import callback, csp_report, example_page, logout, refresh
 from apps.auth_service.utils.csp_policy import build_csp_policy
@@ -197,7 +201,7 @@ def _validate_internal_refresh_secret() -> str | None:
     Raises:
         RuntimeError: If secret not configured in production/staging
     """
-    secret = os.getenv("INTERNAL_REFRESH_SECRET", "").strip()
+    secret = get_internal_refresh_secret()
     env = os.getenv("ENVIRONMENT", "dev").lower()
 
     # Empty secret = feature disabled
