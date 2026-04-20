@@ -112,6 +112,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             redis_client=redis_client,
             event_publisher=event_publisher,
             price_ttl=settings.price_cache_ttl,
+            messages_received_counter=websocket_messages_received_total,
+            reconnect_attempts_counter=reconnect_attempts_total,
         )
 
         # Start WebSocket in background task
@@ -123,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             execution_gateway_url=settings.execution_gateway_url,
             sync_interval=settings.subscription_sync_interval,
             initial_sync=True,
+            syncs_counter=position_syncs_total,
         )
 
         # Start subscription sync loop in background

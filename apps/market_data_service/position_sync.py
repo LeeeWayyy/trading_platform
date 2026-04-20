@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 import httpx
+from prometheus_client import Counter
 
 from libs.data.market_data import AlpacaMarketDataStream
 from libs.data.market_data.exceptions import SubscriptionError
@@ -42,6 +43,7 @@ class PositionBasedSubscription:
         execution_gateway_url: str,
         sync_interval: int = 300,  # 5 minutes
         initial_sync: bool = True,
+        syncs_counter: Counter | None = None,
     ):
         """
         Initialize position-based subscription manager.
@@ -51,11 +53,14 @@ class PositionBasedSubscription:
             execution_gateway_url: Execution Gateway base URL
             sync_interval: Seconds between syncs (default: 300 = 5 minutes)
             initial_sync: Run initial sync on startup (default: True)
+            syncs_counter: Optional Prometheus Counter incremented once per sync
+                cycle. Must declare a ``status`` label (``success``/``error``).
         """
         self.stream = stream
         self.gateway_url = execution_gateway_url.rstrip("/")
         self.sync_interval = sync_interval
         self.initial_sync = initial_sync
+        self._syncs_counter = syncs_counter
 
         self._running = False
         self._last_position_symbols: set[str] = set()
@@ -237,12 +242,14 @@ class PositionBasedSubscription:
         1. Subscribes to new symbols (not currently subscribed)
         2. Unsubscribes from closed symbols (no longer have position)
         """
+        sync_status: str | None = "success"
         try:
             # Fetch positions from Execution Gateway
             position_symbols = await self._fetch_position_symbols()
 
             if position_symbols is None:
                 logger.warning("Failed to fetch positions, skipping sync")
+                sync_status = "error"
                 return
 
             # Determine what changed
@@ -264,6 +271,9 @@ class PositionBasedSubscription:
                         f"{sorted(new_symbols)}"
                     )
                 except SubscriptionError as e:
+                    # Mark sync as error so Prometheus alerting reflects partial failures
+                    # that would otherwise be hidden behind status="success".
+                    sync_status = "error"
                     logger.error(f"Failed to subscribe to new symbols: {e}")
 
             # H5 Fix: Unsubscribe with source="position" - only removes position source
@@ -276,6 +286,9 @@ class PositionBasedSubscription:
                         f"{sorted(closed_symbols)}"
                     )
                 except SubscriptionError as e:
+                    # Mark sync as error so Prometheus alerting reflects partial failures
+                    # that would otherwise be hidden behind status="success".
+                    sync_status = "error"
                     logger.error(f"Failed to unsubscribe from closed symbols: {e}")
 
             # Log summary
@@ -292,19 +305,28 @@ class PositionBasedSubscription:
             # Update tracking
             self._last_position_symbols = position_symbols
 
+        except asyncio.CancelledError:
+            # Task cancellation (e.g. shutdown) is not a sync outcome — skip
+            # the counter increment entirely so aborted cycles don't bias the
+            # success/error signal. Re-raise to honor cooperative cancellation.
+            sync_status = None
+            raise
         except SubscriptionError as e:
+            sync_status = "error"
             logger.error(
                 "Subscription sync failed - SubscriptionError",
                 extra={"error": str(e), "error_type": type(e).__name__},
                 exc_info=True,
             )
         except httpx.HTTPStatusError as e:
+            sync_status = "error"
             logger.error(
                 "Subscription sync failed - HTTP error",
                 extra={"status_code": e.response.status_code, "url": str(e.request.url)},
                 exc_info=True,
             )
         except (httpx.ConnectTimeout, httpx.ConnectError, httpx.NetworkError) as e:
+            sync_status = "error"
             logger.error(
                 "Subscription sync failed - Network error",
                 extra={
@@ -315,11 +337,27 @@ class PositionBasedSubscription:
                 exc_info=True,
             )
         except Exception as e:
+            sync_status = "error"
             logger.error(
                 "Subscription sync failed - Unexpected error",
                 extra={"error": str(e), "error_type": type(e).__name__},
                 exc_info=True,
             )
+        finally:
+            # Record one observation per sync cycle for Prometheus alerting.
+            # sync_status is set to None when the cycle was cancelled mid-flight
+            # (shutdown), in which case we skip the increment so cancelled
+            # cycles don't bias the success/error monitoring signal.
+            if self._syncs_counter is not None and sync_status is not None:
+                try:
+                    self._syncs_counter.labels(status=sync_status).inc()
+                except Exception:  # pragma: no cover - defensive
+                    # Intentional deviation from "catch, log, re-raise" standard:
+                    # a metrics backend failure must not mask the real sync
+                    # outcome. The counter is pure observability, so log and
+                    # continue; propagating would convert every metrics hiccup
+                    # into a sync-cycle failure.
+                    logger.debug("Failed to increment position_syncs_total", exc_info=True)
 
     async def _fetch_position_symbols(self) -> set[str] | None:
         """

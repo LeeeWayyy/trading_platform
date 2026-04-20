@@ -13,6 +13,7 @@ from typing import Any
 
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
+from prometheus_client import Counter
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 
@@ -49,6 +50,8 @@ class AlpacaMarketDataStream:
         redis_client: RedisClient,
         event_publisher: EventPublisher,
         price_ttl: int = 300,  # 5 minutes
+        messages_received_counter: Counter | None = None,
+        reconnect_attempts_counter: Counter | None = None,
     ):
         """
         Initialize Alpaca market data stream.
@@ -59,12 +62,26 @@ class AlpacaMarketDataStream:
             redis_client: Redis client for price caching
             event_publisher: Event publisher for price updates
             price_ttl: TTL for price cache in seconds (default: 5 minutes)
+            messages_received_counter: Optional Prometheus Counter incremented per
+                received WebSocket message. Must declare a ``message_type`` label.
+            reconnect_attempts_counter: Optional Prometheus Counter incremented once
+                per WebSocket reconnection attempt (no labels).
         """
         self.api_key = api_key
         self.secret_key = secret_key
         self.redis = redis_client
         self.publisher = event_publisher
         self.price_ttl = price_ttl
+        self._messages_received_counter = messages_received_counter
+        self._reconnect_attempts_counter = reconnect_attempts_counter
+        # Pre-bind the labeled child once so the hot-path _handle_quote doesn't
+        # pay the per-message .labels() lookup (dict get + child construction)
+        # on every inbound WebSocket message.
+        self._quote_message_counter = (
+            messages_received_counter.labels(message_type="quote")
+            if messages_received_counter is not None
+            else None
+        )
 
         # Initialize Alpaca WebSocket client
         self.stream = StockDataStream(api_key, secret_key)
@@ -247,6 +264,20 @@ class AlpacaMarketDataStream:
             - This prevents individual quote errors from crashing the WebSocket stream
             - Failed quotes are logged with full traceback for debugging
         """
+        # Record receipt of the message before any processing so the counter
+        # reflects inbound WebSocket volume even if parsing/validation fails.
+        # Use the pre-bound labeled child to avoid a per-message .labels()
+        # lookup on the WebSocket hot path.
+        if self._quote_message_counter is not None:
+            try:
+                self._quote_message_counter.inc()
+            except Exception:  # pragma: no cover - defensive: never let metrics break the stream
+                # Intentional deviation from "catch, log, re-raise" standard:
+                # a prometheus_client failure here would crash the quote
+                # handler for every inbound message. The counter is pure
+                # observability, so we log at debug and continue.
+                logger.debug("Failed to increment websocket_messages_received_total", exc_info=True)
+
         try:
             # Convert Alpaca Quote to our QuoteData model
             symbol = quote["symbol"] if isinstance(quote, Mapping) else quote.symbol
@@ -340,8 +371,29 @@ class AlpacaMarketDataStream:
         """
         self._running = True
         retry_delay = 5  # Base delay in seconds
+        # Track whether this iteration is a reconnect (i.e. not the very first
+        # connection attempt). We count reconnect attempts at a single place —
+        # the top of each iteration after the first — so clean-return and
+        # exception paths don't both increment for the same logical reconnect.
+        is_reconnect_iteration = False
 
         while self._running and self._reconnect_attempts < self._max_reconnect_attempts:
+            # Count every reconnect attempt exactly once, at the start of the
+            # iteration. Skips the initial connection attempt. This covers both
+            # the clean-return ("flapping") path and the exception-driven path
+            # without double-counting a single failed reconnect after a clean
+            # close.
+            if is_reconnect_iteration and self._reconnect_attempts_counter is not None:
+                try:
+                    self._reconnect_attempts_counter.inc()
+                except Exception:  # pragma: no cover - defensive
+                    # Intentional deviation from "catch, log, re-raise" standard:
+                    # a metrics backend failure must not tear down the WebSocket
+                    # reconnect loop (which is already in a degraded state).
+                    # The monitoring counter is strictly observability, not a
+                    # correctness signal, so we log and swallow.
+                    logger.debug("Failed to increment reconnect_attempts_total", exc_info=True)
+
             try:
                 logger.info(
                     f"Starting WebSocket connection "
@@ -371,10 +423,17 @@ class AlpacaMarketDataStream:
                     logger.warning(
                         "WebSocket connection closed unexpectedly, will reconnect immediately."
                     )
+                    # Next iteration is a reconnect (flapping) — count it at the
+                    # top of the next loop pass.
+                    is_reconnect_iteration = True
 
             except Exception as e:
                 self._connected = False
                 self._reconnect_attempts += 1
+                # Next iteration is a reconnect — count it at the top of the
+                # next loop pass (avoids double-counting with the clean-return
+                # path when a reconnect follows a clean close).
+                is_reconnect_iteration = True
 
                 if self._reconnect_attempts >= self._max_reconnect_attempts:
                     logger.error("Max reconnection attempts reached. Giving up.")
