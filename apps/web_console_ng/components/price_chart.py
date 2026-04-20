@@ -38,6 +38,20 @@ REALTIME_STALE_THRESHOLD_S = 60  # Show warning if no updates for 60s
 REALTIME_FALLBACK_THRESHOLD_S = 180  # Show fallback chart after 3 minutes
 
 
+def _parse_interval_seconds(interval: str) -> int:
+    """Convert interval strings like '5m' into seconds."""
+    if len(interval) < 2:
+        raise ValueError(f"Invalid interval format: {interval!r}")
+    value_str, unit = interval[:-1], interval[-1].lower()
+    if not value_str.isdigit():
+        raise ValueError(f"Invalid interval value: {interval!r}")
+    value = int(value_str)
+    multiplier = {"s": 1, "m": 60, "h": 3600}.get(unit)
+    if multiplier is None:
+        raise ValueError(f"Unsupported interval unit: {interval!r}")
+    return value * multiplier
+
+
 @dataclass
 class CandleData:
     """Single candle data point."""
@@ -70,7 +84,7 @@ class PriceChartComponent:
 
     DEFAULT_TIMEFRAME = "1D"  # 1 day of data
     CANDLE_INTERVAL = "5m"  # 5-minute candles
-    CANDLE_INTERVAL_SECONDS = 300
+    CANDLE_INTERVAL_SECONDS = _parse_interval_seconds(CANDLE_INTERVAL)
 
     def __init__(
         self,
@@ -103,6 +117,7 @@ class PriceChartComponent:
         self._staleness_timer: ui.timer | None = None
         self._chart_initialized: bool = False
         self._ui_client: Any | None = None
+        self._missing_ui_client_warned: bool = False
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
             # execute in the correct browser context.
@@ -177,9 +192,10 @@ class PriceChartComponent:
             if timeout is not None:
                 return await self._ui_client.run_javascript(code, timeout=timeout)
             return await self._ui_client.run_javascript(code)
-        if timeout is not None:
-            return await ui.run_javascript(code, timeout=timeout)
-        return await ui.run_javascript(code)
+        if not self._missing_ui_client_warned:
+            logger.warning("PriceChart: No UI client context available for JavaScript execution")
+            self._missing_ui_client_warned = True
+        return None
 
     async def _ensure_chart_initialized(self) -> None:
         """Initialize chart library and chart instance once for this component."""
@@ -198,7 +214,20 @@ class PriceChartComponent:
             ),
             timeout=10.0,
         )
-        self._chart_initialized = True
+        initialized = await self._run_javascript(
+            f"""
+            (() => {{
+                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                return !!(chartRef && chartRef.chart && chartRef.candlestickSeries);
+            }})()
+        """
+        )
+        if initialized is True or (
+            isinstance(initialized, str) and initialized.strip().lower() == "true"
+        ):
+            self._chart_initialized = True
+            return
+        raise RuntimeError(f"Chart init did not create chart reference for {self._chart_id}")
 
     # ================= Symbol Management =================
 
@@ -327,7 +356,8 @@ class PriceChartComponent:
 
         # Process the price update
         if tick_time is None:
-            tick_time = datetime.now(UTC)
+            # FAIL-CLOSED: Do not bucket/update chart without server timestamp
+            return
 
         # Track task for cleanup on dispose (avoid task leaks)
         task = asyncio.create_task(self._handle_price_update(price, tick_time))
@@ -423,9 +453,9 @@ class PriceChartComponent:
                 volume=last_candle.volume,
             )
 
-            # Keep bounded history in UI-only memory.
-            if len(self._candles) > 500:
-                self._candles = self._candles[-500:]
+        # Keep bounded history in UI-only memory.
+        if len(self._candles) > 500:
+            self._candles = self._candles[-500:]
 
         try:
             await self._run_javascript(

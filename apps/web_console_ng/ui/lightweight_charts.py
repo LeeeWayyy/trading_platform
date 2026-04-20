@@ -44,28 +44,54 @@ CHART_INIT_JS = """
     const container = document.getElementById('{container_id}');
     if (!container) return;
 
-    if (typeof window.LightweightCharts === 'undefined') {{
-        try {{
-            const script = document.createElement('script');
-            script.src = '{cdn}';
-            script.integrity = '{sri}';
-            script.crossOrigin = 'anonymous';
-            await new Promise((resolve, reject) => {{
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
+    const loadScriptOnce = (id, src, integrity = null) => {{
+        const existing = document.getElementById(id);
+        if (existing) {{
+            return new Promise((resolve, reject) => {{
+                if (existing.dataset.loaded === 'true') {{
+                    resolve();
+                    return;
+                }}
+                existing.addEventListener('load', () => resolve(), {{ once: true }});
+                existing.addEventListener('error', () => reject(new Error(`Failed to load ${{src}}`)), {{ once: true }});
             }});
-        }} catch (e) {{
+        }}
+
+        const script = document.createElement('script');
+        script.id = id;
+        script.src = src;
+        if (integrity) {{
+            script.integrity = integrity;
+            script.crossOrigin = 'anonymous';
+        }}
+        return new Promise((resolve, reject) => {{
+            script.onload = () => {{
+                script.dataset.loaded = 'true';
+                resolve();
+            }};
+            script.onerror = () => reject(new Error(`Failed to load ${{src}}`));
+            document.head.appendChild(script);
+        }});
+    }};
+
+    if (typeof window.LightweightCharts === 'undefined') {{
+        window.__lwc_loading_promise = window.__lwc_loading_promise || (async () => {{
             try {{
-                const fallback = document.createElement('script');
-                fallback.src = '{local}';
-                await new Promise((resolve, reject) => {{
-                    fallback.onload = resolve;
-                    fallback.onerror = reject;
-                    document.head.appendChild(fallback);
-                }});
-            }} catch (fallbackError) {{
-                console.warn('LightweightCharts load failed from CDN and local fallback', fallbackError);
+                await loadScriptOnce('lwc-script-cdn-v410', '{cdn}', '{sri}');
+            }} catch (e) {{
+                try {{
+                    await loadScriptOnce('lwc-script-local-v410', '{local}');
+                }} catch (fallbackError) {{
+                    console.warn('LightweightCharts load failed from CDN and local fallback', fallbackError);
+                }}
+            }}
+        }})();
+
+        try {{
+            await window.__lwc_loading_promise;
+        }} finally {{
+            if (typeof window.LightweightCharts !== 'undefined') {{
+                window.__lwc_ready = true;
             }}
         }}
     }}
