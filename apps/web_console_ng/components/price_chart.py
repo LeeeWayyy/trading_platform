@@ -118,6 +118,7 @@ class PriceChartComponent:
         self._chart_initialized: bool = False
         self._ui_client: Any | None = None
         self._missing_ui_client_warned: bool = False
+        self._chart_init_lock = asyncio.Lock()
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
             # execute in the correct browser context.
@@ -202,32 +203,35 @@ class PriceChartComponent:
         if self._chart_initialized or self._disposed:
             return
 
-        await self._run_javascript(
-            CHART_INIT_JS.format(
-                container_id=self._container_id,
-                chart_id=self._chart_id,
-                width=self._width,
-                height=self._height,
-                cdn=LIGHTWEIGHT_CHARTS_CDN,
-                sri=LIGHTWEIGHT_CHARTS_SRI,
-                local=LIGHTWEIGHT_CHARTS_LOCAL,
-            ),
-            timeout=10.0,
-        )
-        initialized = await self._run_javascript(
-            f"""
-            (() => {{
-                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
-                return !!(chartRef && chartRef.chart && chartRef.candlestickSeries);
-            }})()
-        """
-        )
-        if initialized is True or (
-            isinstance(initialized, str) and initialized.strip().lower() == "true"
-        ):
-            self._chart_initialized = True
-            return
-        raise RuntimeError(f"Chart init did not create chart reference for {self._chart_id}")
+        async with self._chart_init_lock:
+            if self._chart_initialized or self._disposed:
+                return
+            await self._run_javascript(
+                CHART_INIT_JS.format(
+                    container_id=self._container_id,
+                    chart_id=self._chart_id,
+                    width=self._width,
+                    height=self._height,
+                    cdn=LIGHTWEIGHT_CHARTS_CDN,
+                    sri=LIGHTWEIGHT_CHARTS_SRI,
+                    local=LIGHTWEIGHT_CHARTS_LOCAL,
+                ),
+                timeout=10.0,
+            )
+            initialized = await self._run_javascript(
+                f"""
+                (() => {{
+                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                    return !!(chartRef && chartRef.chart && chartRef.candlestickSeries);
+                }})()
+            """
+            )
+            if initialized is True or (
+                isinstance(initialized, str) and initialized.strip().lower() == "true"
+            ):
+                self._chart_initialized = True
+                return
+            raise RuntimeError(f"Chart init did not create chart reference for {self._chart_id}")
 
     # ================= Symbol Management =================
 
@@ -312,6 +316,8 @@ class PriceChartComponent:
             return  # Silently ignore malformed data (display-only component)
 
         # Check symbol matches current selection
+        if self._current_symbol is None:
+            return
         data_symbol = data.get("symbol")
         if data_symbol and data_symbol != self._current_symbol:
             return  # Ignore data for different symbol
@@ -360,13 +366,23 @@ class PriceChartComponent:
             return
 
         # Track task for cleanup on dispose (avoid task leaks)
-        task = asyncio.create_task(self._handle_price_update(price, tick_time))
+        symbol_snapshot = self._current_symbol
+        task = asyncio.create_task(
+            self._handle_price_update(price, tick_time, symbol_snapshot)
+        )
         self._pending_update_tasks.add(task)
         task.add_done_callback(lambda t: self._pending_update_tasks.discard(t))
 
-    async def _handle_price_update(self, price: float, tick_time: datetime) -> None:
+    async def _handle_price_update(
+        self,
+        price: float,
+        tick_time: datetime,
+        symbol: str | None = None,
+    ) -> None:
         """Process incoming price update and update chart."""
         if self._disposed:
+            return
+        if symbol is not None and symbol != self._current_symbol:
             return
 
         # Ensure chart exists even when historical bars are unavailable.
@@ -376,12 +392,16 @@ class PriceChartComponent:
             except Exception as exc:
                 logger.debug(f"Failed to initialize chart on tick update: {exc}")
                 return
+        if self._disposed or (symbol is not None and symbol != self._current_symbol):
+            return
 
         await self._hide_no_data_overlay()
 
         # Hide stale overlay on valid update
         if self._last_realtime_update:
             await self._hide_stale_overlay()
+        if self._disposed or (symbol is not None and symbol != self._current_symbol):
+            return
 
         bucket_start = (
             int(tick_time.timestamp()) // self.CANDLE_INTERVAL_SECONDS
@@ -437,6 +457,9 @@ class PriceChartComponent:
                 )
             )
         else:
+            if bucket_start < last_candle.time:
+                # Ignore delayed/out-of-order ticks from older buckets.
+                return
             updated_candle = {
                 "time": last_candle.time,
                 "open": last_candle.open,
