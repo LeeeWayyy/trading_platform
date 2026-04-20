@@ -1651,7 +1651,8 @@ class OrderTicketComponent:
             )
         except Exception as exc:
             logger.warning("TWAP preview failed before submit: %s", exc, exc_info=True)
-            return (False, {}, "Unable to validate TWAP plan")
+            ui.notify("Unable to validate TWAP plan", type="negative")
+            raise
 
         self._pending_twap_preview = preview_response
         self._twap_notional_warning = str(preview_response.get("notional_warning") or "") or None

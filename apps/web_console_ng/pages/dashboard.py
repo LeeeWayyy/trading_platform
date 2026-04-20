@@ -827,8 +827,8 @@ async def dashboard(client: Client) -> None:
 
     order_flow_panel = OrderFlowPanel(max_rows=12)
     strategy_context_widget: StrategyContextWidget | None = None
-    tabs_host: ui.column
-    log_tail_host: ui.column
+    tabs_host: ui.column | None = None
+    log_tail_host: ui.column | None = None
     workspace_root: Any | None = None
     workspace_overlay: Any | None = None
     workspace_overlay_title: ui.label | None = None
@@ -1107,6 +1107,9 @@ async def dashboard(client: Client) -> None:
 
     last_sync_label: ui.label
     activity_feed: LogTailPanel
+
+    if tabs_host is None or log_tail_host is None:
+        raise RuntimeError("workspace layout hosts are not initialized")
 
     with tabs_host:
         with ui.element("div").classes("workspace-v2-panel w-full flex-1 min-h-0"):
@@ -1646,26 +1649,26 @@ async def dashboard(client: Client) -> None:
         )
 
     async def _emit_audit_log_safe(action: str, details: dict[str, Any]) -> None:
-        """Best-effort audit log emission; never interrupt trading action UX."""
+        """Emit audit logs with full context and re-raise on failure."""
         try:
             await _emit_audit_log(action, details)
         except Exception:
-            logger.warning(
+            logger.exception(
                 "dashboard_audit_log_emit_failed",
                 extra={"user_id": user_id, "action": action},
-                exc_info=True,
             )
+            raise
 
     async def _add_activity_item_safe(item: dict[str, Any], *, event: str) -> None:
-        """Best-effort activity feed append; keep primary action flow resilient."""
+        """Append activity item and re-raise on failure."""
         try:
             await activity_feed.add_item(item)
         except Exception:
-            logger.warning(
+            logger.exception(
                 "dashboard_activity_feed_add_failed",
                 extra={"user_id": user_id, "event": event},
-                exc_info=True,
             )
+            raise
 
     async def _show_cancel_symbol_orders_dialog() -> None:
         """Open confirmation dialog for per-symbol cancel-all action."""
