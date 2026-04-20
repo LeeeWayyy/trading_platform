@@ -102,6 +102,7 @@ class PriceChartComponent:
         self._disposed: bool = False
         self._staleness_timer: ui.timer | None = None
         self._chart_initialized: bool = False
+        self._ui_client: Any | None = None
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
             # execute in the correct browser context.
@@ -397,7 +398,7 @@ class PriceChartComponent:
             }
             self._candles.append(
                 CandleData(
-                    time=updated_candle["time"],
+                    time=int(updated_candle["time"]),
                     open=updated_candle["open"],
                     high=updated_candle["high"],
                     low=updated_candle["low"],
@@ -414,7 +415,7 @@ class PriceChartComponent:
                 "close": price,
             }
             self._candles[-1] = CandleData(
-                time=updated_candle["time"],
+                time=int(updated_candle["time"]),
                 open=updated_candle["open"],
                 high=updated_candle["high"],
                 low=updated_candle["low"],
