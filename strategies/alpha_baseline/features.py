@@ -26,9 +26,9 @@ class QlibUnavailableError(RuntimeError):
 def _load_qlib_components() -> tuple[Any, type[Any]]:
     """Load Qlib modules lazily so services can start without pyqlib installed."""
     try:
-        import qlib  # type: ignore[import-not-found]
+        import qlib
         from qlib.contrib.data.handler import (
-            Alpha158 as QlibAlpha158,  # type: ignore[import-not-found]
+            Alpha158 as QlibAlpha158,
         )
     except ModuleNotFoundError as exc:
         raise QlibUnavailableError(

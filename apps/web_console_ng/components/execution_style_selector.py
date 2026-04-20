@@ -52,11 +52,19 @@ class ExecutionStyleSelector:
         """Enable/disable selector with optional reason hint."""
         if self._toggle is None:
             if disabled:
-                self._value = "instant"
+                if self._value != "instant":
+                    self._value = "instant"
+                    self._on_change("instant")
+                else:
+                    self._value = "instant"
             return
 
         if disabled:
+            previous_value = self._value
             self.set_value("instant")
+            # Keep UI and ticket payload state in sync when we force INSTANT mode.
+            if previous_value != "instant":
+                self._on_change("instant")
             self._toggle.disable()
         else:
             self._toggle.enable()

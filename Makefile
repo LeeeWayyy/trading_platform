@@ -37,14 +37,8 @@ requirements: ## Generate requirements.txt from pyproject.toml (for Docker build
 	@echo "Generated requirements.txt from pyproject.toml"
 
 ensure-requirements: ## Ensure requirements.txt exists and is newer than pyproject/lock
-	@if [ ! -f requirements.txt ] || \
-		([ -f pyproject.toml ] && [ pyproject.toml -nt requirements.txt ]) || \
-		([ -f poetry.lock ] && [ poetry.lock -nt requirements.txt ]); then \
-		echo "Generating requirements.txt for Docker builds..."; \
-		$(MAKE) requirements; \
-	else \
-		echo "requirements.txt is present and up to date."; \
-	fi
+	@echo "Generating requirements.txt for Docker builds..."
+	@$(MAKE) requirements
 
 up: ## Start infrastructure (Postgres, Redis, Prometheus, Grafana)
 	docker compose up -d

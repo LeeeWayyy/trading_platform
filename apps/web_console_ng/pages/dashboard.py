@@ -779,6 +779,17 @@ async def dashboard(client: Client) -> None:
                 return default
         return default
 
+    def _safe_storage_user_get(key: str) -> Any | None:
+        """Read session storage safely when request context is temporarily unavailable."""
+        try:
+            return app.storage.user.get(key)
+        except (RuntimeError, AttributeError, KeyError) as exc:
+            logger.debug(
+                "dashboard_storage_user_unavailable",
+                extra={"client_id": client_id, "key": key, "error": str(exc)},
+            )
+            return None
+
     background_tasks: set[asyncio.Task[Any]] = set()
 
     def _handle_dashboard_task_done(task: asyncio.Task[Any]) -> None:
@@ -817,8 +828,8 @@ async def dashboard(client: Client) -> None:
 
     order_flow_panel = OrderFlowPanel(max_rows=12)
     strategy_context_widget: StrategyContextWidget | None = None
-    tabs_host: ui.column | None = None
-    log_tail_host: ui.column | None = None
+    tabs_host: ui.column
+    log_tail_host: ui.column
     workspace_root: Any | None = None
     workspace_overlay: Any | None = None
     workspace_overlay_title: ui.label | None = None
@@ -1097,9 +1108,6 @@ async def dashboard(client: Client) -> None:
 
     last_sync_label: ui.label
     activity_feed: LogTailPanel
-
-    if tabs_host is None or log_tail_host is None:
-        raise RuntimeError("workspace layout hosts are missing")
 
     with tabs_host:
         with ui.element("div").classes("workspace-v2-panel w-full flex-1 min-h-0"):
@@ -1866,7 +1874,7 @@ async def dashboard(client: Client) -> None:
                         ui.notify("Type FLATTEN exactly to proceed", type="warning")
                         return
 
-                    id_token = app.storage.user.get("id_token")
+                    id_token = _safe_storage_user_get("id_token")
                     if not id_token:
                         ui.notify(
                             "Authentication token missing - please sign in again",
