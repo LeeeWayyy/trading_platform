@@ -274,6 +274,11 @@ class AsyncTradingClient:
             headers["X-Strategy-ID"] = normalized_strategy_id
         return headers
 
+    def _can_use_market_data_source_override(self) -> bool:
+        """Return True when requests can carry authenticated source ownership tags."""
+        service_id = os.getenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng").strip() or "web_console_ng"
+        return bool(self._get_internal_service_secret(service_id))
+
     def _json_dict(self, response: httpx.Response) -> dict[str, Any]:
         payload = response.json()
         if not isinstance(payload, dict):
@@ -500,7 +505,7 @@ class AsyncTradingClient:
             "symbols": [str(symbol).upper() for symbol in symbols if str(symbol).strip()]
         }
         normalized_source = str(source).strip() if source is not None else ""
-        if normalized_source:
+        if normalized_source and self._can_use_market_data_source_override():
             request_payload["source"] = normalized_source
         request_body = json.dumps(request_payload, separators=(",", ":"), sort_keys=True)
         path = "/api/v1/subscribe"
@@ -533,7 +538,12 @@ class AsyncTradingClient:
     ) -> dict[str, Any]:
         """Request market-data-service to stop streaming one symbol."""
         safe_symbol = url_quote(symbol.upper(), safe="")
-        query = self._build_query_string([("source", str(source).strip())]) if source else ""
+        normalized_source = str(source).strip() if source is not None else ""
+        query = (
+            self._build_query_string([("source", normalized_source)])
+            if normalized_source and self._can_use_market_data_source_override()
+            else ""
+        )
         path = f"/api/v1/subscribe/{safe_symbol}"
         headers = self._get_market_data_auth_headers(
             method="DELETE",

@@ -383,7 +383,11 @@ async def test_fetch_historical_bars_uses_signed_market_data_headers(
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_subscribe_market_data_symbols_includes_source_when_provided() -> None:
+async def test_subscribe_market_data_symbols_includes_source_when_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
     client = AsyncTradingClient.get()
     client._http_client = httpx.AsyncClient(base_url="http://testserver")
     client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
@@ -418,7 +422,11 @@ async def test_subscribe_market_data_symbols_includes_source_when_provided() -> 
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_unsubscribe_market_data_symbol_passes_source_query_param() -> None:
+async def test_unsubscribe_market_data_symbol_passes_source_query_param(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
     client = AsyncTradingClient.get()
     client._http_client = httpx.AsyncClient(base_url="http://testserver")
     client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
@@ -426,6 +434,80 @@ async def test_unsubscribe_market_data_symbol_passes_source_query_param() -> Non
     route = respx.delete(
         "http://market-data.local/api/v1/subscribe/AAPL?source=web_console%3Auser-1%3Aabc"
     ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"message": "ok", "remaining_subscriptions": 0},
+        )
+    )
+
+    try:
+        result = await client.unsubscribe_market_data_symbol(
+            "AAPL",
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            source="web_console:user-1:abc",
+        )
+    finally:
+        await client.shutdown()
+
+    assert result["remaining_subscriptions"] == 0
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_subscribe_market_data_symbols_omits_source_without_internal_signing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
+    monkeypatch.delenv("INTERNAL_TOKEN_SECRET_WEB_CONSOLE_NG", raising=False)
+
+    client = AsyncTradingClient.get()
+    client._http_client = httpx.AsyncClient(base_url="http://testserver")
+    client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
+
+    route = respx.post("http://market-data.local/api/v1/subscribe").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "message": "ok",
+                "subscribed_symbols": ["AAPL"],
+                "total_subscriptions": 1,
+            },
+        )
+    )
+
+    try:
+        result = await client.subscribe_market_data_symbols(
+            ["AAPL"],
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            source="web_console:user-1:abc",
+        )
+    finally:
+        await client.shutdown()
+
+    assert result["total_subscriptions"] == 1
+    request = route.calls[0].request
+    payload = json.loads(request.content)
+    assert payload == {"symbols": ["AAPL"]}
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_unsubscribe_market_data_symbol_omits_source_without_internal_signing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
+    monkeypatch.delenv("INTERNAL_TOKEN_SECRET_WEB_CONSOLE_NG", raising=False)
+
+    client = AsyncTradingClient.get()
+    client._http_client = httpx.AsyncClient(base_url="http://testserver")
+    client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
+
+    route = respx.delete("http://market-data.local/api/v1/subscribe/AAPL").mock(
         return_value=httpx.Response(
             200,
             json={"message": "ok", "remaining_subscriptions": 0},
