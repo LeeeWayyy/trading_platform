@@ -1831,6 +1831,23 @@ class TestDispose:
         )
 
     @pytest.mark.asyncio()
+    async def test_dispose_releases_pending_market_data_unsubscribes(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() should also flush symbols queued for retry unsubscribe."""
+        context._pending_market_data_unsubscribes = {"AAPL"}
+
+        await context.dispose()
+
+        context._client.unsubscribe_market_data_symbol.assert_awaited_once_with(
+            "AAPL",
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+
+    @pytest.mark.asyncio()
     async def test_dispose_disposes_components(self, context: OrderEntryContext) -> None:
         """dispose() disposes all child components."""
         await context.dispose()

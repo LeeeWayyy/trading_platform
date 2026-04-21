@@ -2037,7 +2037,9 @@ class OrderEntryContext:
         # Unsubscribe from all channels
         async with self._subscription_lock:
             channels_to_unsubscribe = list(self._subscriptions)
-            market_data_symbols_to_release = self._collect_owned_price_symbols()
+            market_data_symbols_to_release = sorted(
+                set(self._collect_owned_price_symbols()) | self._pending_market_data_unsubscribes
+            )
 
             for _, future in self._pending_subscribes.items():
                 if future and not future.done():

@@ -361,7 +361,7 @@ def get_config() -> ExecutionGatewayConfig:
         )
         max_slice_pct_of_adv = 0.01
 
-    # Parse Alpaca data feed (supported: iex, sip, otc)
+    # Parse Alpaca data feed (supported: iex, sip, otc, boats)
     alpaca_data_feed = _get_alpaca_data_feed_env()
 
     return ExecutionGatewayConfig(

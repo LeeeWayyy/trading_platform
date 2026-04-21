@@ -129,6 +129,52 @@ class MarketDataProvider:
             return list(bars.get(symbol, []))
         return []
 
+    def _normalize_bar(self, bar: Any) -> dict[str, Any] | None:
+        """Normalize one provider bar object into the API response shape."""
+        if isinstance(bar, dict):
+            ts_raw = bar.get("timestamp") or bar.get("t")
+            open_raw = bar.get("open") or bar.get("o")
+            high_raw = bar.get("high") or bar.get("h")
+            low_raw = bar.get("low") or bar.get("l")
+            close_raw = bar.get("close") or bar.get("c")
+            volume_raw = bar.get("volume") or bar.get("v")
+        else:
+            ts_raw = getattr(bar, "timestamp", None) or getattr(bar, "t", None)
+            open_raw = getattr(bar, "open", None) or getattr(bar, "o", None)
+            high_raw = getattr(bar, "high", None) or getattr(bar, "h", None)
+            low_raw = getattr(bar, "low", None) or getattr(bar, "l", None)
+            close_raw = getattr(bar, "close", None) or getattr(bar, "c", None)
+            volume_raw = getattr(bar, "volume", None) or getattr(bar, "v", None)
+
+        ts = self._normalize_bar_timestamp(ts_raw)
+        if ts is None:
+            return None
+        if open_raw is None or high_raw is None or low_raw is None or close_raw is None:
+            return None
+
+        try:
+            open_px = float(open_raw)
+            high_px = float(high_raw)
+            low_px = float(low_raw)
+            close_px = float(close_raw)
+            if (
+                not math.isfinite(open_px)
+                or not math.isfinite(high_px)
+                or not math.isfinite(low_px)
+                or not math.isfinite(close_px)
+            ):
+                return None
+            return {
+                "timestamp": ts.isoformat(),
+                "open": open_px,
+                "high": high_px,
+                "low": low_px,
+                "close": close_px,
+                "volume": int(volume_raw) if volume_raw is not None else 0,
+            }
+        except (TypeError, ValueError):
+            return None
+
     def _get_bars_sync(self, symbol: str, timeframe: str, limit: int) -> list[dict[str, Any]]:
         symbol = symbol.upper().strip()
         if not symbol:
@@ -167,52 +213,9 @@ class MarketDataProvider:
 
         normalized: list[dict[str, Any]] = []
         for bar in bar_list:
-            if isinstance(bar, dict):
-                ts_raw = bar.get("timestamp") or bar.get("t")
-                open_raw = bar.get("open") or bar.get("o")
-                high_raw = bar.get("high") or bar.get("h")
-                low_raw = bar.get("low") or bar.get("l")
-                close_raw = bar.get("close") or bar.get("c")
-                volume_raw = bar.get("volume") or bar.get("v")
-            else:
-                ts_raw = getattr(bar, "timestamp", None) or getattr(bar, "t", None)
-                open_raw = getattr(bar, "open", None) or getattr(bar, "o", None)
-                high_raw = getattr(bar, "high", None) or getattr(bar, "h", None)
-                low_raw = getattr(bar, "low", None) or getattr(bar, "l", None)
-                close_raw = getattr(bar, "close", None) or getattr(bar, "c", None)
-                volume_raw = getattr(bar, "volume", None) or getattr(bar, "v", None)
-
-            ts = self._normalize_bar_timestamp(ts_raw)
-            if ts is None:
-                continue
-
-            if open_raw is None or high_raw is None or low_raw is None or close_raw is None:
-                continue
-
-            try:
-                open_px = float(open_raw)
-                high_px = float(high_raw)
-                low_px = float(low_raw)
-                close_px = float(close_raw)
-                if (
-                    not math.isfinite(open_px)
-                    or not math.isfinite(high_px)
-                    or not math.isfinite(low_px)
-                    or not math.isfinite(close_px)
-                ):
-                    continue
-                normalized.append(
-                    {
-                        "timestamp": ts.isoformat(),
-                        "open": open_px,
-                        "high": high_px,
-                        "low": low_px,
-                        "close": close_px,
-                        "volume": int(volume_raw) if volume_raw is not None else 0,
-                    }
-                )
-            except (TypeError, ValueError):
-                continue
+            normalized_bar = self._normalize_bar(bar)
+            if normalized_bar is not None:
+                normalized.append(normalized_bar)
 
         normalized.sort(key=lambda bar: str(bar["timestamp"]))
         return normalized
