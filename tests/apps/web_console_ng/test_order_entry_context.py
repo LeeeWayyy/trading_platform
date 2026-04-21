@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -51,6 +52,23 @@ class TestOrderEntryContextInit:
         assert OrderEntryContext.OWNER_KILL_SWITCH == "kill_switch"
         assert OrderEntryContext.OWNER_CIRCUIT_BREAKER == "circuit_breaker"
         assert OrderEntryContext.OWNER_CONNECTION == "connection"
+
+    def test_market_data_source_tag_is_bounded_and_valid(self) -> None:
+        """Generated source tag must satisfy market-data service validation rules."""
+        ctx = OrderEntryContext(
+            realtime_updater=MagicMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=MagicMock(),
+            user_id="oauth|tenant:user@example.com",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        assert len(ctx._market_data_source) <= 64
+        assert re.fullmatch(r"[A-Za-z0-9:_-]{1,64}", ctx._market_data_source)
+        assert "oauth|tenant:user@example.com" not in ctx._market_data_source
 
 
 class TestOrderEntryContextComponentSetters:

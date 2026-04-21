@@ -24,6 +24,7 @@ Data Flow:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import uuid
@@ -90,6 +91,7 @@ class OrderEntryContext:
     OWNER_CONNECTION = "connection"
     OWNER_LEVEL2 = "level2"
     PRICE_CHANNEL_PREFIX = "price.updated."
+    MARKET_DATA_SOURCE_PREFIX = "web_console"
 
     # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
@@ -132,7 +134,7 @@ class OrderEntryContext:
         self._user_id = user_id.strip()
         self._role = role
         self._strategies = strategies
-        self._market_data_source = f"web_console:{self._user_id}:{uuid.uuid4().hex}"
+        self._market_data_source = self._build_market_data_source(self._user_id)
 
         # Subscription tracking
         self._subscriptions: list[str] = []
@@ -200,6 +202,13 @@ class OrderEntryContext:
         from apps.web_console_ng.core.level2_websocket import Level2WebSocketService
 
         self._level2_service = Level2WebSocketService.get()
+
+    @classmethod
+    def _build_market_data_source(cls, user_id: str) -> str:
+        """Build bounded source tag compatible with server-side validation."""
+        user_hash = hashlib.sha256(user_id.strip().encode("utf-8")).hexdigest()[:12]
+        session_suffix = uuid.uuid4().hex[:12]
+        return f"{cls.MARKET_DATA_SOURCE_PREFIX}:{user_hash}:{session_suffix}"
 
     # =========================================================================
     # Component Setters
