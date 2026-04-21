@@ -1646,7 +1646,8 @@ class TestMarketDataSync:
             side_effect=RuntimeError("temporary upstream outage")
         )
 
-        await context._sync_market_data_streaming()
+        with pytest.raises(RuntimeError, match="temporary upstream outage"):
+            await context._sync_market_data_streaming()
 
         assert context._last_synced_market_data_symbols is None
         assert context._market_data_sync_pending is True
@@ -1677,11 +1678,13 @@ class TestMarketDataSync:
             side_effect=[RuntimeError("network"), RuntimeError("still-down")]
         )
 
-        await context._release_market_data_streaming("AAPL")
+        with pytest.raises(RuntimeError, match="still-down"):
+            await context._release_market_data_streaming("AAPL")
 
         assert context._client.unsubscribe_market_data_symbol.await_count == 2
         assert context._pending_market_data_unsubscribes == {"AAPL"}
         assert context._last_synced_market_data_symbols is None
+        assert context._market_data_sync_pending is True
 
     @pytest.mark.asyncio()
     async def test_resubscribe_forces_market_data_sync_even_with_same_symbols(

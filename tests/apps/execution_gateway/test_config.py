@@ -95,6 +95,13 @@ def test_get_config_valid_alpaca_data_feed(monkeypatch):
     assert cfg.alpaca_data_feed == "sip"
 
 
+def test_get_config_valid_alpaca_data_feed_boats(monkeypatch):
+    _reset_cached_config()
+    monkeypatch.setenv("ALPACA_DATA_FEED", "BoAtS")
+    cfg = config_module.get_config()
+    assert cfg.alpaca_data_feed == "boats"
+
+
 def test_get_config_invalid_alpaca_data_feed_logs_warning(monkeypatch, caplog):
     _reset_cached_config()
     monkeypatch.setenv("ALPACA_DATA_FEED", "not-a-feed")

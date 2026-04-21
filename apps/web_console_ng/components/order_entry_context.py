@@ -1342,6 +1342,7 @@ class OrderEntryContext:
             self._last_synced_market_data_symbols = None
             self._market_data_sync_pending = True
             self._market_data_sync_backoff_required = True
+            raise
 
     def _schedule_market_data_sync(self) -> None:
         """Schedule asynchronous market-data streaming sync (timer-safe)."""
@@ -1430,6 +1431,9 @@ class OrderEntryContext:
         )
         # Keep symbol queued for future sync retry.
         self._last_synced_market_data_symbols = None
+        self._market_data_sync_pending = True
+        if last_error is not None:
+            raise last_error
 
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""

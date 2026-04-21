@@ -29,7 +29,7 @@ from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_ALPACA_DATA_FEEDS = ("iex", "sip", "otc")
+SUPPORTED_ALPACA_DATA_FEEDS = ("iex", "sip", "otc", "boats")
 
 
 # ============================================================================
