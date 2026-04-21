@@ -190,6 +190,7 @@ class OrderEntryContext:
         # Risk limits refresh task tracking
         self._risk_refresh_task: asyncio.Task[None] | None = None
         self._market_data_sync_task: asyncio.Task[None] | None = None
+        self._market_data_sync_pending: bool = False
         self._last_synced_market_data_symbols: tuple[str, ...] | None = None
 
         from apps.web_console_ng.core.level2_websocket import Level2WebSocketService
@@ -1258,17 +1259,26 @@ class OrderEntryContext:
         if self._disposed:
             return
         if self._market_data_sync_task and not self._market_data_sync_task.done():
+            self._market_data_sync_pending = True
             return
 
+        self._market_data_sync_pending = False
         task = asyncio.create_task(self._sync_market_data_streaming())
         self._market_data_sync_task = task
 
         def _on_done(completed: asyncio.Task[None]) -> None:
+            self._market_data_sync_task = None
             if completed.cancelled():
                 return
             exc = completed.exception()
             if exc:
                 logger.warning("market_data_sync_task_failed: %s", exc)
+            if self._disposed:
+                self._market_data_sync_pending = False
+                return
+            if self._market_data_sync_pending:
+                self._market_data_sync_pending = False
+                self._schedule_market_data_sync()
 
         task.add_done_callback(_on_done)
 
@@ -1822,6 +1832,7 @@ class OrderEntryContext:
         if self._market_data_sync_task and not self._market_data_sync_task.done():
             self._market_data_sync_task.cancel()
         self._market_data_sync_task = None
+        self._market_data_sync_pending = False
         self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels

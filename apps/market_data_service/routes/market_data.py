@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.market_data_service.api.dependencies import build_market_data_authenticator
 from apps.market_data_service.config import settings
-from apps.market_data_service.schemas import ADVResponse, BarsResponse
+from apps.market_data_service.schemas import ADVResponse, BarPoint, BarsResponse
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisClient
@@ -273,5 +273,5 @@ async def get_historical_bars(
     return BarsResponse(
         symbol=normalized_symbol,
         timeframe=timeframe,
-        bars=bars,
+        bars=[BarPoint.model_validate(bar) for bar in bars],
     )

@@ -111,17 +111,27 @@ class MarketDataProvider:
             return parsed.astimezone(UTC)
         return None
 
+    @staticmethod
+    def _extract_bar_list(bars: Any, symbol: str) -> list[Any]:
+        """Extract symbol-scoped bars from Alpaca response payload variants."""
+        if hasattr(bars, "data") and isinstance(bars.data, dict):
+            return list(bars.data.get(symbol, []))
+        if isinstance(bars, dict):
+            return list(bars.get(symbol, []))
+        return []
+
     def _get_bars_sync(self, symbol: str, timeframe: str, limit: int) -> list[dict[str, Any]]:
         symbol = symbol.upper().strip()
         if not symbol:
             return []
         clamped_limit = max(1, min(limit, 500))
         start, end = self._compute_bars_window(timeframe, clamped_limit)
+        resolved_timeframe = self._resolve_timeframe(timeframe)
 
         try:
             request_kwargs: dict[str, Any] = {
                 "symbol_or_symbols": symbol,
-                "timeframe": self._resolve_timeframe(timeframe),
+                "timeframe": resolved_timeframe,
                 "limit": clamped_limit,
                 "start": start,
                 "end": end,
@@ -142,11 +152,7 @@ class MarketDataProvider:
             )
             raise MarketDataError(str(exc)) from exc
 
-        bar_list: list[Any] = []
-        if hasattr(bars, "data"):
-            bar_list = list(getattr(bars, "data", {}).get(symbol, []))
-        elif isinstance(bars, dict):
-            bar_list = list(bars.get(symbol, []))
+        bar_list = self._extract_bar_list(bars, symbol)
 
         normalized: list[dict[str, Any]] = []
         for bar in bar_list:
@@ -169,14 +175,28 @@ class MarketDataProvider:
             if ts is None:
                 continue
 
+            if open_raw is None or high_raw is None or low_raw is None or close_raw is None:
+                continue
+
             try:
+                open_px = float(open_raw)
+                high_px = float(high_raw)
+                low_px = float(low_raw)
+                close_px = float(close_raw)
+                if (
+                    not math.isfinite(open_px)
+                    or not math.isfinite(high_px)
+                    or not math.isfinite(low_px)
+                    or not math.isfinite(close_px)
+                ):
+                    continue
                 normalized.append(
                     {
                         "timestamp": ts.isoformat(),
-                        "open": float(open_raw),
-                        "high": float(high_raw),
-                        "low": float(low_raw),
-                        "close": float(close_raw),
+                        "open": open_px,
+                        "high": high_px,
+                        "low": low_px,
+                        "close": close_px,
                         "volume": int(volume_raw) if volume_raw is not None else 0,
                     }
                 )
@@ -208,11 +228,7 @@ class MarketDataProvider:
             )
             raise MarketDataError(str(exc)) from exc
 
-        bar_list: list[Any] = []
-        if hasattr(bars, "data"):
-            bar_list = list(getattr(bars, "data", {}).get(symbol, []))
-        elif isinstance(bars, dict):
-            bar_list = list(bars.get(symbol, []))
+        bar_list = self._extract_bar_list(bars, symbol)
 
         if not bar_list:
             return None

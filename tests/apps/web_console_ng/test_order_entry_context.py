@@ -1307,6 +1307,39 @@ class TestMarketDataSync:
             strategies=["alpha"],
         )
 
+    @pytest.mark.asyncio()
+    async def test_schedule_market_data_sync_requeues_when_inflight(
+        self, context: OrderEntryContext
+    ) -> None:
+        """A sync request arriving mid-flight should trigger one follow-up sync."""
+        run_count = 0
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def fake_sync() -> None:
+            nonlocal run_count
+            run_count += 1
+            if run_count == 1:
+                first_started.set()
+                await release_first.wait()
+
+        context._sync_market_data_streaming = fake_sync  # type: ignore[method-assign]
+
+        context._schedule_market_data_sync()
+        await first_started.wait()
+        context._schedule_market_data_sync()
+
+        assert context._market_data_sync_pending is True
+        release_first.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        if context._market_data_sync_task is not None:
+            await context._market_data_sync_task
+
+        assert run_count == 2
+        assert context._market_data_sync_pending is False
+
 
 class TestDispose:
     """Tests for dispose/cleanup."""

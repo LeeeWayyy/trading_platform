@@ -560,6 +560,63 @@ class PriceChartComponent:
 
     # ================= Data Fetching =================
 
+    def _parse_historical_bars(self, raw_bars: Any) -> list[CandleData]:
+        """Normalize historical bars payloads into sorted candle data."""
+        if not isinstance(raw_bars, list):
+            return []
+
+        parsed: list[CandleData] = []
+        for raw_bar in raw_bars:
+            if not isinstance(raw_bar, dict):
+                continue
+
+            timestamp_raw = raw_bar.get("timestamp") or raw_bar.get("t")
+            if timestamp_raw is None:
+                continue
+
+            try:
+                if isinstance(timestamp_raw, int | float):
+                    timestamp = datetime.fromtimestamp(float(timestamp_raw), tz=UTC)
+                else:
+                    timestamp = parse_iso_timestamp(str(timestamp_raw))
+                open_px = float(raw_bar["open"])
+                high_px = float(raw_bar["high"])
+                low_px = float(raw_bar["low"])
+                close_px = float(raw_bar["close"])
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            if (
+                not math.isfinite(open_px)
+                or not math.isfinite(high_px)
+                or not math.isfinite(low_px)
+                or not math.isfinite(close_px)
+                or min(open_px, high_px, low_px, close_px) <= 0
+            ):
+                continue
+
+            volume_raw = raw_bar.get("volume")
+            try:
+                volume = int(volume_raw) if volume_raw is not None else None
+            except (TypeError, ValueError):
+                volume = None
+
+            parsed.append(
+                CandleData(
+                    time=int(timestamp.timestamp()),
+                    open=open_px,
+                    high=high_px,
+                    low=low_px,
+                    close=close_px,
+                    volume=volume,
+                )
+            )
+
+        parsed.sort(key=lambda candle: candle.time)
+        if len(parsed) > self.MAX_CHART_CANDLES:
+            parsed = parsed[-self.MAX_CHART_CANDLES :]
+        return parsed
+
     async def _fetch_candle_data(self, symbol: str) -> list[CandleData]:
         """Fetch historical candle data for the selected symbol."""
         if self._disposed:
@@ -572,62 +629,6 @@ class PriceChartComponent:
         if not self._user_id:
             logger.debug("Historical bars fetch skipped: user_id unavailable")
             return []
-
-        def _parse_bars(raw_bars: Any) -> list[CandleData]:
-            if not isinstance(raw_bars, list):
-                return []
-
-            parsed: list[CandleData] = []
-            for raw_bar in raw_bars:
-                if not isinstance(raw_bar, dict):
-                    continue
-
-                timestamp_raw = raw_bar.get("timestamp") or raw_bar.get("t")
-                if timestamp_raw is None:
-                    continue
-
-                try:
-                    if isinstance(timestamp_raw, int | float):
-                        timestamp = datetime.fromtimestamp(float(timestamp_raw), tz=UTC)
-                    else:
-                        timestamp = parse_iso_timestamp(str(timestamp_raw))
-                    open_px = float(raw_bar["open"])
-                    high_px = float(raw_bar["high"])
-                    low_px = float(raw_bar["low"])
-                    close_px = float(raw_bar["close"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-
-                if (
-                    not math.isfinite(open_px)
-                    or not math.isfinite(high_px)
-                    or not math.isfinite(low_px)
-                    or not math.isfinite(close_px)
-                    or min(open_px, high_px, low_px, close_px) <= 0
-                ):
-                    continue
-
-                volume_raw = raw_bar.get("volume")
-                try:
-                    volume = int(volume_raw) if volume_raw is not None else None
-                except (TypeError, ValueError):
-                    volume = None
-
-                parsed.append(
-                    CandleData(
-                        time=int(timestamp.timestamp()),
-                        open=open_px,
-                        high=high_px,
-                        low=low_px,
-                        close=close_px,
-                        volume=volume,
-                    )
-                )
-
-            parsed.sort(key=lambda candle: candle.time)
-            if len(parsed) > self.MAX_CHART_CANDLES:
-                parsed = parsed[-self.MAX_CHART_CANDLES :]
-            return parsed
 
         for timeframe, limit in self.HISTORICAL_TIMEFRAME_FALLBACKS:
             try:
@@ -664,7 +665,7 @@ class PriceChartComponent:
                 )
                 continue
 
-            candles = _parse_bars(response.get("bars", []))
+            candles = self._parse_historical_bars(response.get("bars", []))
             if candles:
                 return candles
 
