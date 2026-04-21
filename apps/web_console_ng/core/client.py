@@ -217,11 +217,28 @@ class AsyncTradingClient:
             body_bytes = body
         body_hash = hashlib.sha256(body_bytes).hexdigest()
 
-        normalized_user_id = str(user_id).strip() if user_id else ""
-        normalized_strategy_id = ""
+        resolved_user_header = headers.get("X-User-Id") or headers.get("X-User-ID") or ""
+        normalized_user_id = str(resolved_user_header).strip()
+        if not normalized_user_id and user_id:
+            normalized_user_id = str(user_id).strip()
+
+        resolved_strategies: list[str] = []
+        header_strategies = headers.get("X-User-Strategies", "")
+        if header_strategies:
+            resolved_strategies.extend(
+                strategy.strip()
+                for strategy in str(header_strategies).split(",")
+                if strategy.strip()
+            )
         if strategies:
+            resolved_strategies.extend(
+                str(strategy).strip() for strategy in strategies if str(strategy).strip()
+            )
+
+        normalized_strategy_id = ""
+        if resolved_strategies:
             normalized_strategy_ids = sorted(
-                {str(strategy).strip() for strategy in strategies if str(strategy).strip()}
+                {strategy for strategy in resolved_strategies if strategy}
             )
             if normalized_strategy_ids:
                 # Deterministic fallback for multi-strategy contexts until the S2S

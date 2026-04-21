@@ -194,6 +194,8 @@ class OrderEntryContext:
         self._market_data_sync_task: asyncio.Task[None] | None = None
         self._market_data_sync_pending: bool = False
         self._last_synced_market_data_symbols: tuple[str, ...] | None = None
+        self._pending_market_data_unsubscribes: set[str] = set()
+        self._initializing: bool = True
 
         from apps.web_console_ng.core.level2_websocket import Level2WebSocketService
 
@@ -439,6 +441,7 @@ class OrderEntryContext:
         """
         if self._disposed:
             raise RuntimeError("Cannot initialize disposed OrderEntryContext")
+        self._initializing = True
 
         try:
             # Initialize child components with timer tracker for lifecycle management
@@ -486,9 +489,11 @@ class OrderEntryContext:
             # Request backend streaming for all currently owned price channels.
             # Schedule only after full initialization succeeds so init failures
             # cannot orphan per-session market-data sources.
+            self._initializing = False
             self._schedule_market_data_sync()
 
         except Exception as exc:
+            self._initializing = False
             # FAIL-CLOSED: Explicitly disable order ticket on init failure
             logger.error(f"OrderEntryContext initialization failed: {exc}")
 
@@ -1235,10 +1240,25 @@ class OrderEntryContext:
             return
 
         symbols = tuple(self._collect_owned_price_symbols())
-        if not symbols:
-            self._last_synced_market_data_symbols = ()
+        desired_symbols = set(symbols)
+        previous_symbols = set(self._last_synced_market_data_symbols or ())
+        self._pending_market_data_unsubscribes.difference_update(desired_symbols)
+        stale_symbols = sorted(
+            (previous_symbols - desired_symbols) | self._pending_market_data_unsubscribes
+        )
+
+        if symbols == self._last_synced_market_data_symbols and not stale_symbols:
             return
-        if symbols == self._last_synced_market_data_symbols:
+
+        for stale_symbol in stale_symbols:
+            await self._release_market_data_streaming(stale_symbol)
+
+        if not symbols:
+            self._last_synced_market_data_symbols = (
+                ()
+                if not self._pending_market_data_unsubscribes
+                else None
+            )
             return
 
         try:
@@ -1249,6 +1269,16 @@ class OrderEntryContext:
                 strategies=self._strategies,
                 source=self._market_data_source,
             )
+            latest_symbols = tuple(self._collect_owned_price_symbols())
+            if latest_symbols != symbols:
+                # Channel ownership changed during the await; queue stale removals and
+                # run one follow-up sync with a fresh ownership snapshot.
+                self._pending_market_data_unsubscribes.update(
+                    set(symbols) - set(latest_symbols)
+                )
+                self._last_synced_market_data_symbols = None
+                self._market_data_sync_pending = True
+                return
             self._last_synced_market_data_symbols = symbols
         except Exception as exc:
             logger.warning(
@@ -1256,6 +1286,7 @@ class OrderEntryContext:
                 len(symbols),
                 exc,
             )
+            self._last_synced_market_data_symbols = None
 
     def _schedule_market_data_sync(self) -> None:
         """Schedule asynchronous market-data streaming sync (timer-safe)."""
@@ -1287,21 +1318,40 @@ class OrderEntryContext:
 
     async def _release_market_data_streaming(self, symbol: str) -> None:
         """Best-effort request to market-data-service to stop streaming symbol updates."""
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            return
         unsubscribe = getattr(self._client, "unsubscribe_market_data_symbol", None)
         if unsubscribe is None:
             return
-        try:
-            await unsubscribe(
-                symbol,
-                user_id=self._user_id,
-                role=self._role,
-                strategies=self._strategies,
-                source=self._market_data_source,
-            )
-            # Force next sync to recompute if channel ownership changed meanwhile.
-            self._last_synced_market_data_symbols = None
-        except Exception as exc:
-            logger.warning("Failed to request market-data unsubscribe for %s: %s", symbol, exc)
+        self._pending_market_data_unsubscribes.add(normalized_symbol)
+        last_error: Exception | None = None
+
+        for attempt in range(2):
+            try:
+                await unsubscribe(
+                    normalized_symbol,
+                    user_id=self._user_id,
+                    role=self._role,
+                    strategies=self._strategies,
+                    source=self._market_data_source,
+                )
+                self._pending_market_data_unsubscribes.discard(normalized_symbol)
+                # Force next sync to recompute if channel ownership changed meanwhile.
+                self._last_synced_market_data_symbols = None
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt == 0:
+                    await asyncio.sleep(0)
+
+        logger.warning(
+            "Failed to request market-data unsubscribe for %s after retry: %s",
+            normalized_symbol,
+            last_error,
+        )
+        # Keep symbol queued for future sync retry.
+        self._last_synced_market_data_symbols = None
 
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""
@@ -1636,7 +1686,11 @@ class OrderEntryContext:
                 else:
                     price_symbol = self._extract_price_channel_symbol(channel)
                     if price_symbol is not None:
-                        self._schedule_market_data_sync()
+                        if self._initializing:
+                            # Defer backend stream sync until initialization completes.
+                            self._last_synced_market_data_symbols = None
+                        else:
+                            self._schedule_market_data_sync()
 
                 if pending_future and not pending_future.done():
                     pending_future.set_result(None)

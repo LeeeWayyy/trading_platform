@@ -1347,6 +1347,31 @@ class TestMarketDataSync:
         )
 
     @pytest.mark.asyncio()
+    async def test_acquire_channel_defers_market_data_sync_while_initializing(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._initializing = True
+        context._schedule_market_data_sync = MagicMock()
+        callback = AsyncMock()
+
+        await context._acquire_channel("price.updated.AAPL", "watchlist", callback)
+
+        context._schedule_market_data_sync.assert_not_called()
+        assert context._last_synced_market_data_symbols is None
+
+    @pytest.mark.asyncio()
+    async def test_acquire_channel_schedules_market_data_sync_after_initialize(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._initializing = False
+        context._schedule_market_data_sync = MagicMock()
+        callback = AsyncMock()
+
+        await context._acquire_channel("price.updated.AAPL", "watchlist", callback)
+
+        context._schedule_market_data_sync.assert_called_once()
+
+    @pytest.mark.asyncio()
     async def test_schedule_market_data_sync_requeues_when_inflight(
         self, context: OrderEntryContext
     ) -> None:
@@ -1380,6 +1405,47 @@ class TestMarketDataSync:
         assert context._market_data_sync_pending is False
 
     @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_tracks_race_during_subscribe(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {"price.updated.AAPL": {"watchlist"}}
+
+        async def fake_subscribe(*args: object, **kwargs: object) -> None:
+            # Simulate symbol ownership changing while subscribe call is in-flight.
+            context._channel_owners = {}
+
+        context._client.subscribe_market_data_symbols = AsyncMock(side_effect=fake_subscribe)
+
+        await context._sync_market_data_streaming()
+
+        assert context._market_data_sync_pending is True
+        assert context._last_synced_market_data_symbols is None
+        assert context._pending_market_data_unsubscribes == {"AAPL"}
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_retries_pending_unsubscribes_when_empty(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {}
+        context._last_synced_market_data_symbols = ("AAPL",)
+        context._pending_market_data_unsubscribes = {"AAPL"}
+        context._client.unsubscribe_market_data_symbol = AsyncMock(
+            return_value={"message": "ok", "remaining_subscriptions": 0}
+        )
+
+        await context._sync_market_data_streaming()
+
+        context._client.unsubscribe_market_data_symbol.assert_awaited_once_with(
+            "AAPL",
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+        assert context._pending_market_data_unsubscribes == set()
+        assert context._last_synced_market_data_symbols == ()
+
+    @pytest.mark.asyncio()
     async def test_release_market_data_streaming_uses_session_source(
         self,
         context: OrderEntryContext,
@@ -1395,6 +1461,21 @@ class TestMarketDataSync:
             strategies=["alpha"],
             source=context._market_data_source,
         )
+
+    @pytest.mark.asyncio()
+    async def test_release_market_data_streaming_retries_and_persists_failed_symbol(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        context._client.unsubscribe_market_data_symbol = AsyncMock(
+            side_effect=[RuntimeError("network"), RuntimeError("still-down")]
+        )
+
+        await context._release_market_data_streaming("AAPL")
+
+        assert context._client.unsubscribe_market_data_symbol.await_count == 2
+        assert context._pending_market_data_unsubscribes == {"AAPL"}
+        assert context._last_synced_market_data_symbols is None
 
     @pytest.mark.asyncio()
     async def test_resubscribe_forces_market_data_sync_even_with_same_symbols(

@@ -276,6 +276,51 @@ def test_build_query_string_sorts_params_deterministically() -> None:
     assert query == "limit=240&symbol=SPY&timeframe=5Min"
 
 
+def test_get_market_data_auth_headers_uses_resolved_debug_user_and_strategies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "DEBUG", True)
+    monkeypatch.setattr(config, "DEV_USER_ID", "dev-user-42")
+    monkeypatch.setattr(config, "DEV_ROLE", "trader")
+    monkeypatch.setattr(config, "DEV_STRATEGIES", ["beta", "alpha"])
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
+    monkeypatch.setattr("apps.web_console_ng.core.client.time.time", lambda: 1700000000)
+    monkeypatch.setattr(
+        "apps.web_console_ng.core.client.uuid.uuid4",
+        lambda: "00000000-0000-0000-0000-000000000099",
+    )
+
+    client = AsyncTradingClient.get()
+    headers = client._get_market_data_auth_headers(
+        method="GET",
+        path="/api/v1/market-data/SPY/bars",
+        query="",
+        body=None,
+        user_id="",
+        role=None,
+        strategies=None,
+    )
+
+    payload_data = {
+        "service_id": "web_console_ng",
+        "method": "GET",
+        "path": "/api/v1/market-data/SPY/bars",
+        "query": "",
+        "timestamp": "1700000000",
+        "nonce": "00000000-0000-0000-0000-000000000099",
+        "user_id": "dev-user-42",
+        "strategy_id": "alpha",
+        "body_hash": hashlib.sha256(b"").hexdigest(),
+    }
+    payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
+    expected_sig = hmac.new(b"secret", payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    assert headers["X-User-Id"] == "dev-user-42"
+    assert headers["X-Internal-Token"] == expected_sig
+    assert headers["X-Strategy-ID"] == "alpha"
+
+
 @pytest.mark.asyncio()
 @respx.mock
 async def test_fetch_kill_switch_status_maps_active(
