@@ -96,6 +96,7 @@ class OrderEntryContext:
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
     MARKET_DATA_SYNC_RETRY_DELAY_S = 1.0
     MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S = 0.1
+    MARKET_DATA_RELEASE_FLUSH_TIMEOUT_S = 1.0
 
     def __init__(
         self,
@@ -1976,6 +1977,29 @@ class OrderEntryContext:
     # Cleanup
     # =========================================================================
 
+    async def _flush_market_data_release_tasks(self) -> None:
+        """Await pending background release tasks before final cleanup."""
+        pending_tasks = tuple(task for task in self._market_data_release_tasks if not task.done())
+        if not pending_tasks:
+            self._market_data_release_tasks.clear()
+            return
+
+        done, pending = await asyncio.wait(
+            pending_tasks,
+            timeout=self.MARKET_DATA_RELEASE_FLUSH_TIMEOUT_S,
+        )
+        for completed in done:
+            if completed.cancelled():
+                continue
+            exc = completed.exception()
+            if exc is not None:
+                logger.warning("market_data_release_task_failed_during_dispose: %s", exc)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        self._market_data_release_tasks.clear()
+
     async def dispose(self) -> None:
         """Clean up all subscriptions and timers on page unload."""
         if self._disposed:
@@ -1999,10 +2023,6 @@ class OrderEntryContext:
         self._market_data_retry_task = None
         self._market_data_sync_pending = False
         self._market_data_sync_backoff_required = False
-        for release_task in tuple(self._market_data_release_tasks):
-            if not release_task.done():
-                release_task.cancel()
-        self._market_data_release_tasks.clear()
         self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels
@@ -2030,6 +2050,7 @@ class OrderEntryContext:
                 await self._release_market_data_streaming(symbol)
             except Exception as exc:
                 logger.warning("Error releasing market-data source for %s: %s", symbol, exc)
+        await self._flush_market_data_release_tasks()
 
         if self._current_l2_symbol:
             await self._level2_service.unsubscribe(self._user_id, self._current_l2_symbol)

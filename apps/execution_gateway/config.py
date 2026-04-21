@@ -146,7 +146,7 @@ def _get_bool_env_permissive(name: str, default: bool) -> bool:
 def _get_alpaca_data_feed_env(name: str = "ALPACA_DATA_FEED") -> str | None:
     """Parse Alpaca data feed from environment with explicit option validation.
 
-    Supported values: iex, sip, otc.
+    Supported values: iex, sip, otc, boats.
     Empty values are treated as unset (None).
     """
     raw = os.getenv(name, "")

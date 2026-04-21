@@ -1850,6 +1850,7 @@ class TestDispose:
     @pytest.mark.asyncio()
     async def test_dispose_cancels_market_data_release_tasks(self, context: OrderEntryContext) -> None:
         """dispose() cancels in-flight async release tasks."""
+        context.MARKET_DATA_RELEASE_FLUSH_TIMEOUT_S = 0
         release_task = asyncio.create_task(asyncio.sleep(60))
         context._market_data_release_tasks.add(release_task)
 
@@ -1857,6 +1858,32 @@ class TestDispose:
         await asyncio.sleep(0)
 
         assert release_task.cancelled()
+        assert context._market_data_release_tasks == set()
+
+    @pytest.mark.asyncio()
+    async def test_dispose_flushes_completed_market_data_release_tasks(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() should allow already-running release tasks to finish cleanly."""
+        release_started = asyncio.Event()
+        allow_release_complete = asyncio.Event()
+
+        async def slow_release() -> None:
+            release_started.set()
+            await allow_release_complete.wait()
+
+        release_task = asyncio.create_task(slow_release())
+        context._market_data_release_tasks.add(release_task)
+
+        dispose_task = asyncio.create_task(context.dispose())
+        await release_started.wait()
+        assert not dispose_task.done()
+
+        allow_release_complete.set()
+        await dispose_task
+
+        assert release_task.done()
+        assert not release_task.cancelled()
         assert context._market_data_release_tasks == set()
 
     @pytest.mark.asyncio()
