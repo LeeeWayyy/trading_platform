@@ -286,6 +286,45 @@ class TestOrderEntryContextInitialize:
         ctx.on_symbol_selected.assert_awaited_once_with("SPY")
 
     @pytest.mark.asyncio()
+    async def test_initialize_preserves_restored_ticket_symbol(self) -> None:
+        """Restored pending-form symbol should override watchlist default auto-select."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._watchlist = MagicMock()
+        ctx._watchlist.initialize = AsyncMock()
+        ctx._watchlist.get_symbols.return_value = ["SPY", "QQQ"]
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx._order_ticket.get_current_symbol.return_value = "TSLA"
+        ctx.on_symbol_selected = AsyncMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        ctx.on_symbol_selected.assert_awaited_once_with("TSLA")
+
+    @pytest.mark.asyncio()
     async def test_initialize_does_not_schedule_market_data_sync_before_late_failures(self) -> None:
         """Initialization failures before completion must not trigger market-data sync."""
         realtime = MagicMock()
@@ -1444,6 +1483,20 @@ class TestMarketDataSync:
         )
         assert context._pending_market_data_unsubscribes == set()
         assert context._last_synced_market_data_symbols == ()
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_marks_pending_after_subscribe_failure(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {"price.updated.AAPL": {"watchlist"}}
+        context._client.subscribe_market_data_symbols = AsyncMock(
+            side_effect=RuntimeError("temporary upstream outage")
+        )
+
+        await context._sync_market_data_streaming()
+
+        assert context._last_synced_market_data_symbols is None
+        assert context._market_data_sync_pending is True
 
     @pytest.mark.asyncio()
     async def test_release_market_data_streaming_uses_session_source(

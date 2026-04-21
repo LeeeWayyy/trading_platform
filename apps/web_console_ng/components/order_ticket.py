@@ -2485,6 +2485,13 @@ class OrderTicketComponent:
                     continue
         return None
 
+    def get_current_symbol(self) -> str | None:
+        """Return current ticket symbol, including restored pending-form state."""
+        if not self._state.symbol:
+            return None
+        normalized = self._state.symbol.strip().upper()
+        return normalized or None
+
     # ================= Cleanup =================
 
     async def dispose(self) -> None:

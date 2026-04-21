@@ -178,6 +178,18 @@ class TestSubscribeEndpoint:
             source="web_console:user-1:abc",
         )
 
+    def test_subscribe_rejects_invalid_source(self, test_client, mock_stream):
+        """Source tags must stay bounded and contain only safe characters."""
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "bad source with spaces !"},
+            )
+
+        assert response.status_code == 400
+        assert "Invalid source" in response.json()["detail"]
+        mock_stream.subscribe_symbols.assert_not_called()
+
     def test_subscribe_subscription_error(self, test_client, mock_stream):
         """Test subscribe handles SubscriptionError."""
         mock_stream.subscribe_symbols.side_effect = SubscriptionError("WebSocket not connected")
@@ -231,6 +243,15 @@ class TestUnsubscribeEndpoint:
             ["AAPL"],
             source="web_console:user-1:abc",
         )
+
+    def test_unsubscribe_rejects_invalid_source(self, test_client, mock_stream):
+        """Unsubscribe source tags must pass the same validation rules."""
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=bad source !!")
+
+        assert response.status_code == 400
+        assert "Invalid source" in response.json()["detail"]
+        mock_stream.unsubscribe_symbols.assert_not_called()
 
     def test_unsubscribe_subscription_error(self, test_client, mock_stream):
         """Test unsubscribe handles SubscriptionError."""

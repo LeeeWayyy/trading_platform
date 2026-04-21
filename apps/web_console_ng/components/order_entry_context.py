@@ -532,6 +532,27 @@ class OrderEntryContext:
         """Select the first watchlist symbol when no symbol is currently selected."""
         if self._selected_symbol is not None or self._watchlist is None:
             return
+
+        restored_symbol: str | None = None
+        if self._order_ticket is not None:
+            get_current_symbol = getattr(self._order_ticket, "get_current_symbol", None)
+            if callable(get_current_symbol):
+                try:
+                    candidate = get_current_symbol()
+                    if isinstance(candidate, str) and candidate.strip():
+                        restored_symbol = candidate.strip().upper()
+                except Exception as exc:
+                    logger.debug(f"Unable to read restored ticket symbol for auto-select: {exc}")
+
+        if restored_symbol:
+            try:
+                await self.on_symbol_selected(restored_symbol)
+                return
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to restore initial symbol selection {restored_symbol}: {exc}"
+                )
+
         try:
             symbols = self._watchlist.get_symbols()
         except Exception as exc:
@@ -1254,11 +1275,10 @@ class OrderEntryContext:
             await self._release_market_data_streaming(stale_symbol)
 
         if not symbols:
-            self._last_synced_market_data_symbols = (
-                ()
-                if not self._pending_market_data_unsubscribes
-                else None
-            )
+            unresolved_unsubscribes = bool(self._pending_market_data_unsubscribes)
+            self._last_synced_market_data_symbols = () if not unresolved_unsubscribes else None
+            if unresolved_unsubscribes:
+                self._market_data_sync_pending = True
             return
 
         try:
@@ -1280,6 +1300,8 @@ class OrderEntryContext:
                 self._market_data_sync_pending = True
                 return
             self._last_synced_market_data_symbols = symbols
+            if self._pending_market_data_unsubscribes:
+                self._market_data_sync_pending = True
         except Exception as exc:
             logger.warning(
                 "Failed to sync market-data subscriptions for %s symbols: %s",
@@ -1287,6 +1309,7 @@ class OrderEntryContext:
                 exc,
             )
             self._last_synced_market_data_symbols = None
+            self._market_data_sync_pending = True
 
     def _schedule_market_data_sync(self) -> None:
         """Schedule asynchronous market-data streaming sync (timer-safe)."""

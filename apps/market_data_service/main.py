@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -78,6 +79,23 @@ class HealthResponse(BaseModel):
     subscribed_symbols: int
     reconnect_attempts: int
     max_reconnect_attempts: int
+
+
+SOURCE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
+
+
+def _normalize_subscription_source(raw_source: str | None) -> str:
+    """Normalize and validate caller-provided source ownership tags."""
+    normalized_source = (raw_source or "").strip() or "manual"
+    if not SOURCE_TAG_PATTERN.fullmatch(normalized_source):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Invalid source. Allowed characters: letters, numbers, ':', '_', '-' "
+                "with max length 64."
+            ),
+        )
+    return normalized_source
 
 
 @asynccontextmanager
@@ -336,7 +354,7 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
             )
 
         try:
-            normalized_source = request.source.strip() or "manual"
+            normalized_source = _normalize_subscription_source(request.source)
             await stream.subscribe_symbols(request.symbols, source=normalized_source)
 
             subscribed = stream.get_subscribed_symbols()
@@ -410,7 +428,7 @@ async def unsubscribe_symbol(
             )
 
         try:
-            normalized_source = source.strip() or "manual"
+            normalized_source = _normalize_subscription_source(source)
             await stream.unsubscribe_symbols([symbol], source=normalized_source)
 
             remaining = stream.get_subscribed_symbols()
