@@ -171,6 +171,121 @@ class TestStrategyModelContextDispatch:
         )
 
 
+class TestOrderEntryContextInitialize:
+    """Tests for initialize() startup behavior."""
+
+    @pytest.mark.asyncio()
+    async def test_initialize_bootstraps_connected_state_when_unset(self) -> None:
+        """initialize() seeds CONNECTED state if no connection event arrives."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        callback = MagicMock()
+        ctx.set_connection_state_callback(callback)
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        assert ctx._cached_connection_state == "CONNECTED"
+        ctx._order_ticket.set_connection_state.assert_called_with("CONNECTED", False)
+        callback.assert_called_with("CONNECTED", False)
+
+    @pytest.mark.asyncio()
+    async def test_initialize_bootstraps_disconnected_state_when_read_only(self) -> None:
+        """initialize() seeds DISCONNECTED state when monitor is read-only."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = True
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        assert ctx._cached_connection_state == "DISCONNECTED"
+        ctx._order_ticket.set_connection_state.assert_called_with("DISCONNECTED", True)
+
+    @pytest.mark.asyncio()
+    async def test_initialize_auto_selects_first_watchlist_symbol(self) -> None:
+        """initialize() auto-selects the first watchlist symbol when none selected."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._watchlist = MagicMock()
+        ctx._watchlist.initialize = AsyncMock()
+        ctx._watchlist.get_symbols.return_value = ["SPY", "QQQ"]
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx.on_symbol_selected = AsyncMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        ctx.on_symbol_selected.assert_awaited_once_with("SPY")
+
+
 class TestFetchInitialSafetyState:
     """Tests for _fetch_initial_safety_state method."""
 
@@ -1144,6 +1259,55 @@ class TestChannelOwnership:
         assert "selected" in context._channel_owners["prices:AAPL"]
 
 
+class TestMarketDataSync:
+    """Tests for market-data stream synchronization helpers."""
+
+    @pytest.fixture()
+    def context(self) -> OrderEntryContext:
+        return OrderEntryContext(
+            realtime_updater=AsyncMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+    def test_collect_owned_price_symbols_filters_and_sorts(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {
+            "price.updated.msft": {"watchlist"},
+            "price.updated.AAPL": {"selected_symbol"},
+            "orders:test-user": {"orders"},
+        }
+
+        symbols = context._collect_owned_price_symbols()
+
+        assert symbols == ["AAPL", "MSFT"]
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_batches_symbols(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {
+            "price.updated.MSFT": {"watchlist"},
+            "price.updated.AAPL": {"watchlist"},
+        }
+        context._client.subscribe_market_data_symbols = AsyncMock()
+
+        await context._sync_market_data_streaming()
+
+        context._client.subscribe_market_data_symbols.assert_awaited_once_with(
+            ["AAPL", "MSFT"],
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+
 class TestDispose:
     """Tests for dispose/cleanup."""
 
@@ -1360,7 +1524,11 @@ class TestFactoryMethods:
             context.create_price_chart(width=800, height=400)
 
             assert context._price_chart is mock_instance
-            mock_instance.create.assert_called_once_with(width=800, height=400)
+            mock_instance.create.assert_called_once_with(
+                width=800,
+                height=400,
+                fill_parent=False,
+            )
 
     def test_create_order_ticket_stores_reference(self, context: OrderEntryContext) -> None:
         """create_order_ticket stores component reference."""

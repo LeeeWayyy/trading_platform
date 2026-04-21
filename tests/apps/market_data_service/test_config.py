@@ -27,6 +27,7 @@ def _import_config_module(monkeypatch, **env):
         "ALPACA_API_KEY",
         "ALPACA_SECRET_KEY",
         "ALPACA_BASE_URL",
+        "ALPACA_DATA_FEED",
         "REDIS_HOST",
         "REDIS_PORT",
         "REDIS_DB",
@@ -72,6 +73,7 @@ class TestSettingsDefaults:
 
         # Alpaca defaults
         assert settings.alpaca_base_url == "https://paper-api.alpaca.markets"
+        assert settings.alpaca_data_feed == "iex"
 
         # Redis defaults
         assert settings.redis_host == "localhost"
@@ -221,6 +223,27 @@ class TestEnvironmentOverrides:
         )
 
         assert config.settings.alpaca_base_url == "https://api.alpaca.markets"
+
+    def test_alpaca_data_feed_override(self, monkeypatch):
+        """Test Alpaca data feed override and normalization."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            ALPACA_DATA_FEED="SIP",
+        )
+
+        assert config.settings.alpaca_data_feed == "sip"
+
+    def test_alpaca_data_feed_invalid_value_fails_validation(self, monkeypatch):
+        """Test invalid Alpaca data feed values are rejected."""
+        with pytest.raises(ValidationError):
+            _import_config_module(
+                monkeypatch,
+                ALPACA_API_KEY="key",
+                ALPACA_SECRET_KEY="secret",
+                ALPACA_DATA_FEED="invalid-feed",
+            )
 
     def test_redis_config_overrides(self, monkeypatch):
         """Test Redis configuration overrides."""

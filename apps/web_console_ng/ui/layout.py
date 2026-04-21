@@ -546,7 +546,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             if state == "ENGAGED":
                 engage_button.disable()
                 disengage_button.enable()
-            elif state == "DISENGAGED":
+            elif state in {"DISENGAGED", "ACTIVE"}:
                 engage_button.enable()
                 disengage_button.disable()
             else:
@@ -703,6 +703,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     )
                     state = str(status.get("state", "UNKNOWN")).upper()
                     kill_switch_state = state if state else "UNKNOWN"
+                    display_state = (
+                        "DISENGAGED" if kill_switch_state == "ACTIVE" else kill_switch_state
+                    )
                     try:
                         cb_status = await client.fetch_circuit_breaker_status(
                             user_id, role=user_role, strategies=user_strategies
@@ -726,7 +729,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         )
                         cb_state = "UNKNOWN"
 
-                    if state == "ENGAGED":
+                    if display_state == "ENGAGED":
                         kill_switch_button.set_text("KILL SWITCH: ENGAGED")
                         kill_switch_button.classes(
                             "bg-red-700 text-rose-100",
@@ -734,7 +737,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         )
                         if last_kill_switch_state != "ENGAGED":
                             ui.notify("Kill switch engaged", type="negative")
-                    elif state == "DISENGAGED":
+                    elif display_state == "DISENGAGED":
                         # Keep muted visual weight when disarmed (do not compete with chart/ticket).
                         kill_switch_button.set_text("KILL SWITCH: DISENGAGED")
                         kill_switch_button.classes(
@@ -743,12 +746,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         )
                     else:
                         # Unknown/invalid state - show warning
-                        kill_switch_button.set_text(f"KILL SWITCH: {state}")
+                        kill_switch_button.set_text(f"KILL SWITCH: {display_state}")
                         kill_switch_button.classes(
                             "bg-amber-500 text-black",
                             remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
-                    status_bar.update_state(state)
+                    status_bar.update_state(display_state)
 
                     if cb_state == "TRIPPED":
                         circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
@@ -775,8 +778,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
 
-                    last_kill_switch_state = state
-                    set_kill_switch_controls(state)
+                    last_kill_switch_state = display_state
+                    set_kill_switch_controls(display_state)
                     status_success = True
                 except (ValueError, KeyError, TypeError, ConnectionError, httpx.HTTPError) as e:
                     logger.warning(

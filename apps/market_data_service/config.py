@@ -4,6 +4,9 @@ Market Data Service Configuration
 Settings loaded from environment variables.
 """
 
+from typing import Literal
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +22,26 @@ class Settings(BaseSettings):
     alpaca_api_key: str
     alpaca_secret_key: str
     alpaca_base_url: str = "https://paper-api.alpaca.markets"  # Paper trading default
+    alpaca_data_feed: Literal["iex", "sip", "otc"] = "iex"
+
+    @field_validator("alpaca_data_feed", mode="before")
+    @classmethod
+    def normalize_alpaca_data_feed(cls, value: object) -> str:
+        """Normalize ALPACA_DATA_FEED and enforce supported options.
+
+        Supported values:
+        - iex: free feed
+        - sip: consolidated tape (entitlement required)
+        - otc: OTC symbols feed
+        """
+        if value is None:
+            return "iex"
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if not normalized:
+                return "iex"
+            return normalized
+        return str(value).strip().lower()
 
     # Redis Configuration
     redis_host: str = "localhost"

@@ -175,6 +175,51 @@ def test_get_auth_headers_signature(monkeypatch: pytest.MonkeyPatch) -> None:
     assert headers["X-User-Signature"] == expected_sig
 
 
+def test_get_market_data_auth_headers_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Market-data headers include valid C6 internal token fields."""
+    monkeypatch.setattr(config, "DEBUG", True)
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
+    monkeypatch.setattr("apps.web_console_ng.core.client.time.time", lambda: 1700000000)
+    monkeypatch.setattr(
+        "apps.web_console_ng.core.client.uuid.uuid4",
+        lambda: "00000000-0000-0000-0000-000000000001",
+    )
+
+    client = AsyncTradingClient.get()
+    headers = client._get_market_data_auth_headers(
+        method="GET",
+        path="/api/v1/market-data/SPY/bars",
+        query="timeframe=5Min&limit=240",
+        body=None,
+        user_id="user-1",
+        role="trader",
+        strategies=["b", "a"],
+    )
+
+    payload_data = {
+        "service_id": "web_console_ng",
+        "method": "GET",
+        "path": "/api/v1/market-data/SPY/bars",
+        "query": "timeframe=5Min&limit=240",
+        "timestamp": "1700000000",
+        "nonce": "00000000-0000-0000-0000-000000000001",
+        "user_id": "user-1",
+        "strategy_id": "a",
+        "body_hash": hashlib.sha256(b"").hexdigest(),
+    }
+    payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
+    expected_sig = hmac.new(b"secret", payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    assert headers["X-Service-ID"] == "web_console_ng"
+    assert headers["X-Internal-Timestamp"] == "1700000000"
+    assert headers["X-Internal-Nonce"] == "00000000-0000-0000-0000-000000000001"
+    assert headers["X-Internal-Token"] == expected_sig
+    assert headers["X-Body-Hash"] == hashlib.sha256(b"").hexdigest()
+    assert headers["X-User-Id"] == "user-1"
+    assert headers["X-Strategy-ID"] == "a"
+
+
 @pytest.mark.asyncio()
 @respx.mock
 async def test_fetch_kill_switch_status_maps_active(
@@ -189,6 +234,50 @@ async def test_fetch_kill_switch_status_maps_active(
 
     assert result["state"] == "DISENGAGED"
     assert route.call_count == 1
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_fetch_historical_bars_uses_signed_market_data_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical bars request uses market-data URL and C6 S2S headers."""
+    monkeypatch.setattr(config, "DEBUG", True)
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
+    monkeypatch.setattr("apps.web_console_ng.core.client.time.time", lambda: 1700000000)
+    monkeypatch.setattr(
+        "apps.web_console_ng.core.client.uuid.uuid4",
+        lambda: "00000000-0000-0000-0000-000000000002",
+    )
+
+    client = AsyncTradingClient.get()
+    client._http_client = httpx.AsyncClient(base_url="http://testserver")
+    client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
+
+    route = respx.get(
+        "http://market-data.local/api/v1/market-data/SPY/bars?timeframe=5Min&limit=240"
+    ).mock(return_value=httpx.Response(200, json={"symbol": "SPY", "timeframe": "5Min", "bars": []}))
+
+    try:
+        result = await client.fetch_historical_bars(
+            symbol="spy",
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            timeframe="5Min",
+            limit=240,
+        )
+    finally:
+        await client.shutdown()
+
+    assert result["symbol"] == "SPY"
+    assert route.call_count == 1
+
+    request = route.calls[0].request
+    assert request.headers.get("X-Service-ID") == "web_console_ng"
+    assert request.headers.get("X-Internal-Token")
+    assert request.headers.get("X-User-ID") == "user-1"
 
 
 def test_json_dict_requires_object() -> None:

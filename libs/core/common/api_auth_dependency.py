@@ -67,7 +67,10 @@ def _get_internal_token_secret() -> str:
 # SECURITY: Service ID whitelist - only allow known internal services
 # Prevents rogue services from authenticating with stolen secrets
 # Note: Normalize by stripping whitespace and lowercasing for robustness
-_raw_service_ids = os.getenv("ALLOWED_SERVICE_IDS", "orchestrator,signal_service,execution_gateway")
+_raw_service_ids = os.getenv(
+    "ALLOWED_SERVICE_IDS",
+    "orchestrator,signal_service,execution_gateway,web_console_ng",
+)
 ALLOWED_SERVICE_IDS = frozenset(s.strip().lower() for s in _raw_service_ids.split(",") if s.strip())
 
 # Explicit permission allowlist per internal service.
@@ -87,6 +90,9 @@ _SERVICE_PERMISSION_ALLOWLIST: dict[str, set[Permission]] = {
         Permission.SUBMIT_ORDER,
         Permission.CANCEL_ORDER,
         Permission.MODIFY_ORDER,
+        Permission.VIEW_MARKET_DATA,
+    },
+    "web_console_ng": {
         Permission.VIEW_MARKET_DATA,
     },
 }

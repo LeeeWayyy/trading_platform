@@ -72,6 +72,13 @@ def test_status_bar_disengaged(dummy_ui: None) -> None:
     assert bar._label.text == "TRADING ACTIVE"
 
 
+def test_status_bar_active_alias(dummy_ui: None) -> None:
+    bar = StatusBar()
+    bar.update_state("ACTIVE")
+    assert bar._label is not None
+    assert bar._label.text == "TRADING ACTIVE"
+
+
 def test_status_bar_unknown(dummy_ui: None) -> None:
     bar = StatusBar()
     bar.update_state("UNKNOWN")

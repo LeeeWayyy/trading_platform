@@ -106,9 +106,11 @@ CHART_INIT_JS = """
     const lwc = window.LightweightCharts;
 
     // Create chart
+    const initialWidth = Math.max(container.clientWidth || 0, {width});
+    const initialHeight = Math.max(container.clientHeight || 0, {height});
     const chart = lwc.createChart(container, {{
-        width: {width},
-        height: {height},
+        width: initialWidth,
+        height: initialHeight,
         layout: {{
             background: {{ type: 'solid', color: '#0f172a' }},
             textColor: '#94a3b8',
@@ -153,8 +155,11 @@ CHART_INIT_JS = """
     container.appendChild(attribution);
 
     // Resize handler
-    const resizeObserver = new ResizeObserver(entries => {{
-        chart.applyOptions({{ width: container.clientWidth }});
+    const resizeObserver = new ResizeObserver(() => {{
+        chart.applyOptions({{
+            width: Math.max(container.clientWidth || 0, {width}),
+            height: Math.max(container.clientHeight || 0, {height}),
+        }});
     }});
     resizeObserver.observe(container);
 }})();

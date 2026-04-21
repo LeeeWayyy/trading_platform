@@ -396,7 +396,7 @@ def resolve_workspace_kill_switch_pill(state: str | None) -> tuple[str, str]:
     normalized = str(state or "UNKNOWN").upper()
     if normalized == "ENGAGED":
         return ("KILL ENGAGED", "danger")
-    if normalized == "DISENGAGED":
+    if normalized in {"DISENGAGED", "ACTIVE"}:
         return ("KILL DISARMED", "muted")
     return (f"KILL {normalized}", "warning")
 
@@ -898,7 +898,7 @@ async def dashboard(client: Client) -> None:
         with ui.element("div").classes("workspace-v2-body"):
             with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
                 with ui.element("div").classes("workspace-v2-chart-pane"):
-                    order_context.create_price_chart(width=960, height=420).classes(
+                    order_context.create_price_chart(fill_parent=True).classes(
                         "w-full h-full"
                     )
                 with ui.element("div").classes("workspace-v2-microstructure"):
@@ -1554,7 +1554,7 @@ async def dashboard(client: Client) -> None:
         state = str(state_raw or "").upper()
         if state == "ENGAGED":
             return True
-        if state == "DISENGAGED":
+        if state in {"DISENGAGED", "ACTIVE"}:
             return False
         return None
 
@@ -1617,7 +1617,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = state
             kill_switch_engaged = _parse_kill_switch_state(state)
             _update_workspace_kill_switch_pill()
-            if state != "DISENGAGED":
+            if state not in {"DISENGAGED", "ACTIVE"}:
                 return (False, "Cannot flatten: Kill Switch is not DISENGAGED")
             return (True, "")
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:

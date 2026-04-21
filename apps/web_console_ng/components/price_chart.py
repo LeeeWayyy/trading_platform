@@ -86,6 +86,12 @@ class PriceChartComponent:
     DEFAULT_TIMEFRAME = "1D"  # 1 day of data
     CANDLE_INTERVAL = "5m"  # 5-minute candles
     CANDLE_INTERVAL_SECONDS = _parse_interval_seconds(CANDLE_INTERVAL)
+    HISTORICAL_TIMEFRAME_FALLBACKS: tuple[tuple[str, int], ...] = (
+        ("5Min", 240),
+        ("15Min", 240),
+        ("1Hour", 200),
+        ("1Day", 120),
+    )
 
     def __init__(
         self,
@@ -114,6 +120,7 @@ class PriceChartComponent:
         self._symbol_changed_at: datetime | None = None  # Track when symbol changed for staleness
         self._width: int = 600  # Default, overridden by create()
         self._height: int = 300  # Default, overridden by create()
+        self._fill_parent: bool = False
         self._disposed: bool = False
         self._staleness_timer: ui.timer | None = None
         self._chart_initialized: bool = False
@@ -168,19 +175,26 @@ class PriceChartComponent:
         # Start realtime staleness monitor (tracked via timer_tracker)
         self._start_realtime_staleness_monitor(timer_tracker)
 
-    def create(self, width: int = 600, height: int = 300) -> ui.html:
+    def create(self, width: int = 600, height: int = 300, *, fill_parent: bool = False) -> ui.html:
         """Create the chart container.
 
         NOTE: Does NOT start timers. Timer for chart initialization is started
         in initialize() to ensure timer_tracker is available.
         """
         # Store dimensions for initialization
-        self._width = width
-        self._height = height
+        if fill_parent:
+            # When filling parent, avoid hard minimums that can overflow responsive layouts.
+            self._width = 1
+            self._height = 1
+        else:
+            self._width = width
+            self._height = height
+        self._fill_parent = fill_parent
+        height_style = "100%" if fill_parent else f"{height}px"
 
         # Container div
         container = ui.html(
-            f'<div id="{self._container_id}" ' f'style="width:100%;height:{height}px;"></div>'
+            f'<div id="{self._container_id}" ' f'style="width:100%;height:{height_style};"></div>'
         )
 
         return container
@@ -529,20 +543,114 @@ class PriceChartComponent:
     # ================= Data Fetching =================
 
     async def _fetch_candle_data(self, symbol: str) -> list[CandleData]:
-        """Fetch historical candle data.
-
-        NOTE: This is a stub implementation. Full implementation requires
-        adding fetch_historical_bars() to AsyncTradingClient and exposing
-        an endpoint that proxies to Alpaca bars API.
-
-        Returns empty list if API not available, triggering fallback UI.
-        """
+        """Fetch historical candle data for the selected symbol."""
         if self._disposed:
             return []
 
-        # TODO: Implement when fetch_historical_bars is available
-        # For now, return empty and keep chart shell visible.
-        logger.debug(f"Historical bars API not implemented, showing empty chart for {symbol}")
+        fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
+        if fetch_historical_bars is None:
+            logger.debug(f"Historical bars client API unavailable for {symbol}")
+            return []
+        if not self._user_id:
+            logger.debug("Historical bars fetch skipped: user_id unavailable")
+            return []
+
+        def _parse_bars(raw_bars: Any) -> list[CandleData]:
+            if not isinstance(raw_bars, list):
+                return []
+
+            parsed: list[CandleData] = []
+            for raw_bar in raw_bars:
+                if not isinstance(raw_bar, dict):
+                    continue
+
+                timestamp_raw = raw_bar.get("timestamp") or raw_bar.get("t")
+                if timestamp_raw is None:
+                    continue
+
+                try:
+                    if isinstance(timestamp_raw, int | float):
+                        timestamp = datetime.fromtimestamp(float(timestamp_raw), tz=UTC)
+                    else:
+                        timestamp = parse_iso_timestamp(str(timestamp_raw))
+                    open_px = float(raw_bar["open"])
+                    high_px = float(raw_bar["high"])
+                    low_px = float(raw_bar["low"])
+                    close_px = float(raw_bar["close"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+                if (
+                    not math.isfinite(open_px)
+                    or not math.isfinite(high_px)
+                    or not math.isfinite(low_px)
+                    or not math.isfinite(close_px)
+                    or min(open_px, high_px, low_px, close_px) <= 0
+                ):
+                    continue
+
+                volume_raw = raw_bar.get("volume")
+                try:
+                    volume = int(volume_raw) if volume_raw is not None else None
+                except (TypeError, ValueError):
+                    volume = None
+
+                parsed.append(
+                    CandleData(
+                        time=int(timestamp.timestamp()),
+                        open=open_px,
+                        high=high_px,
+                        low=low_px,
+                        close=close_px,
+                        volume=volume,
+                    )
+                )
+
+            parsed.sort(key=lambda candle: candle.time)
+            if len(parsed) > 500:
+                parsed = parsed[-500:]
+            return parsed
+
+        for timeframe, limit in self.HISTORICAL_TIMEFRAME_FALLBACKS:
+            try:
+                response = await fetch_historical_bars(
+                    symbol=symbol,
+                    user_id=self._user_id,
+                    role=self._role,
+                    strategies=self._strategies,
+                    timeframe=timeframe,
+                    limit=limit,
+                )
+            except TypeError:
+                # Compatibility with older client/test doubles lacking auth kwargs.
+                try:
+                    response = await fetch_historical_bars(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        limit=limit,
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Historical bars fetch failed for %s (%s): %s",
+                        symbol,
+                        timeframe,
+                        exc,
+                    )
+                    continue
+            except Exception as exc:
+                logger.debug(
+                    "Historical bars fetch failed for %s (%s): %s",
+                    symbol,
+                    timeframe,
+                    exc,
+                )
+                continue
+
+            candles = _parse_bars(response.get("bars", []))
+            if candles:
+                return candles
+
+        logger.debug("Historical bars unavailable for %s across fallback timeframes", symbol)
         return []
 
     async def _fetch_execution_markers(self, symbol: str) -> list[ExecutionMarker]:

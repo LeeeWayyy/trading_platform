@@ -541,6 +541,85 @@ class TestPriceChartSymbolChange:
         mock_clear.assert_called_once()
 
 
+class TestPriceChartHistoricalBars:
+    """Tests for historical bar fetch integration."""
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_uses_authenticated_client_signature(self) -> None:
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(
+            return_value={
+                "bars": [
+                    {
+                        "timestamp": "2026-04-20T13:30:00Z",
+                        "open": 180.1,
+                        "high": 181.0,
+                        "low": 179.9,
+                        "close": 180.6,
+                        "volume": 1200,
+                    },
+                    {
+                        "timestamp": "2026-04-20T13:35:00Z",
+                        "open": 180.6,
+                        "high": 181.2,
+                        "low": 180.4,
+                        "close": 181.1,
+                        "volume": 900,
+                    },
+                ]
+            }
+        )
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("AAPL")
+
+        assert len(candles) == 2
+        assert candles[0].open == 180.1
+        assert candles[1].close == 181.1
+        client.fetch_historical_bars.assert_awaited_once_with(
+            symbol="AAPL",
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            timeframe="5Min",
+            limit=240,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_falls_back_to_legacy_signature(self) -> None:
+        class LegacyClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            async def fetch_historical_bars(
+                self, *, symbol: str, timeframe: str, limit: int
+            ) -> dict[str, list[dict[str, object]]]:
+                self.calls.append((symbol, timeframe, limit))
+                return {"bars": []}
+
+        component = PriceChartComponent(
+            trading_client=LegacyClient(),  # type: ignore[arg-type]
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("MSFT")
+
+        assert candles == []
+        assert component._client.calls == [  # type: ignore[attr-defined]
+            ("MSFT", "5Min", 240),
+            ("MSFT", "15Min", 240),
+            ("MSFT", "1Hour", 200),
+            ("MSFT", "1Day", 120),
+        ]
+
+
 class TestPriceChartExecutionMarkers:
     """Tests for execution-marker fetch compatibility."""
 

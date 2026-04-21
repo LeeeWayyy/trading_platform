@@ -187,7 +187,7 @@ services:
       - ALPACA_API_KEY_ID=${ALPACA_API_KEY_ID:-}
       - ALPACA_API_SECRET_KEY=${ALPACA_API_SECRET_KEY:-}
       - ALPACA_BASE_URL=${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
-      # For free Alpaca data, use IEX feed (SIP requires a paid subscription).
+      # Alpaca stock feed options: iex (free), sip (paid entitlement), otc.
       - ALPACA_DATA_FEED=${ALPACA_DATA_FEED:-iex}
       - DRY_RUN=${DRY_RUN:-true}
       - STRATEGY_ID=${STRATEGY_ID:-alpha_baseline}
@@ -272,11 +272,18 @@ services:
       - ALPACA_API_KEY=${ALPACA_API_KEY:-${ALPACA_API_KEY_ID:-}}
       - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-${ALPACA_API_SECRET_KEY:-}}
       - ALPACA_BASE_URL=${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      # Alpaca stock feed options: iex (free), sip (paid entitlement), otc.
+      - ALPACA_DATA_FEED=${ALPACA_DATA_FEED:-iex}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
       - EXECUTION_GATEWAY_URL=http://execution_gateway:8002
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # C5/C6 auth config for protected market-data routes (e.g. /market-data/{symbol}/bars).
+      - INTERNAL_TOKEN_REQUIRED=${INTERNAL_TOKEN_REQUIRED:-false}
+      - INTERNAL_TOKEN_SECRET=${INTERNAL_TOKEN_SECRET:-}
+      - API_AUTH_MODE=${API_AUTH_MODE:-log_only}
+      - ALLOWED_SERVICE_IDS=${ALLOWED_SERVICE_IDS:-orchestrator,signal_service,execution_gateway,web_console_ng}
     depends_on:
       redis:
         condition: service_healthy

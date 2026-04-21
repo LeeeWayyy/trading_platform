@@ -29,6 +29,8 @@ from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_ALPACA_DATA_FEEDS = ("iex", "sip", "otc")
+
 
 # ============================================================================
 # Helper Functions
@@ -139,6 +141,28 @@ def _get_bool_env_permissive(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.lower() in ("true", "yes", "on", "1")
+
+
+def _get_alpaca_data_feed_env(name: str = "ALPACA_DATA_FEED") -> str | None:
+    """Parse Alpaca data feed from environment with explicit option validation.
+
+    Supported values: iex, sip, otc.
+    Empty values are treated as unset (None).
+    """
+    raw = os.getenv(name, "")
+    if not raw.strip():
+        return None
+
+    normalized = raw.strip().lower()
+    if normalized not in SUPPORTED_ALPACA_DATA_FEEDS:
+        logger.warning(
+            "Invalid %s=%s; supported options: %s. Ignoring override.",
+            name,
+            raw,
+            ", ".join(SUPPORTED_ALPACA_DATA_FEEDS),
+        )
+        return None
+    return normalized
 
 
 # ============================================================================
@@ -337,8 +361,8 @@ def get_config() -> ExecutionGatewayConfig:
         )
         max_slice_pct_of_adv = 0.01
 
-    # Parse Alpaca data feed (strip whitespace, convert empty to None)
-    alpaca_data_feed = os.getenv("ALPACA_DATA_FEED", "").strip() or None
+    # Parse Alpaca data feed (supported: iex, sip, otc)
+    alpaca_data_feed = _get_alpaca_data_feed_env()
 
     return ExecutionGatewayConfig(
         # Core Settings

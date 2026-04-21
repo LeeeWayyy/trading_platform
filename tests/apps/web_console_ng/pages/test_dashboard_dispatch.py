@@ -496,9 +496,11 @@ def test_resolve_workspace_connection_pill_read_only_warning() -> None:
 def test_resolve_workspace_kill_switch_pill_states() -> None:
     engaged = dashboard_module.resolve_workspace_kill_switch_pill("ENGAGED")
     disarmed = dashboard_module.resolve_workspace_kill_switch_pill("DISENGAGED")
+    active = dashboard_module.resolve_workspace_kill_switch_pill("ACTIVE")
     unknown = dashboard_module.resolve_workspace_kill_switch_pill(None)
     assert engaged == ("KILL ENGAGED", "danger")
     assert disarmed == ("KILL DISARMED", "muted")
+    assert active == ("KILL DISARMED", "muted")
     assert unknown == ("KILL UNKNOWN", "warning")
 
 
