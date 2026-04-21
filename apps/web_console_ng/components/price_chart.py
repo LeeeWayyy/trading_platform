@@ -9,6 +9,7 @@ Data Flow: Redis → RealtimeUpdater → OrderEntryContext → PriceChart.set_pr
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import math
@@ -684,32 +685,37 @@ class PriceChartComponent:
             logger.debug("Historical bars fetch skipped: user_id unavailable")
             return []
 
+        try:
+            fetch_signature = inspect.signature(fetch_historical_bars)
+            fetch_params = fetch_signature.parameters
+            supports_auth_kwargs = (
+                "user_id" in fetch_params
+                and "role" in fetch_params
+                and "strategies" in fetch_params
+            ) or any(
+                param.kind == inspect.Parameter.VAR_KEYWORD for param in fetch_params.values()
+            )
+        except (TypeError, ValueError):
+            # Some mocks/non-inspectable callables do not expose signatures.
+            supports_auth_kwargs = False
+
         for timeframe, limit in self.HISTORICAL_TIMEFRAME_FALLBACKS:
-            try:
-                response = await fetch_historical_bars(
-                    symbol=symbol,
-                    user_id=self._user_id,
-                    role=self._role,
-                    strategies=self._strategies,
-                    timeframe=timeframe,
-                    limit=limit,
+            request_kwargs: dict[str, Any] = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "limit": limit,
+            }
+            if supports_auth_kwargs:
+                request_kwargs.update(
+                    {
+                        "user_id": self._user_id,
+                        "role": self._role,
+                        "strategies": self._strategies,
+                    }
                 )
-            except TypeError:
-                # Compatibility with older client/test doubles lacking auth kwargs.
-                try:
-                    response = await fetch_historical_bars(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        limit=limit,
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        "Historical bars fetch failed for %s (%s): %s",
-                        symbol,
-                        timeframe,
-                        exc,
-                    )
-                    continue
+
+            try:
+                response = await fetch_historical_bars(**request_kwargs)
             except Exception as exc:
                 logger.debug(
                     "Historical bars fetch failed for %s (%s): %s",
