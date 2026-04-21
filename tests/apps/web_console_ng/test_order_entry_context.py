@@ -1638,6 +1638,32 @@ class TestMarketDataSync:
         assert context._last_synced_market_data_symbols == ()
 
     @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_continues_after_stale_release_failure(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {"price.updated.MSFT": {"watchlist"}}
+        context._last_synced_market_data_symbols = ("AAPL",)
+        context._client.unsubscribe_market_data_symbol = AsyncMock(
+            side_effect=[RuntimeError("down"), RuntimeError("still-down")]
+        )
+        context._client.subscribe_market_data_symbols = AsyncMock(
+            return_value={"message": "ok", "subscribed_symbols": ["MSFT"], "total_subscriptions": 1}
+        )
+        context.MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S = 0
+
+        await context._sync_market_data_streaming()
+
+        context._client.subscribe_market_data_symbols.assert_awaited_once_with(
+            ["MSFT"],
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+        assert context._pending_market_data_unsubscribes == {"AAPL"}
+        assert context._market_data_sync_pending is True
+
+    @pytest.mark.asyncio()
     async def test_sync_market_data_streaming_marks_pending_after_subscribe_failure(
         self, context: OrderEntryContext
     ) -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from collections.abc import AsyncIterator
@@ -97,6 +98,7 @@ SOURCE_OVERRIDE_AUTH = api_auth(
 SOURCE_OVERRIDE_PREFIX_BY_SERVICE: dict[str, str] = {
     "web_console_ng": "web_console",
 }
+UNSIGNED_SOURCE_PREFIXES = frozenset(SOURCE_OVERRIDE_PREFIX_BY_SERVICE.values())
 
 
 def _normalize_subscription_source(raw_source: str | None) -> str:
@@ -116,6 +118,22 @@ def _normalize_subscription_source(raw_source: str | None) -> str:
 async def _authorize_source_override(request: Request, normalized_source: str) -> None:
     """Require authenticated ownership for non-manual source overrides."""
     if normalized_source == "manual":
+        return
+
+    signed_override_required = bool(
+        os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+        or any(
+            key.startswith("INTERNAL_TOKEN_SECRET_") and str(value).strip()
+            for key, value in os.environ.items()
+        )
+    )
+    if not signed_override_required:
+        unsigned_source_prefix = normalized_source.split(":", 1)[0].strip().lower()
+        if unsigned_source_prefix not in UNSIGNED_SOURCE_PREFIXES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Unsigned source override is not allowed for prefix '{unsigned_source_prefix}'",
+            )
         return
 
     auth_context = await SOURCE_OVERRIDE_AUTH(

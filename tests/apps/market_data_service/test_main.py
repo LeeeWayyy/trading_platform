@@ -13,6 +13,7 @@ Tests cover:
 """
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -22,6 +23,14 @@ import redis.exceptions
 from fastapi.testclient import TestClient
 
 from libs.data.market_data import SubscriptionError
+
+
+def _clear_internal_token_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear any configured internal-token secrets for deterministic unsigned-mode tests."""
+    monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
+    for env_key in tuple(os.environ):
+        if env_key.startswith("INTERNAL_TOKEN_SECRET_"):
+            monkeypatch.delenv(env_key, raising=False)
 
 
 @pytest.fixture()
@@ -163,16 +172,24 @@ class TestSubscribeEndpoint:
         # Verify subscribe_symbols was called
         mock_stream.subscribe_symbols.assert_called_once_with(["AAPL", "MSFT"], source="manual")
 
-    def test_subscribe_rejects_explicit_source_without_internal_auth(self, test_client, mock_stream):
-        """Explicit source tags require an authenticated internal token."""
+    def test_subscribe_success_with_explicit_source(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Unsigned environments should preserve explicit web_console source tags."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
         with patch("apps.market_data_service.main.stream", mock_stream):
             response = test_client.post(
                 "/api/v1/subscribe",
                 json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
             )
 
-        assert response.status_code == 401
-        mock_stream.subscribe_symbols.assert_not_called()
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
 
     def test_subscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
         """Authorized internal requests may use explicit source tags."""
@@ -196,6 +213,21 @@ class TestSubscribeEndpoint:
             ["AAPL"],
             source="web_console:user-1:abc",
         )
+
+    def test_subscribe_rejects_explicit_source_without_internal_auth_when_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When internal signing is configured, explicit source requires auth."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 401
+        mock_stream.subscribe_symbols.assert_not_called()
 
     def test_subscribe_rejects_invalid_source(self, test_client, mock_stream):
         """Source tags must stay bounded and contain only safe characters."""
@@ -250,13 +282,21 @@ class TestUnsubscribeEndpoint:
         # Verify unsubscribe_symbols was called
         mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
 
-    def test_unsubscribe_rejects_explicit_source_without_internal_auth(self, test_client, mock_stream):
-        """Explicit source tags require an authenticated internal token."""
+    def test_unsubscribe_success_with_explicit_source(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Unsigned environments should preserve explicit web_console source tags."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = []
+
         with patch("apps.market_data_service.main.stream", mock_stream):
             response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
 
-        assert response.status_code == 401
-        mock_stream.unsubscribe_symbols.assert_not_called()
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
 
     def test_unsubscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
         """Authorized internal requests may unsubscribe with explicit source tags."""
@@ -277,6 +317,18 @@ class TestUnsubscribeEndpoint:
             ["AAPL"],
             source="web_console:user-1:abc",
         )
+
+    def test_unsubscribe_rejects_explicit_source_without_internal_auth_when_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When internal signing is configured, explicit source requires auth."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 401
+        mock_stream.unsubscribe_symbols.assert_not_called()
 
     def test_unsubscribe_rejects_invalid_source(self, test_client, mock_stream):
         """Unsubscribe source tags must pass the same validation rules."""

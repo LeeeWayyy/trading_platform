@@ -1297,7 +1297,16 @@ class OrderEntryContext:
             return
 
         for stale_symbol in stale_symbols:
-            await self._release_market_data_streaming(stale_symbol)
+            try:
+                await self._release_market_data_streaming(stale_symbol)
+            except Exception as exc:
+                logger.warning(
+                    "market_data_stale_release_failed for %s: %s",
+                    stale_symbol,
+                    exc,
+                )
+                self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = True
 
         if not symbols:
             unresolved_unsubscribes = bool(self._pending_market_data_unsubscribes)
