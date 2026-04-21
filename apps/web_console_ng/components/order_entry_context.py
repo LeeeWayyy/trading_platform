@@ -1301,7 +1301,7 @@ class OrderEntryContext:
             # Force next sync to recompute if channel ownership changed meanwhile.
             self._last_synced_market_data_symbols = None
         except Exception as exc:
-            logger.warning(f"Failed to request market-data unsubscribe for {symbol}: {exc}")
+            logger.warning("Failed to request market-data unsubscribe for %s: %s", symbol, exc)
 
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""

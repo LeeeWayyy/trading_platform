@@ -472,17 +472,27 @@ class AsyncTradingClient:
         source: str | None = None,
     ) -> dict[str, Any]:
         """Request market-data-service to stream specified symbols."""
-        headers = self._get_auth_headers(user_id, role, strategies)
         request_payload: dict[str, Any] = {
             "symbols": [str(symbol).upper() for symbol in symbols if str(symbol).strip()]
         }
         normalized_source = str(source).strip() if source is not None else ""
         if normalized_source:
             request_payload["source"] = normalized_source
+        request_body = json.dumps(request_payload, separators=(",", ":"), sort_keys=True)
+        path = "/api/v1/subscribe"
+        headers = self._get_market_data_auth_headers(
+            method="POST",
+            path=path,
+            query="",
+            body=request_body,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
         resp = await self._market_client.post(
-            "/api/v1/subscribe",
+            path,
             headers=headers,
-            json=request_payload,
+            content=request_body,
         )
         resp.raise_for_status()
         return self._json_dict(resp)
@@ -498,10 +508,19 @@ class AsyncTradingClient:
         source: str | None = None,
     ) -> dict[str, Any]:
         """Request market-data-service to stop streaming one symbol."""
-        headers = self._get_auth_headers(user_id, role, strategies)
         safe_symbol = url_quote(symbol.upper(), safe="")
         query = self._build_query_string([("source", str(source).strip())]) if source else ""
-        request_path = f"/api/v1/subscribe/{safe_symbol}?{query}" if query else f"/api/v1/subscribe/{safe_symbol}"
+        path = f"/api/v1/subscribe/{safe_symbol}"
+        headers = self._get_market_data_auth_headers(
+            method="DELETE",
+            path=path,
+            query=query,
+            body=None,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        request_path = f"{path}?{query}" if query else path
         resp = await self._market_client.delete(
             request_path,
             headers=headers,

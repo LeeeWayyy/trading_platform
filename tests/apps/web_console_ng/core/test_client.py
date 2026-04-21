@@ -388,6 +388,82 @@ async def test_unsubscribe_market_data_symbol_passes_source_query_param() -> Non
     assert route.call_count == 1
 
 
+@pytest.mark.asyncio()
+@respx.mock
+async def test_subscribe_market_data_symbols_uses_signed_market_data_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "DEBUG", True)
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
+    monkeypatch.setattr("apps.web_console_ng.core.client.time.time", lambda: 1700000100)
+    monkeypatch.setattr(
+        "apps.web_console_ng.core.client.uuid.uuid4",
+        lambda: "00000000-0000-0000-0000-000000000010",
+    )
+
+    client = AsyncTradingClient.get()
+    client._http_client = httpx.AsyncClient(base_url="http://testserver")
+    client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
+
+    route = respx.post("http://market-data.local/api/v1/subscribe").mock(
+        return_value=httpx.Response(201, json={"message": "ok", "subscribed_symbols": [], "total_subscriptions": 0})
+    )
+
+    try:
+        await client.subscribe_market_data_symbols(
+            ["AAPL"],
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+    finally:
+        await client.shutdown()
+
+    request = route.calls[0].request
+    assert request.headers.get("X-Service-ID") == "web_console_ng"
+    assert request.headers.get("X-Internal-Token")
+    assert request.headers.get("X-Body-Hash")
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_unsubscribe_market_data_symbol_uses_signed_market_data_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "DEBUG", True)
+    monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
+    monkeypatch.setattr("apps.web_console_ng.core.client.time.time", lambda: 1700000100)
+    monkeypatch.setattr(
+        "apps.web_console_ng.core.client.uuid.uuid4",
+        lambda: "00000000-0000-0000-0000-000000000011",
+    )
+
+    client = AsyncTradingClient.get()
+    client._http_client = httpx.AsyncClient(base_url="http://testserver")
+    client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
+
+    route = respx.delete("http://market-data.local/api/v1/subscribe/AAPL").mock(
+        return_value=httpx.Response(200, json={"message": "ok", "remaining_subscriptions": 0})
+    )
+
+    try:
+        await client.unsubscribe_market_data_symbol(
+            "AAPL",
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+    finally:
+        await client.shutdown()
+
+    request = route.calls[0].request
+    assert request.headers.get("X-Service-ID") == "web_console_ng"
+    assert request.headers.get("X-Internal-Token")
+    assert request.headers.get("X-Body-Hash") == hashlib.sha256(b"").hexdigest()
+
+
 def test_json_dict_requires_object() -> None:
     client = AsyncTradingClient.get()
     response = httpx.Response(200, json=["not", "a", "dict"])

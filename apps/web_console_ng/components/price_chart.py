@@ -161,7 +161,7 @@ class PriceChartComponent:
             try:
                 await self._ensure_chart_initialized()
             except Exception as exc:
-                logger.warning(f"Failed to initialize chart: {exc}")
+                logger.warning("Failed to initialize chart: %s", exc)
 
         # Initialize chart via one-shot timer (tracked).
         # Use a synchronous timer callback that spawns a task to avoid depending
