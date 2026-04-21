@@ -489,11 +489,13 @@ class TestPriceChartSymbolChange:
             patch.object(component, "_fetch_candle_data", return_value=[]),
             patch.object(component, "_fetch_execution_markers", return_value=[]),
             patch.object(component, "_update_chart_data", new_callable=AsyncMock),
+            patch.object(component, "_clear_chart_series", new_callable=AsyncMock) as mock_clear_series,
             patch.object(component, "_show_no_data_overlay", new_callable=AsyncMock) as mock_show,
             patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
         ):
             await component.on_symbol_changed("AAPL")
 
+        mock_clear_series.assert_awaited_once()
         mock_show.assert_awaited_once_with("AAPL")
         mock_hide.assert_not_called()
 

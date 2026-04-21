@@ -1842,6 +1842,7 @@ class OrderEntryContext:
         # Unsubscribe from all channels
         async with self._subscription_lock:
             channels_to_unsubscribe = list(self._subscriptions)
+            market_data_symbols_to_release = self._collect_owned_price_symbols()
 
             for _, future in self._pending_subscribes.items():
                 if future and not future.done():
@@ -1858,6 +1859,11 @@ class OrderEntryContext:
                 await self._realtime.unsubscribe(channel)
             except Exception as exc:
                 logger.warning(f"Error unsubscribing from {channel}: {exc}")
+        for symbol in market_data_symbols_to_release:
+            try:
+                await self._release_market_data_streaming(symbol)
+            except Exception as exc:
+                logger.warning("Error releasing market-data source for %s: %s", symbol, exc)
 
         if self._current_l2_symbol:
             await self._level2_service.unsubscribe(self._user_id, self._current_l2_symbol)

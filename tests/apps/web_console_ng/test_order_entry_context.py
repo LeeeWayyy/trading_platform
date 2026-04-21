@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -1379,6 +1379,7 @@ class TestDispose:
         ctx._market_context = AsyncMock()
         ctx._price_chart = AsyncMock()
         ctx._watchlist = AsyncMock()
+        ctx._client.unsubscribe_market_data_symbol = AsyncMock()
         return ctx
 
     @pytest.mark.asyncio()
@@ -1422,6 +1423,40 @@ class TestDispose:
         await context.dispose()
 
         assert context._realtime.unsubscribe.call_count == 2
+
+    @pytest.mark.asyncio()
+    async def test_dispose_releases_owned_market_data_sources(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() should release per-session market-data sources for owned symbols."""
+        context._subscriptions = ["price.updated.AAPL", "price.updated.msft"]
+        context._channel_owners = {
+            "price.updated.AAPL": {"watchlist"},
+            "price.updated.msft": {"selected_symbol"},
+            "orders:test-user": {"orders"},
+        }
+
+        await context.dispose()
+
+        context._client.unsubscribe_market_data_symbol.assert_has_awaits(
+            [
+                call(
+                    "AAPL",
+                    user_id="test-user",
+                    role="trader",
+                    strategies=["alpha"],
+                    source=context._market_data_source,
+                ),
+                call(
+                    "MSFT",
+                    user_id="test-user",
+                    role="trader",
+                    strategies=["alpha"],
+                    source=context._market_data_source,
+                ),
+            ],
+            any_order=False,
+        )
 
     @pytest.mark.asyncio()
     async def test_dispose_disposes_components(self, context: OrderEntryContext) -> None:

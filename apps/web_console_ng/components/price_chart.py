@@ -311,6 +311,8 @@ class PriceChartComponent:
         if candles:
             await self._hide_no_data_overlay()
         else:
+            self._markers = []
+            await self._clear_chart_series()
             await self._show_no_data_overlay(symbol)
 
         # Fetch execution history for markers
@@ -781,6 +783,13 @@ class PriceChartComponent:
         self._candles = []
         self._markers = []
         await self._hide_no_data_overlay()
+
+        await self._clear_chart_series()
+
+    async def _clear_chart_series(self) -> None:
+        """Clear chart series and marker data without mutating overlay state."""
+        if self._disposed:
+            return
 
         try:
             await self._run_javascript(
