@@ -190,7 +190,7 @@ def test_get_market_data_auth_headers_signature(monkeypatch: pytest.MonkeyPatch)
     headers = client._get_market_data_auth_headers(
         method="GET",
         path="/api/v1/market-data/SPY/bars",
-        query="timeframe=5Min&limit=240",
+        query="limit=240&timeframe=5Min",
         body=None,
         user_id="user-1",
         role="trader",
@@ -201,7 +201,7 @@ def test_get_market_data_auth_headers_signature(monkeypatch: pytest.MonkeyPatch)
         "service_id": "web_console_ng",
         "method": "GET",
         "path": "/api/v1/market-data/SPY/bars",
-        "query": "timeframe=5Min&limit=240",
+        "query": "limit=240&timeframe=5Min",
         "timestamp": "1700000000",
         "nonce": "00000000-0000-0000-0000-000000000001",
         "user_id": "user-1",
@@ -237,7 +237,7 @@ def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_s
     headers = client._get_market_data_auth_headers(
         method="GET",
         path="/api/v1/market-data/SPY/bars",
-        query="timeframe=5Min&limit=240",
+        query="limit=240&timeframe=5Min",
         body=None,
         user_id="user-1",
         role="trader",
@@ -248,7 +248,7 @@ def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_s
         "service_id": "web_console_ng",
         "method": "GET",
         "path": "/api/v1/market-data/SPY/bars",
-        "query": "timeframe=5Min&limit=240",
+        "query": "limit=240&timeframe=5Min",
         "timestamp": "1700000000",
         "nonce": "00000000-0000-0000-0000-000000000003",
         "user_id": "user-1",
@@ -260,6 +260,20 @@ def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_s
 
     assert headers["X-Internal-Token"] == expected_sig
     assert headers["X-Strategy-ID"] == "alpha"
+
+
+def test_build_query_string_sorts_params_deterministically() -> None:
+    client = AsyncTradingClient.get()
+
+    query = client._build_query_string(
+        [
+            ("timeframe", "5Min"),
+            ("limit", 240),
+            ("symbol", "SPY"),
+        ]
+    )
+
+    assert query == "limit=240&symbol=SPY&timeframe=5Min"
 
 
 @pytest.mark.asyncio()
@@ -298,7 +312,7 @@ async def test_fetch_historical_bars_uses_signed_market_data_headers(
     client._market_data_client = httpx.AsyncClient(base_url="http://market-data.local")
 
     route = respx.get(
-        "http://market-data.local/api/v1/market-data/SPY/bars?timeframe=5Min&limit=240"
+        "http://market-data.local/api/v1/market-data/SPY/bars?limit=240&timeframe=5Min"
     ).mock(return_value=httpx.Response(200, json={"symbol": "SPY", "timeframe": "5Min", "bars": []}))
 
     try:

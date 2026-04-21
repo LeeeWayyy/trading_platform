@@ -101,10 +101,12 @@ CHART_INIT_JS = """
         return;
     }}
     const lwc = window.LightweightCharts;
+    const MIN_CHART_WIDTH = 320;
+    const MIN_CHART_HEIGHT = 180;
 
     // Create chart
-    const initialWidth = Math.max(container.clientWidth || 0, {width});
-    const initialHeight = Math.max(container.clientHeight || 0, {height});
+    const initialWidth = Math.max(container.clientWidth || 0, {width}, MIN_CHART_WIDTH);
+    const initialHeight = Math.max(container.clientHeight || 0, {height}, MIN_CHART_HEIGHT);
     const chart = lwc.createChart(container, {{
         width: initialWidth,
         height: initialHeight,
@@ -154,8 +156,8 @@ CHART_INIT_JS = """
     // Resize handler
     const resizeObserver = new ResizeObserver(() => {{
         chart.applyOptions({{
-            width: Math.max(container.clientWidth || 0, {width}),
-            height: Math.max(container.clientHeight || 0, {height}),
+            width: Math.max(container.clientWidth || 0, {width}, MIN_CHART_WIDTH),
+            height: Math.max(container.clientHeight || 0, {height}, MIN_CHART_HEIGHT),
         }});
     }});
     resizeObserver.observe(container);

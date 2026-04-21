@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -100,6 +101,8 @@ class TestPriceChartInit:
         assert comp._last_realtime_update is None
         assert comp._chart_init_lock is None
         assert comp._price_update_lock is None
+        assert comp._price_update_task is None
+        assert comp._pending_price_update is None
 
     def test_unique_ids_generated(self) -> None:
         """Each component gets unique chart and container IDs."""
@@ -236,7 +239,7 @@ class TestPriceChartPriceData:
         component._current_symbol = "AAPL"
         now = datetime.now(UTC)
 
-        with patch("asyncio.create_task"):
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -247,12 +250,13 @@ class TestPriceChartPriceData:
 
         assert component._last_realtime_update is not None
         assert abs((component._last_realtime_update - now).total_seconds()) < 1
+        schedule_update.assert_called_once()
 
     def test_set_price_data_handles_missing_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when missing (FAIL-CLOSED)."""
         component._current_symbol = "AAPL"
 
-        with patch("asyncio.create_task"):
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -263,12 +267,13 @@ class TestPriceChartPriceData:
 
         # FAIL-CLOSED: timestamp None when missing
         assert component._last_realtime_update is None
+        schedule_update.assert_not_called()
 
     def test_set_price_data_handles_invalid_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when invalid (FAIL-CLOSED)."""
         component._current_symbol = "AAPL"
 
-        with patch("asyncio.create_task"):
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -279,6 +284,7 @@ class TestPriceChartPriceData:
 
         # FAIL-CLOSED: timestamp None when invalid
         assert component._last_realtime_update is None
+        schedule_update.assert_not_called()
 
     def test_set_price_data_rejects_future_skew_timestamp(
         self, component: PriceChartComponent
@@ -287,7 +293,7 @@ class TestPriceChartPriceData:
         component._current_symbol = "AAPL"
         future_ts = datetime.now(UTC) + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S + 5)
 
-        with patch("asyncio.create_task") as mock_create_task:
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -297,14 +303,14 @@ class TestPriceChartPriceData:
             )
 
         assert component._last_realtime_update is None
-        mock_create_task.assert_not_called()
+        schedule_update.assert_not_called()
 
     def test_set_price_data_rejects_past_skew_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data drops stale delayed ticks outside allowed past skew."""
         component._current_symbol = "AAPL"
         stale_ts = datetime.now(UTC) - timedelta(seconds=MAX_PAST_TICK_SKEW_S + 5)
 
-        with patch("asyncio.create_task") as mock_create_task:
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -314,7 +320,7 @@ class TestPriceChartPriceData:
             )
 
         assert component._last_realtime_update is None
-        mock_create_task.assert_not_called()
+        schedule_update.assert_not_called()
 
     def test_set_price_data_ignored_when_disposed(self, component: PriceChartComponent) -> None:
         """set_price_data does nothing when disposed."""
@@ -330,6 +336,56 @@ class TestPriceChartPriceData:
         )
 
         assert component._last_realtime_update is None
+
+    @pytest.mark.asyncio()
+    async def test_set_price_data_coalesces_updates_while_inflight(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Only latest pending tick is kept while one update task is running."""
+        component._current_symbol = "AAPL"
+        started = asyncio.Event()
+        release = asyncio.Event()
+        handled_prices: list[float] = []
+
+        async def fake_handle(price: float, tick_time: datetime, symbol: str | None = None) -> None:
+            handled_prices.append(price)
+            if len(handled_prices) == 1:
+                started.set()
+                await release.wait()
+
+        component._handle_price_update = fake_handle  # type: ignore[method-assign]
+        now = datetime.now(UTC)
+
+        component.set_price_data(
+            {"symbol": "AAPL", "price": 100.0, "timestamp": now.isoformat()}
+        )
+        await started.wait()
+
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": 101.0,
+                "timestamp": (now + timedelta(seconds=1)).isoformat(),
+            }
+        )
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": 102.0,
+                "timestamp": (now + timedelta(seconds=2)).isoformat(),
+            }
+        )
+
+        assert component._pending_price_update is not None
+        assert component._pending_price_update[0] == 102.0
+
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        if component._price_update_task is not None:
+            await component._price_update_task
+
+        assert handled_prices == [100.0, 102.0]
 
 
 class TestPriceChartStaleness:

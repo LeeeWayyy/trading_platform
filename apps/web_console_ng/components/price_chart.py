@@ -131,6 +131,8 @@ class PriceChartComponent:
         self._missing_ui_client_warned: bool = False
         self._chart_init_lock: asyncio.Lock | None = None
         self._price_update_lock: asyncio.Lock | None = None
+        self._price_update_task: asyncio.Task[None] | None = None
+        self._pending_price_update: tuple[float, datetime, str | None] | None = None
         self._no_data_overlay_visible: bool = False
         self._stale_overlay_visible: bool = False
         self._fallback_overlay_visible: bool = False
@@ -418,13 +420,53 @@ class PriceChartComponent:
             # FAIL-CLOSED: Do not bucket/update chart without server timestamp
             return
 
-        # Track task for cleanup on dispose (avoid task leaks)
         symbol_snapshot = self._current_symbol
-        task = asyncio.create_task(
-            self._handle_price_update(price, tick_time, symbol_snapshot)
-        )
+        self._schedule_price_update(price, tick_time, symbol_snapshot)
+
+    def _schedule_price_update(
+        self,
+        price: float,
+        tick_time: datetime,
+        symbol: str | None,
+    ) -> None:
+        """Schedule/coalesce realtime updates to avoid unbounded per-tick tasks."""
+        if self._disposed:
+            return
+
+        next_update = (price, tick_time, symbol)
+        if self._price_update_task and not self._price_update_task.done():
+            # Keep only the latest pending update while one is in-flight.
+            self._pending_price_update = next_update
+            return
+
+        async def process_updates(initial_update: tuple[float, datetime, str | None]) -> None:
+            update: tuple[float, datetime, str | None] | None = initial_update
+            while update is not None and not self._disposed:
+                current_price, current_tick_time, current_symbol = update
+                await self._handle_price_update(
+                    current_price,
+                    current_tick_time,
+                    current_symbol,
+                )
+                update = self._pending_price_update
+                self._pending_price_update = None
+
+        task = asyncio.create_task(process_updates(next_update))
+        self._price_update_task = task
         self._pending_update_tasks.add(task)
-        task.add_done_callback(lambda t: self._pending_update_tasks.discard(t))
+
+        def _on_done(completed: asyncio.Task[None]) -> None:
+            self._pending_update_tasks.discard(completed)
+            self._price_update_task = None
+            if self._disposed:
+                self._pending_price_update = None
+                return
+            if self._pending_price_update is not None:
+                pending = self._pending_price_update
+                self._pending_price_update = None
+                self._schedule_price_update(*pending)
+
+        task.add_done_callback(_on_done)
 
     async def _handle_price_update(
         self,
@@ -1230,6 +1272,8 @@ class PriceChartComponent:
                 except asyncio.CancelledError:
                     pass
         self._pending_update_tasks.clear()
+        self._price_update_task = None
+        self._pending_price_update = None
 
         # Clear chart by removing from DOM if needed
         if self._container_id:

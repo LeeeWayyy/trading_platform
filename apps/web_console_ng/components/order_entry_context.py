@@ -1733,6 +1733,9 @@ class OrderEntryContext:
                         owners_snapshot = self._channel_owners[channel].copy()
                         self._failed_subscriptions[channel] = (owners_snapshot, callback)
 
+        # Force a full backend resubscribe on reconnect even when local symbol
+        # ownership is unchanged because upstream stream state may have been lost.
+        self._last_synced_market_data_symbols = None
         self._schedule_market_data_sync()
 
     async def _retry_failed_subscriptions(self) -> None:

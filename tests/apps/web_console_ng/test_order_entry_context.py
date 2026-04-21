@@ -1396,6 +1396,24 @@ class TestMarketDataSync:
             source=context._market_data_source,
         )
 
+    @pytest.mark.asyncio()
+    async def test_resubscribe_forces_market_data_sync_even_with_same_symbols(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        callback = AsyncMock()
+        context._subscriptions = ["price.updated.AAPL"]
+        context._channel_owners = {"price.updated.AAPL": {"watchlist"}}
+        context._channel_callbacks = {"price.updated.AAPL": callback}
+        context._last_synced_market_data_symbols = ("AAPL",)
+        context._schedule_market_data_sync = MagicMock()
+
+        await context._resubscribe_all_channels()
+
+        context._realtime.subscribe.assert_awaited_once_with("price.updated.AAPL", callback)
+        assert context._last_synced_market_data_symbols is None
+        context._schedule_market_data_sync.assert_called_once()
+
 
 class TestDispose:
     """Tests for dispose/cleanup."""

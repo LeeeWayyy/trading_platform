@@ -25,6 +25,12 @@ def test_chart_init_js_recreates_failed_script_nodes() -> None:
     assert "script.dataset.failed = 'true';" in lightweight_charts.CHART_INIT_JS
 
 
+def test_chart_init_js_uses_minimum_chart_dimensions() -> None:
+    """Initialization should avoid ultra-small 1x1 chart bootstrap sizes."""
+    assert "const MIN_CHART_WIDTH = 320;" in lightweight_charts.CHART_INIT_JS
+    assert "const MIN_CHART_HEIGHT = 180;" in lightweight_charts.CHART_INIT_JS
+
+
 @pytest.mark.asyncio()
 async def test_price_chart_uses_sync_timer_callback_for_init(
     monkeypatch: pytest.MonkeyPatch,

@@ -177,11 +177,14 @@ class AsyncTradingClient:
         """Build deterministic query string used for both request URL and S2S signature."""
         if not params:
             return ""
-        normalized: list[tuple[str, str]] = []
-        for key, value in params:
-            if value is None:
-                continue
-            normalized.append((str(key), str(value)))
+        normalized = sorted(
+            [
+                (str(key), str(value))
+                for key, value in params
+                if value is not None
+            ],
+            key=lambda pair: (pair[0], pair[1]),
+        )
         return urlencode(normalized, doseq=True)
 
     def _get_market_data_auth_headers(
