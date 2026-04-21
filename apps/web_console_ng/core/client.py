@@ -217,11 +217,9 @@ class AsyncTradingClient:
         normalized_user_id = str(user_id).strip() if user_id else ""
         normalized_strategy_id = ""
         if strategies:
-            for strategy in sorted(strategies):
-                value = str(strategy).strip()
-                if value:
-                    normalized_strategy_id = value
-                    break
+            normalized_strategy_ids = sorted({str(strategy).strip() for strategy in strategies if str(strategy).strip()})
+            if len(normalized_strategy_ids) == 1:
+                normalized_strategy_id = normalized_strategy_ids[0]
 
         payload_data = {
             "service_id": service_id,
@@ -470,13 +468,21 @@ class AsyncTradingClient:
         user_id: str,
         role: str | None = None,
         strategies: list[str] | None = None,
+        *,
+        source: str | None = None,
     ) -> dict[str, Any]:
         """Request market-data-service to stream specified symbols."""
         headers = self._get_auth_headers(user_id, role, strategies)
+        request_payload: dict[str, Any] = {
+            "symbols": [str(symbol).upper() for symbol in symbols if str(symbol).strip()]
+        }
+        normalized_source = str(source).strip() if source is not None else ""
+        if normalized_source:
+            request_payload["source"] = normalized_source
         resp = await self._market_client.post(
             "/api/v1/subscribe",
             headers=headers,
-            json={"symbols": [str(symbol).upper() for symbol in symbols if str(symbol).strip()]},
+            json=request_payload,
         )
         resp.raise_for_status()
         return self._json_dict(resp)
@@ -488,12 +494,16 @@ class AsyncTradingClient:
         user_id: str,
         role: str | None = None,
         strategies: list[str] | None = None,
+        *,
+        source: str | None = None,
     ) -> dict[str, Any]:
         """Request market-data-service to stop streaming one symbol."""
         headers = self._get_auth_headers(user_id, role, strategies)
         safe_symbol = url_quote(symbol.upper(), safe="")
+        query = self._build_query_string([("source", str(source).strip())]) if source else ""
+        request_path = f"/api/v1/subscribe/{safe_symbol}?{query}" if query else f"/api/v1/subscribe/{safe_symbol}"
         resp = await self._market_client.delete(
-            f"/api/v1/subscribe/{safe_symbol}",
+            request_path,
             headers=headers,
         )
         resp.raise_for_status()

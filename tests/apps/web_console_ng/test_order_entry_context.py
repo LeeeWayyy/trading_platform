@@ -1305,6 +1305,7 @@ class TestMarketDataSync:
             user_id="test-user",
             role="trader",
             strategies=["alpha"],
+            source=context._market_data_source,
         )
 
     @pytest.mark.asyncio()
@@ -1339,6 +1340,23 @@ class TestMarketDataSync:
 
         assert run_count == 2
         assert context._market_data_sync_pending is False
+
+    @pytest.mark.asyncio()
+    async def test_release_market_data_streaming_uses_session_source(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        context._client.unsubscribe_market_data_symbol = AsyncMock()
+
+        await context._release_market_data_streaming("AAPL")
+
+        context._client.unsubscribe_market_data_symbol.assert_awaited_once_with(
+            "AAPL",
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
 
 
 class TestDispose:

@@ -160,7 +160,23 @@ class TestSubscribeEndpoint:
         assert data["total_subscriptions"] == 3
 
         # Verify subscribe_symbols was called
-        mock_stream.subscribe_symbols.assert_called_once_with(["AAPL", "MSFT"])
+        mock_stream.subscribe_symbols.assert_called_once_with(["AAPL", "MSFT"], source="manual")
+
+    def test_subscribe_success_with_explicit_source(self, test_client, mock_stream):
+        """Test successful subscription with explicit source tag."""
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
 
     def test_subscribe_subscription_error(self, test_client, mock_stream):
         """Test subscribe handles SubscriptionError."""
@@ -201,7 +217,20 @@ class TestUnsubscribeEndpoint:
         assert data["remaining_subscriptions"] == 2
 
         # Verify unsubscribe_symbols was called
-        mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"])
+        mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
+
+    def test_unsubscribe_success_with_explicit_source(self, test_client, mock_stream):
+        """Test successful unsubscription with explicit source tag."""
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
 
     def test_unsubscribe_subscription_error(self, test_client, mock_stream):
         """Test unsubscribe handles SubscriptionError."""

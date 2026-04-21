@@ -12,61 +12,6 @@ from apps.web_console_ng.components.price_chart import PriceChartComponent
 from apps.web_console_ng.ui import lightweight_charts
 
 
-@pytest.mark.asyncio()
-async def test_loader_retries_after_failed_first_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Loader should recover from a failed first attempt and allow retry."""
-    lightweight_charts.LightweightChartsLoader.reset()
-    load_attempts = 0
-
-    async def fake_run_javascript(script: str, *_args: object, **_kwargs: object) -> object:
-        nonlocal load_attempts
-        if "window.__lwc_ready === true" in script:
-            return True
-        if "document.createElement('script')" in script:
-            load_attempts += 1
-            if load_attempts == 1:
-                raise RuntimeError("first load attempt failed")
-            return None
-        return None
-
-    async def fake_sleep(_delay: float) -> None:
-        return None
-
-    monkeypatch.setattr(lightweight_charts.ui, "run_javascript", fake_run_javascript)
-    monkeypatch.setattr(lightweight_charts.asyncio, "sleep", fake_sleep)
-
-    with pytest.raises(RuntimeError, match="first load attempt failed"):
-        await lightweight_charts.LightweightChartsLoader.ensure_loaded()
-
-    assert lightweight_charts.LightweightChartsLoader._loaded is False
-    assert lightweight_charts.LightweightChartsLoader._ready is False
-
-    await lightweight_charts.LightweightChartsLoader.ensure_loaded()
-
-    assert load_attempts == 2
-    assert lightweight_charts.LightweightChartsLoader._ready is True
-
-
-@pytest.mark.asyncio()
-async def test_loader_timeout_has_explicit_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Loader should raise a timeout-specific error when readiness flag never appears."""
-    lightweight_charts.LightweightChartsLoader.reset()
-
-    async def fake_run_javascript(script: str, *_args: object, **_kwargs: object) -> object:
-        if "window.__lwc_ready === true" in script:
-            return False
-        return None
-
-    async def fake_sleep(_delay: float) -> None:
-        return None
-
-    monkeypatch.setattr(lightweight_charts.ui, "run_javascript", fake_run_javascript)
-    monkeypatch.setattr(lightweight_charts.asyncio, "sleep", fake_sleep)
-
-    with pytest.raises(RuntimeError, match="Timed out waiting for Lightweight Charts readiness flag"):
-        await lightweight_charts.LightweightChartsLoader.ensure_loaded()
-
-
 def test_chart_init_js_resets_loading_promise_after_failure() -> None:
     """Browser loader should reset promise on failure so later inits can retry."""
     assert "window.__lwc_loading_promise = null;" in lightweight_charts.CHART_INIT_JS

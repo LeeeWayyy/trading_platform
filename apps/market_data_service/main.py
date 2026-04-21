@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 import redis.exceptions
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Query, status
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
 
@@ -44,6 +44,7 @@ class SubscribeRequest(BaseModel):
     """Request to subscribe to symbols."""
 
     symbols: list[str]
+    source: str = "manual"
 
 
 class SubscribeResponse(BaseModel):
@@ -335,14 +336,20 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
             )
 
         try:
-            await stream.subscribe_symbols(request.symbols)
+            normalized_source = request.source.strip() or "manual"
+            await stream.subscribe_symbols(request.symbols, source=normalized_source)
 
             subscribed = stream.get_subscribed_symbols()
 
             # Update metrics after successful subscription
             subscribed_symbols_current.set(len(subscribed))
 
-            logger.info(f"Subscribed to {len(request.symbols)} symbols: {request.symbols}")
+            logger.info(
+                "Subscribed to %s symbols (%s): %s",
+                len(request.symbols),
+                normalized_source,
+                request.symbols,
+            )
 
             return SubscribeResponse(
                 message=f"Successfully subscribed to {len(request.symbols)} symbols",
@@ -376,7 +383,10 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
 
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
-async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
+async def unsubscribe_symbol(
+    symbol: str,
+    source: str = Query(default="manual"),
+) -> UnsubscribeResponse:
     """
     Unsubscribe from a symbol.
 
@@ -400,14 +410,15 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
             )
 
         try:
-            await stream.unsubscribe_symbols([symbol])
+            normalized_source = source.strip() or "manual"
+            await stream.unsubscribe_symbols([symbol], source=normalized_source)
 
             remaining = stream.get_subscribed_symbols()
 
             # Update metrics after successful unsubscription
             subscribed_symbols_current.set(len(remaining))
 
-            logger.info(f"Unsubscribed from {symbol}")
+            logger.info("Unsubscribed from %s (%s)", symbol, normalized_source)
 
             return UnsubscribeResponse(
                 message=f"Successfully unsubscribed from {symbol}",

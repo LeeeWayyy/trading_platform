@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
@@ -131,6 +132,7 @@ class OrderEntryContext:
         self._user_id = user_id.strip()
         self._role = role
         self._strategies = strategies
+        self._market_data_source = f"web_console:{self._user_id}:{uuid.uuid4().hex}"
 
         # Subscription tracking
         self._subscriptions: list[str] = []
@@ -1245,6 +1247,7 @@ class OrderEntryContext:
                 user_id=self._user_id,
                 role=self._role,
                 strategies=self._strategies,
+                source=self._market_data_source,
             )
             self._last_synced_market_data_symbols = symbols
         except Exception as exc:
@@ -1293,6 +1296,7 @@ class OrderEntryContext:
                 user_id=self._user_id,
                 role=self._role,
                 strategies=self._strategies,
+                source=self._market_data_source,
             )
             # Force next sync to recompute if channel ownership changed meanwhile.
             self._last_synced_market_data_symbols = None

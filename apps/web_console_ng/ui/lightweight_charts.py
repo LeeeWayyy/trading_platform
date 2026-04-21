@@ -16,15 +16,6 @@ Security Notes:
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from collections.abc import Awaitable, Callable
-from typing import Any
-
-from nicegui import ui
-
-logger = logging.getLogger(__name__)
-
 # CDN with SRI hash for supply-chain security
 # Hash generated via: curl -s "$CDN_URL" | openssl dgst -sha384 -binary | openssl base64 -A
 LIGHTWEIGHT_CHARTS_CDN = (
@@ -172,120 +163,9 @@ CHART_INIT_JS = """
 """
 
 
-class LightweightChartsLoader:
-    """Load Lightweight Charts library via CDN with SRI and fallback."""
-
-    _loaded: bool = False
-    _ready: bool = False  # Track if chart API is ready
-    _lock: asyncio.Lock | None = None
-
-    @classmethod
-    def _get_lock(cls) -> asyncio.Lock:
-        """Lazily create a shared async lock for loader coordination."""
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
-
-    @classmethod
-    async def ensure_loaded(
-        cls,
-        *,
-        run_javascript: Callable[..., Awaitable[Any]] | None = None,
-    ) -> None:
-        """Ensure the library is loaded exactly once with SRI verification."""
-        if cls._ready:
-            return
-
-        run_js = run_javascript or ui.run_javascript
-
-        async with cls._get_lock():
-            if cls._ready:
-                return
-
-            cls._loaded = True
-
-            try:
-                # Load with SRI hash and crossorigin for supply-chain security
-                # Falls back to local copy if CDN fails
-                await run_js(
-                    f"""
-                    (async function() {{
-                        if (typeof window.LightweightCharts !== 'undefined') {{
-                            window.__lwc_ready = true;
-                            return;
-                        }}
-
-                        try {{
-                            const script = document.createElement('script');
-                            script.src = '{LIGHTWEIGHT_CHARTS_CDN}';
-                            script.integrity = '{LIGHTWEIGHT_CHARTS_SRI}';
-                            script.crossOrigin = 'anonymous';
-
-                            await new Promise((resolve, reject) => {{
-                                script.onload = resolve;
-                                script.onerror = reject;
-                                document.head.appendChild(script);
-                            }});
-                            console.log('Lightweight Charts loaded from CDN');
-                        }} catch (e) {{
-                            console.warn('CDN load failed, using local fallback:', e);
-                            const fallback = document.createElement('script');
-                            fallback.src = '{LIGHTWEIGHT_CHARTS_LOCAL}';
-                            await new Promise((resolve, reject) => {{
-                                fallback.onload = resolve;
-                                fallback.onerror = reject;
-                                document.head.appendChild(fallback);
-                            }});
-                            console.log('Lightweight Charts loaded from local fallback');
-                        }}
-                        window.__lwc_ready = true;
-                    }})();
-                """,
-                    timeout=10.0,
-                )
-
-                # Wait for library to be ready
-                ready_timed_out = True
-                last_ready_check_error: Exception | None = None
-                for _ in range(100):  # Max 5 seconds
-                    try:
-                        ready = await run_js("window.__lwc_ready === true")
-                        ready_bool = ready is True or (
-                            isinstance(ready, str) and ready.strip().lower() == "true"
-                        )
-                        if ready_bool:
-                            ready_timed_out = False
-                            cls._ready = True
-                            return
-                    except Exception as exc:
-                        # JavaScript may not be ready yet; keep last error for timeout context.
-                        last_ready_check_error = exc
-                    await asyncio.sleep(0.05)
-            except Exception:
-                cls._loaded = False
-                cls._ready = False
-                raise
-
-            cls._loaded = False
-            if ready_timed_out:
-                if last_ready_check_error is not None:
-                    raise RuntimeError(
-                        "Timed out waiting for Lightweight Charts readiness flag "
-                        f"(last readiness check error: {last_ready_check_error})"
-                    ) from last_ready_check_error
-                raise RuntimeError("Timed out waiting for Lightweight Charts readiness flag")
-
-    @classmethod
-    def reset(cls) -> None:
-        """Reset loader state (for testing)."""
-        cls._loaded = False
-        cls._ready = False
-        cls._lock = None
-
-
 __all__ = [
-    "LightweightChartsLoader",
     "CHART_INIT_JS",
     "LIGHTWEIGHT_CHARTS_CDN",
     "LIGHTWEIGHT_CHARTS_SRI",
+    "LIGHTWEIGHT_CHARTS_LOCAL",
 ]
