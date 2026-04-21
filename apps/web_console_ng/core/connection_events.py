@@ -74,16 +74,19 @@ def setup_connection_handlers() -> None:
     async def on_client_connect(client: Client) -> None:
         lifecycle = ClientLifecycleManager.get()
 
-        stored_client_id = client.storage.get("client_id")
-        if isinstance(stored_client_id, str) and stored_client_id.strip():
-            client_id = stored_client_id
+        stored_session_client_id = client.storage.get("session_client_id")
+        if isinstance(stored_session_client_id, str) and stored_session_client_id.strip():
+            session_client_id = stored_session_client_id
         else:
-            client_id = lifecycle.generate_client_id()
-        client.storage["client_id"] = client_id
+            session_client_id = lifecycle.generate_client_id()
+        lifecycle_client_id = lifecycle.generate_client_id()
+        client.storage["session_client_id"] = session_client_id
+        client.storage["client_id"] = lifecycle_client_id
 
         scope_state = _get_scope_state(client)
         if scope_state is not None:
             scope_state["handshake_complete"] = True
+            scope_state["lifecycle_client_id"] = lifecycle_client_id
 
             # Copy session_conn_key from scope state (set by admission.py) to client storage
             # This avoids re-parsing the cookie and ensures cleanup key consistency
@@ -91,7 +94,7 @@ def setup_connection_handlers() -> None:
             if session_conn_key:
                 client.storage["session_conn_key"] = session_conn_key
 
-        await lifecycle.register_client(client_id)
+        await lifecycle.register_client(lifecycle_client_id)
 
         count = health.connection_counter.increment()
         metrics = _get_metrics()
@@ -99,7 +102,13 @@ def setup_connection_handlers() -> None:
             metrics.ws_connects_total.labels(pod=config.POD_NAME).inc()
             metrics.ws_connections.labels(pod=config.POD_NAME).set(count)
 
-        logger.info("ws_client_connected", extra={"client_id": client_id})
+        logger.info(
+            "ws_client_connected",
+            extra={
+                "client_id": lifecycle_client_id,
+                "session_client_id": session_client_id,
+            },
+        )
 
     @app.on_disconnect
     async def on_client_disconnect(client: Client) -> None:
@@ -107,12 +116,19 @@ def setup_connection_handlers() -> None:
         client_id = client.storage.get("client_id")
 
         scope_state = _get_scope_state(client)
+        lifecycle_client_id = None
         handshake_complete = False
         if scope_state is not None:
             handshake_complete = bool(scope_state.get("handshake_complete", False))
+            scoped_lifecycle_id = scope_state.get("lifecycle_client_id")
+            if isinstance(scoped_lifecycle_id, str) and scoped_lifecycle_id.strip():
+                lifecycle_client_id = scoped_lifecycle_id
 
-        if isinstance(client_id, str):
-            await lifecycle.cleanup_client(client_id)
+        if lifecycle_client_id is None and isinstance(client_id, str) and client_id.strip():
+            lifecycle_client_id = client_id
+
+        if lifecycle_client_id is not None:
+            await lifecycle.cleanup_client(lifecycle_client_id)
 
         session_conn_key = client.storage.get("session_conn_key")
         if session_conn_key:
