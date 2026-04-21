@@ -33,6 +33,7 @@ def test_client(monkeypatch):
     monkeypatch.setenv("REDIS_HOST", "localhost")
     monkeypatch.setenv("REDIS_PORT", "6379")
     monkeypatch.setenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+    monkeypatch.setenv("API_AUTH_MODE", "enforce")
 
     # Create a mock lifespan that doesn't connect to external services
     @asynccontextmanager
@@ -162,17 +163,35 @@ class TestSubscribeEndpoint:
         # Verify subscribe_symbols was called
         mock_stream.subscribe_symbols.assert_called_once_with(["AAPL", "MSFT"], source="manual")
 
-    def test_subscribe_success_with_explicit_source(self, test_client, mock_stream):
-        """Test successful subscription with explicit source tag."""
-        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
-
+    def test_subscribe_rejects_explicit_source_without_internal_auth(self, test_client, mock_stream):
+        """Explicit source tags require an authenticated internal token."""
         with patch("apps.market_data_service.main.stream", mock_stream):
             response = test_client.post(
                 "/api/v1/subscribe",
                 json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
             )
 
+        assert response.status_code == 401
+        mock_stream.subscribe_symbols.assert_not_called()
+
+    def test_subscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
+        """Authorized internal requests may use explicit source tags."""
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(),
+            ) as authorize_source_override,
+        ):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
         assert response.status_code == 201
+        authorize_source_override.assert_awaited_once()
         mock_stream.subscribe_symbols.assert_called_once_with(
             ["AAPL"],
             source="web_console:user-1:abc",
@@ -231,14 +250,29 @@ class TestUnsubscribeEndpoint:
         # Verify unsubscribe_symbols was called
         mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
 
-    def test_unsubscribe_success_with_explicit_source(self, test_client, mock_stream):
-        """Test successful unsubscription with explicit source tag."""
-        mock_stream.get_subscribed_symbols.return_value = []
-
+    def test_unsubscribe_rejects_explicit_source_without_internal_auth(self, test_client, mock_stream):
+        """Explicit source tags require an authenticated internal token."""
         with patch("apps.market_data_service.main.stream", mock_stream):
             response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
 
+        assert response.status_code == 401
+        mock_stream.unsubscribe_symbols.assert_not_called()
+
+    def test_unsubscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
+        """Authorized internal requests may unsubscribe with explicit source tags."""
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(),
+            ) as authorize_source_override,
+        ):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
         assert response.status_code == 200
+        authorize_source_override.assert_awaited_once()
         mock_stream.unsubscribe_symbols.assert_called_once_with(
             ["AAPL"],
             source="web_console:user-1:abc",

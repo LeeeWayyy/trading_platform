@@ -74,7 +74,11 @@ def setup_connection_handlers() -> None:
     async def on_client_connect(client: Client) -> None:
         lifecycle = ClientLifecycleManager.get()
 
-        client_id = lifecycle.generate_client_id()
+        stored_client_id = client.storage.get("client_id")
+        if isinstance(stored_client_id, str) and stored_client_id.strip():
+            client_id = stored_client_id
+        else:
+            client_id = lifecycle.generate_client_id()
         client.storage["client_id"] = client_id
 
         scope_state = _get_scope_state(client)
