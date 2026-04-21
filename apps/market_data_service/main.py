@@ -98,6 +98,10 @@ SOURCE_OVERRIDE_AUTH = api_auth(
 SOURCE_OVERRIDE_PREFIX_BY_SERVICE: dict[str, str] = {
     "web_console_ng": "web_console",
 }
+SOURCE_OVERRIDE_SERVICE_BY_PREFIX: dict[str, str] = {
+    source_prefix: service_id
+    for service_id, source_prefix in SOURCE_OVERRIDE_PREFIX_BY_SERVICE.items()
+}
 UNSIGNED_SOURCE_PREFIXES = frozenset(SOURCE_OVERRIDE_PREFIX_BY_SERVICE.values())
 
 
@@ -120,19 +124,24 @@ async def _authorize_source_override(request: Request, normalized_source: str) -
     if normalized_source == "manual":
         return
 
+    source_prefix = normalized_source.split(":", 1)[0].strip().lower()
+    source_service_id = SOURCE_OVERRIDE_SERVICE_BY_PREFIX.get(source_prefix)
+    if source_service_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unsigned source override is not allowed for prefix '{source_prefix}'",
+        )
+
+    service_key = re.sub(r"[^A-Z0-9_]", "_", source_service_id.upper())
     signed_override_required = bool(
         os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
-        or any(
-            key.startswith("INTERNAL_TOKEN_SECRET_") and str(value).strip()
-            for key, value in os.environ.items()
-        )
+        or os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "").strip()
     )
     if not signed_override_required:
-        unsigned_source_prefix = normalized_source.split(":", 1)[0].strip().lower()
-        if unsigned_source_prefix not in UNSIGNED_SOURCE_PREFIXES:
+        if source_prefix not in UNSIGNED_SOURCE_PREFIXES:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Unsigned source override is not allowed for prefix '{unsigned_source_prefix}'",
+                detail=f"Unsigned source override is not allowed for prefix '{source_prefix}'",
             )
         return
 
@@ -156,13 +165,15 @@ async def _authorize_source_override(request: Request, normalized_source: str) -
         )
 
     service_id = auth_context.internal_claims.service_id.strip().lower()
-    source_prefix = SOURCE_OVERRIDE_PREFIX_BY_SERVICE.get(service_id)
-    if source_prefix is None:
+    service_source_prefix = SOURCE_OVERRIDE_PREFIX_BY_SERVICE.get(service_id)
+    if service_source_prefix is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Source override is not allowed for service '{service_id}'",
         )
-    if normalized_source != source_prefix and not normalized_source.startswith(f"{source_prefix}:"):
+    if normalized_source != service_source_prefix and not normalized_source.startswith(
+        f"{service_source_prefix}:"
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Source '{normalized_source}' is not owned by service '{service_id}'",
