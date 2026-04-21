@@ -203,6 +203,7 @@ class OrderEntryContext:
         self._market_data_sync_backoff_required: bool = False
         self._last_synced_market_data_symbols: tuple[str, ...] | None = None
         self._pending_market_data_unsubscribes: set[str] = set()
+        self._market_data_release_tasks: set[asyncio.Task[None]] = set()
         self._initializing: bool = True
 
         from apps.web_console_ng.core.level2_websocket import Level2WebSocketService
@@ -1821,8 +1822,27 @@ class OrderEntryContext:
                 logger.warning(f"Error releasing channel {channel}: {exc}")
             price_symbol = self._extract_price_channel_symbol(channel)
             if price_symbol is not None:
-                await self._release_market_data_streaming(price_symbol)
-                self._schedule_market_data_sync()
+                self._schedule_market_data_release(price_symbol)
+
+    def _schedule_market_data_release(self, symbol: str) -> None:
+        """Request upstream unsubscribe in background so UI interactions never block."""
+        if self._disposed:
+            return
+        task = asyncio.create_task(self._release_market_data_streaming(symbol))
+        self._market_data_release_tasks.add(task)
+
+        def _on_done(completed: asyncio.Task[None]) -> None:
+            self._market_data_release_tasks.discard(completed)
+            if completed.cancelled():
+                return
+            exc = completed.exception()
+            if exc:
+                logger.warning("market_data_release_task_failed(%s): %s", symbol, exc)
+            if self._disposed:
+                return
+            self._schedule_market_data_sync()
+
+        task.add_done_callback(_on_done)
 
     async def _resubscribe_all_channels(self) -> None:
         """Re-subscribe all owned channels after reconnect."""
@@ -1973,6 +1993,10 @@ class OrderEntryContext:
         self._market_data_retry_task = None
         self._market_data_sync_pending = False
         self._market_data_sync_backoff_required = False
+        for release_task in tuple(self._market_data_release_tasks):
+            if not release_task.done():
+                release_task.cancel()
+        self._market_data_release_tasks.clear()
         self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels

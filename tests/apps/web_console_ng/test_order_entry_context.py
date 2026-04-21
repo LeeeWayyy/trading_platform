@@ -1379,6 +1379,33 @@ class TestChannelOwnership:
         context._realtime.unsubscribe.assert_called_once()
 
     @pytest.mark.asyncio()
+    async def test_release_channel_offloads_market_data_release(self, context: OrderEntryContext) -> None:
+        """Price channel release should not block on upstream unsubscribe retries."""
+        callback = AsyncMock()
+        await context._acquire_channel("price.updated.AAPL", "owner1", callback)
+
+        release_started = asyncio.Event()
+        release_continue = asyncio.Event()
+
+        async def fake_release(symbol: str) -> None:
+            assert symbol == "AAPL"
+            release_started.set()
+            await release_continue.wait()
+
+        context._release_market_data_streaming = fake_release  # type: ignore[method-assign]
+        context._schedule_market_data_sync = MagicMock()
+
+        await asyncio.wait_for(context._release_channel("price.updated.AAPL", "owner1"), timeout=0.1)
+        await asyncio.wait_for(release_started.wait(), timeout=0.1)
+
+        # Sync should trigger only after background release completes.
+        context._schedule_market_data_sync.assert_not_called()
+        release_continue.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        context._schedule_market_data_sync.assert_called_once()
+
+    @pytest.mark.asyncio()
     async def test_callback_mismatch_raises(self, context: OrderEntryContext) -> None:
         """Different callback for same channel raises ValueError."""
         callback1 = AsyncMock()
@@ -1803,6 +1830,18 @@ class TestDispose:
 
         assert retry_task.cancelled()
         assert context._market_data_retry_task is None
+
+    @pytest.mark.asyncio()
+    async def test_dispose_cancels_market_data_release_tasks(self, context: OrderEntryContext) -> None:
+        """dispose() cancels in-flight async release tasks."""
+        release_task = asyncio.create_task(asyncio.sleep(60))
+        context._market_data_release_tasks.add(release_task)
+
+        await context.dispose()
+        await asyncio.sleep(0)
+
+        assert release_task.cancelled()
+        assert context._market_data_release_tasks == set()
 
     @pytest.mark.asyncio()
     async def test_dispose_cancels_risk_refresh_task(self, context: OrderEntryContext) -> None:
