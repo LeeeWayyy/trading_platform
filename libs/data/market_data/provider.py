@@ -88,8 +88,17 @@ class MarketDataProvider:
         }
         per_day = bars_per_trading_day.get(normalized, 78)
         required_trading_days = max(2, math.ceil(limit / per_day))
-        # Buffer for weekends/holidays and partial sessions.
-        calendar_days = max(5, required_trading_days * 3)
+        # Buffer for weekends/holidays, early closes, and feed-specific gaps.
+        buffer_multiplier: dict[str, int] = {
+            "1min": 4,
+            "5min": 4,
+            "15min": 4,
+            "1hour": 5,
+            "1day": 8,
+        }
+        calendar_days = max(5, required_trading_days * buffer_multiplier.get(normalized, 4))
+        if normalized != "1day":
+            calendar_days = max(calendar_days, 14)
 
         end = datetime.now(UTC)
         start = end - timedelta(days=calendar_days)

@@ -217,8 +217,12 @@ class AsyncTradingClient:
         normalized_user_id = str(user_id).strip() if user_id else ""
         normalized_strategy_id = ""
         if strategies:
-            normalized_strategy_ids = sorted({str(strategy).strip() for strategy in strategies if str(strategy).strip()})
-            if len(normalized_strategy_ids) == 1:
+            normalized_strategy_ids = sorted(
+                {str(strategy).strip() for strategy in strategies if str(strategy).strip()}
+            )
+            if normalized_strategy_ids:
+                # Deterministic fallback for multi-strategy contexts until the S2S
+                # signature schema supports strategy lists.
                 normalized_strategy_id = normalized_strategy_ids[0]
 
         payload_data = {

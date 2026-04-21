@@ -457,11 +457,6 @@ class OrderEntryContext:
             await self._subscribe_to_connection_channel()
             await self._subscribe_to_positions_channel()
 
-            # Request backend streaming for all currently owned price channels.
-            # This heals startup races where market-data-service may not have been
-            # ready during per-symbol acquire calls.
-            self._schedule_market_data_sync()
-
             # CRITICAL: Fetch initial state for safety mechanisms (fail-closed)
             await self._fetch_initial_safety_state()
 
@@ -487,6 +482,11 @@ class OrderEntryContext:
                 callback=self._refresh_risk_limits,
             )
             self._track_timer(risk_refresh_timer)
+
+            # Request backend streaming for all currently owned price channels.
+            # Schedule only after full initialization succeeds so init failures
+            # cannot orphan per-session market-data sources.
+            self._schedule_market_data_sync()
 
         except Exception as exc:
             # FAIL-CLOSED: Explicitly disable order ticket on init failure

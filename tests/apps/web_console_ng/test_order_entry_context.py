@@ -285,6 +285,44 @@ class TestOrderEntryContextInitialize:
 
         ctx.on_symbol_selected.assert_awaited_once_with("SPY")
 
+    @pytest.mark.asyncio()
+    async def test_initialize_does_not_schedule_market_data_sync_before_late_failures(self) -> None:
+        """Initialization failures before completion must not trigger market-data sync."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx._order_ticket.set_circuit_breaker_state = MagicMock()
+        ctx._order_ticket.set_kill_switch_state = MagicMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock(side_effect=RuntimeError("boom"))
+        ctx._schedule_market_data_sync = MagicMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            with pytest.raises(RuntimeError, match="boom"):
+                await ctx.initialize()
+
+        ctx._schedule_market_data_sync.assert_not_called()
+
 
 class TestFetchInitialSafetyState:
     """Tests for _fetch_initial_safety_state method."""

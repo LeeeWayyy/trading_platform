@@ -220,10 +220,10 @@ def test_get_market_data_auth_headers_signature(monkeypatch: pytest.MonkeyPatch)
     assert headers["X-Strategy-ID"] == "alpha"
 
 
-def test_get_market_data_auth_headers_omits_strategy_id_for_ambiguous_context(
+def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_strategy_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Do not forward arbitrary strategy IDs when multiple strategies are present."""
+    """Use stable strategy-id fallback when multiple strategies are present."""
     monkeypatch.setattr(config, "DEBUG", True)
     monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
     monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
@@ -252,14 +252,14 @@ def test_get_market_data_auth_headers_omits_strategy_id_for_ambiguous_context(
         "timestamp": "1700000000",
         "nonce": "00000000-0000-0000-0000-000000000003",
         "user_id": "user-1",
-        "strategy_id": "",
+        "strategy_id": "alpha",
         "body_hash": hashlib.sha256(b"").hexdigest(),
     }
     payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
     expected_sig = hmac.new(b"secret", payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
     assert headers["X-Internal-Token"] == expected_sig
-    assert "X-Strategy-ID" not in headers
+    assert headers["X-Strategy-ID"] == "alpha"
 
 
 @pytest.mark.asyncio()

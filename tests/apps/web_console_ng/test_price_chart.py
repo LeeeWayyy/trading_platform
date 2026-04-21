@@ -9,6 +9,7 @@ import pytest
 
 from apps.web_console_ng.components.price_chart import (
     MAX_FUTURE_TICK_SKEW_S,
+    MAX_PAST_TICK_SKEW_S,
     REALTIME_STALE_THRESHOLD_S,
     CandleData,
     ExecutionMarker,
@@ -233,18 +234,19 @@ class TestPriceChartPriceData:
     ) -> None:
         """set_price_data updates timestamp on valid data."""
         component._current_symbol = "AAPL"
+        now = datetime.now(UTC)
 
         with patch("asyncio.create_task"):
             component.set_price_data(
                 {
                     "symbol": "AAPL",
                     "price": 150.0,
-                    "timestamp": "2024-01-01T12:00:00Z",
+                    "timestamp": now.isoformat(),
                 }
             )
 
         assert component._last_realtime_update is not None
-        assert component._last_realtime_update.year == 2024
+        assert abs((component._last_realtime_update - now).total_seconds()) < 1
 
     def test_set_price_data_handles_missing_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when missing (FAIL-CLOSED)."""
@@ -291,6 +293,23 @@ class TestPriceChartPriceData:
                     "symbol": "AAPL",
                     "price": 150.0,
                     "timestamp": future_ts.isoformat(),
+                }
+            )
+
+        assert component._last_realtime_update is None
+        mock_create_task.assert_not_called()
+
+    def test_set_price_data_rejects_past_skew_timestamp(self, component: PriceChartComponent) -> None:
+        """set_price_data drops stale delayed ticks outside allowed past skew."""
+        component._current_symbol = "AAPL"
+        stale_ts = datetime.now(UTC) - timedelta(seconds=MAX_PAST_TICK_SKEW_S + 5)
+
+        with patch("asyncio.create_task") as mock_create_task:
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": stale_ts.isoformat(),
                 }
             )
 

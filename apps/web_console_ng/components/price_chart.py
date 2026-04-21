@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 REALTIME_STALE_THRESHOLD_S = 60  # Show warning if no updates for 60s
 REALTIME_FALLBACK_THRESHOLD_S = 180  # Show fallback chart after 3 minutes
 MAX_FUTURE_TICK_SKEW_S = 60  # Drop ticks with timestamps too far in the future
+MAX_PAST_TICK_SKEW_S = 15 * 60  # Drop ticks that are too stale for realtime charting
 
 
 def _parse_interval_seconds(interval: str) -> int:
@@ -384,11 +385,20 @@ class PriceChartComponent:
         if raw_timestamp:
             try:
                 parsed = parse_iso_timestamp(str(raw_timestamp))
-                if parsed > datetime.now(UTC) + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S):
+                now = datetime.now(UTC)
+                if parsed > now + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S):
                     logger.warning(
                         "PriceChart: future-skewed timestamp %s exceeds %ss threshold",
                         raw_timestamp,
                         MAX_FUTURE_TICK_SKEW_S,
+                    )
+                    self._last_realtime_update = None
+                    return
+                if parsed < now - timedelta(seconds=MAX_PAST_TICK_SKEW_S):
+                    logger.warning(
+                        "PriceChart: past-skewed timestamp %s exceeds %ss threshold",
+                        raw_timestamp,
+                        MAX_PAST_TICK_SKEW_S,
                     )
                     self._last_realtime_update = None
                     return
