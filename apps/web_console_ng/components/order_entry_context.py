@@ -95,6 +95,7 @@ class OrderEntryContext:
 
     # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
+    MARKET_DATA_SYNC_RETRY_DELAY_S = 1.0
 
     def __init__(
         self,
@@ -194,7 +195,9 @@ class OrderEntryContext:
         # Risk limits refresh task tracking
         self._risk_refresh_task: asyncio.Task[None] | None = None
         self._market_data_sync_task: asyncio.Task[None] | None = None
+        self._market_data_retry_task: asyncio.Task[None] | None = None
         self._market_data_sync_pending: bool = False
+        self._market_data_sync_backoff_required: bool = False
         self._last_synced_market_data_symbols: tuple[str, ...] | None = None
         self._pending_market_data_unsubscribes: set[str] = set()
         self._initializing: bool = True
@@ -556,7 +559,8 @@ class OrderEntryContext:
         if restored_symbol:
             try:
                 await self.on_symbol_selected(restored_symbol)
-                return
+                if self._selected_symbol == restored_symbol:
+                    return
             except Exception as exc:
                 logger.warning(
                     f"Failed to restore initial symbol selection {restored_symbol}: {exc}"
@@ -1288,6 +1292,9 @@ class OrderEntryContext:
             self._last_synced_market_data_symbols = () if not unresolved_unsubscribes else None
             if unresolved_unsubscribes:
                 self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = True
+            else:
+                self._market_data_sync_backoff_required = False
             return
 
         try:
@@ -1307,10 +1314,14 @@ class OrderEntryContext:
                 )
                 self._last_synced_market_data_symbols = None
                 self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = False
                 return
             self._last_synced_market_data_symbols = symbols
             if self._pending_market_data_unsubscribes:
                 self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = True
+            else:
+                self._market_data_sync_backoff_required = False
         except Exception as exc:
             logger.warning(
                 "Failed to sync market-data subscriptions for %s symbols: %s",
@@ -1319,6 +1330,7 @@ class OrderEntryContext:
             )
             self._last_synced_market_data_symbols = None
             self._market_data_sync_pending = True
+            self._market_data_sync_backoff_required = True
 
     def _schedule_market_data_sync(self) -> None:
         """Schedule asynchronous market-data streaming sync (timer-safe)."""
@@ -1327,6 +1339,10 @@ class OrderEntryContext:
         if self._market_data_sync_task and not self._market_data_sync_task.done():
             self._market_data_sync_pending = True
             return
+
+        if self._market_data_retry_task and not self._market_data_retry_task.done():
+            self._market_data_retry_task.cancel()
+            self._market_data_retry_task = None
 
         self._market_data_sync_pending = False
         task = asyncio.create_task(self._sync_market_data_streaming())
@@ -1344,9 +1360,25 @@ class OrderEntryContext:
                 return
             if self._market_data_sync_pending:
                 self._market_data_sync_pending = False
-                self._schedule_market_data_sync()
+                if self._market_data_sync_backoff_required:
+                    if self._market_data_retry_task is None or self._market_data_retry_task.done():
+                        self._market_data_retry_task = asyncio.create_task(
+                            self._retry_market_data_sync_after_backoff()
+                        )
+                else:
+                    self._schedule_market_data_sync()
 
         task.add_done_callback(_on_done)
+
+    async def _retry_market_data_sync_after_backoff(self) -> None:
+        """Retry market-data sync after brief delay to avoid hot retry loops."""
+        try:
+            await asyncio.sleep(self.MARKET_DATA_SYNC_RETRY_DELAY_S)
+        finally:
+            self._market_data_retry_task = None
+        if self._disposed:
+            return
+        self._schedule_market_data_sync()
 
     async def _release_market_data_streaming(self, symbol: str) -> None:
         """Best-effort request to market-data-service to stop streaming symbol updates."""
@@ -1371,9 +1403,12 @@ class OrderEntryContext:
                 self._pending_market_data_unsubscribes.discard(normalized_symbol)
                 # Force next sync to recompute if channel ownership changed meanwhile.
                 self._last_synced_market_data_symbols = None
+                if not self._pending_market_data_unsubscribes:
+                    self._market_data_sync_backoff_required = False
                 return
             except Exception as exc:
                 last_error = exc
+                self._market_data_sync_backoff_required = True
                 if attempt == 0:
                     await asyncio.sleep(0)
 
@@ -1925,7 +1960,11 @@ class OrderEntryContext:
         if self._market_data_sync_task and not self._market_data_sync_task.done():
             self._market_data_sync_task.cancel()
         self._market_data_sync_task = None
+        if self._market_data_retry_task and not self._market_data_retry_task.done():
+            self._market_data_retry_task.cancel()
+        self._market_data_retry_task = None
         self._market_data_sync_pending = False
+        self._market_data_sync_backoff_required = False
         self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels

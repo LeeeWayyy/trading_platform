@@ -327,7 +327,11 @@ class TestOrderEntryContextInitialize:
         ctx._order_ticket.initialize = AsyncMock()
         ctx._order_ticket.set_connection_state = MagicMock()
         ctx._order_ticket.get_current_symbol.return_value = "TSLA"
-        ctx.on_symbol_selected = AsyncMock()
+
+        async def _select_symbol(symbol: str | None) -> None:
+            ctx._selected_symbol = symbol
+
+        ctx.on_symbol_selected = AsyncMock(side_effect=_select_symbol)
 
         ctx._subscribe_to_kill_switch_channel = AsyncMock()
         ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
@@ -341,6 +345,45 @@ class TestOrderEntryContextInitialize:
             await ctx.initialize()
 
         ctx.on_symbol_selected.assert_awaited_once_with("TSLA")
+
+    @pytest.mark.asyncio()
+    async def test_initialize_falls_back_to_watchlist_when_restored_symbol_noops(self) -> None:
+        """Fallback should run when restored symbol selection silently no-ops."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._watchlist = MagicMock()
+        ctx._watchlist.initialize = AsyncMock()
+        ctx._watchlist.get_symbols.return_value = ["SPY", "QQQ"]
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx._order_ticket.get_current_symbol.return_value = "TSLA"
+        ctx.on_symbol_selected = AsyncMock(side_effect=[None, None])
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        assert ctx.on_symbol_selected.await_args_list == [call("TSLA"), call("SPY")]
 
     @pytest.mark.asyncio()
     async def test_initialize_does_not_schedule_market_data_sync_before_late_failures(self) -> None:
@@ -1462,6 +1505,37 @@ class TestMarketDataSync:
         assert context._market_data_sync_pending is False
 
     @pytest.mark.asyncio()
+    async def test_schedule_market_data_sync_backoff_retries_after_failure(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Failed sync should retry once after backoff instead of hot-looping immediately."""
+        run_count = 0
+        context.MARKET_DATA_SYNC_RETRY_DELAY_S = 0
+
+        async def fake_sync() -> None:
+            nonlocal run_count
+            run_count += 1
+            if run_count == 1:
+                context._market_data_sync_pending = True
+                context._market_data_sync_backoff_required = True
+
+        context._sync_market_data_streaming = fake_sync  # type: ignore[method-assign]
+
+        context._schedule_market_data_sync()
+
+        # First sync completes and schedules delayed retry.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert context._market_data_retry_task is not None
+
+        await context._market_data_retry_task
+        if context._market_data_sync_task is not None:
+            await context._market_data_sync_task
+
+        assert run_count == 2
+        assert context._market_data_sync_pending is False
+
+    @pytest.mark.asyncio()
     async def test_sync_market_data_streaming_tracks_race_during_subscribe(
         self, context: OrderEntryContext
     ) -> None:
@@ -1696,6 +1770,18 @@ class TestDispose:
         assert future.done()
         with pytest.raises(asyncio.CancelledError):
             future.result()
+
+    @pytest.mark.asyncio()
+    async def test_dispose_cancels_market_data_retry_task(self, context: OrderEntryContext) -> None:
+        """dispose() cancels any queued market-data backoff retry task."""
+        retry_task = asyncio.create_task(asyncio.sleep(60))
+        context._market_data_retry_task = retry_task
+
+        await context.dispose()
+        await asyncio.sleep(0)
+
+        assert retry_task.cancelled()
+        assert context._market_data_retry_task is None
 
     @pytest.mark.asyncio()
     async def test_dispose_cancels_risk_refresh_task(self, context: OrderEntryContext) -> None:
