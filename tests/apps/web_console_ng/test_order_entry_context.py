@@ -1474,6 +1474,19 @@ class TestMarketDataSync:
 
         assert symbols == ["AAPL", "MSFT"]
 
+    def test_collect_owned_price_symbols_skips_pending_subscriptions(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {
+            "price.updated.msft": {"watchlist"},
+            "price.updated.AAPL": {"selected_symbol"},
+        }
+        context._pending_subscribes = {"price.updated.msft": MagicMock()}
+
+        symbols = context._collect_owned_price_symbols()
+
+        assert symbols == ["AAPL"]
+
     @pytest.mark.asyncio()
     async def test_sync_market_data_streaming_batches_symbols(
         self, context: OrderEntryContext

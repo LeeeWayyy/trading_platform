@@ -1271,6 +1271,8 @@ class OrderEntryContext:
         """Collect currently owned price-channel symbols in deterministic order."""
         symbols: set[str] = set()
         for channel in list(self._channel_owners):
+            if channel in self._pending_subscribes:
+                continue
             symbol = self._extract_price_channel_symbol(channel)
             if symbol:
                 symbols.add(symbol)

@@ -44,3 +44,40 @@ def test_extract_bar_list_reads_symbol_from_data_dict() -> None:
     bars = SimpleNamespace(data={"AAPL": [1, 2], "MSFT": [3]})
     extracted = MarketDataProvider._extract_bar_list(bars, "AAPL")
     assert extracted == [1, 2]
+
+
+def test_get_bars_sync_requests_latest_window_with_desc_sort(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = MarketDataProvider.__new__(MarketDataProvider)
+    provider._data_feed = "iex"
+
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_stock_bars_request(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return kwargs
+
+    class FakeClient:
+        def get_stock_bars(self, request: object) -> dict[str, list[dict[str, object]]]:
+            return {
+                "AAPL": [
+                    {
+                        "timestamp": "2026-04-20T15:00:00+00:00",
+                        "open": 1.0,
+                        "high": 2.0,
+                        "low": 0.5,
+                        "close": 1.5,
+                        "volume": 10,
+                    }
+                ]
+            }
+
+    provider._client = FakeClient()
+    monkeypatch.setattr(
+        "libs.data.market_data.provider.StockBarsRequest",
+        fake_stock_bars_request,
+    )
+
+    bars = provider._get_bars_sync("AAPL", "5Min", 10)
+
+    assert captured_kwargs["sort"] == "desc"
+    assert bars[0]["timestamp"] == "2026-04-20T15:00:00+00:00"

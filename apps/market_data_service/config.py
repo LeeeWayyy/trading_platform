@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     alpaca_api_key: str
     alpaca_secret_key: str
     alpaca_base_url: str = "https://paper-api.alpaca.markets"  # Paper trading default
-    alpaca_data_feed: Literal["iex", "sip", "otc"] = "iex"
+    alpaca_data_feed: Literal["iex", "sip", "otc", "boats"] = "iex"
 
     @field_validator("alpaca_data_feed", mode="before")
     @classmethod
@@ -33,6 +33,7 @@ class Settings(BaseSettings):
         - iex: free feed
         - sip: consolidated tape (entitlement required)
         - otc: OTC symbols feed
+        - boats: Blue Ocean ATS feed
         """
         if value is None:
             return "iex"

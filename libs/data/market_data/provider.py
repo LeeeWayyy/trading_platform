@@ -144,6 +144,8 @@ class MarketDataProvider:
                 "limit": clamped_limit,
                 "start": start,
                 "end": end,
+                # Request newest bars first so `limit` is applied to the most recent window.
+                "sort": "desc",
             }
             if self._data_feed:
                 request_kwargs["feed"] = self._data_feed

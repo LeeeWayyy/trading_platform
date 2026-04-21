@@ -235,6 +235,17 @@ class TestEnvironmentOverrides:
 
         assert config.settings.alpaca_data_feed == "sip"
 
+    def test_alpaca_data_feed_boats_override(self, monkeypatch):
+        """Test Alpaca BOATS feed is accepted and normalized."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            ALPACA_DATA_FEED="BOATS",
+        )
+
+        assert config.settings.alpaca_data_feed == "boats"
+
     def test_alpaca_data_feed_invalid_value_fails_validation(self, monkeypatch):
         """Test invalid Alpaca data feed values are rejected."""
         with pytest.raises(ValidationError):
