@@ -64,11 +64,32 @@ class TestOrderEntryContextInit:
             user_id="oauth|tenant:user@example.com",
             role="trader",
             strategies=["alpha"],
+            client_id="browser-session-123",
         )
 
         assert len(ctx._market_data_source) <= 64
         assert re.fullmatch(r"[A-Za-z0-9:_-]{1,64}", ctx._market_data_source)
         assert "oauth|tenant:user@example.com" not in ctx._market_data_source
+
+    def test_market_data_source_tag_is_recoverable_per_client(self) -> None:
+        """Same user/client must derive the same source tag for orphan cleanup recovery."""
+        common_kwargs = {
+            "realtime_updater": MagicMock(),
+            "trading_client": MagicMock(),
+            "state_manager": MagicMock(),
+            "connection_monitor": MagicMock(),
+            "redis": MagicMock(),
+            "user_id": "test-user",
+            "role": "trader",
+            "strategies": ["alpha"],
+        }
+
+        ctx_a = OrderEntryContext(**common_kwargs, client_id="client-a")
+        ctx_a_repeat = OrderEntryContext(**common_kwargs, client_id="client-a")
+        ctx_b = OrderEntryContext(**common_kwargs, client_id="client-b")
+
+        assert ctx_a._market_data_source == ctx_a_repeat._market_data_source
+        assert ctx_a._market_data_source != ctx_b._market_data_source
 
 
 class TestOrderEntryContextComponentSetters:

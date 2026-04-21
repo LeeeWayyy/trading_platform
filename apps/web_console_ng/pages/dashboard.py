@@ -720,6 +720,7 @@ async def dashboard(client: Client) -> None:
         user_id=user_id,
         role=user_role,
         strategies=user_strategies,
+        client_id=client_id,
     )
 
     # Create OneClickHandler dependencies and wire it up (P6T7)

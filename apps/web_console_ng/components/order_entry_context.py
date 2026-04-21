@@ -27,7 +27,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
@@ -96,6 +95,7 @@ class OrderEntryContext:
     # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
     MARKET_DATA_SYNC_RETRY_DELAY_S = 1.0
+    MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S = 0.1
 
     def __init__(
         self,
@@ -107,6 +107,7 @@ class OrderEntryContext:
         user_id: str,
         role: str,
         strategies: list[str],
+        client_id: str | None = None,
     ) -> None:
         """Initialize OrderEntryContext.
 
@@ -119,6 +120,8 @@ class OrderEntryContext:
             user_id: User ID for API calls and subscriptions.
             role: User role for authorization.
             strategies: Strategies for position filtering.
+            client_id: Stable browser client ID used to build recoverable
+                market-data source ownership tags.
 
         Raises:
             ValueError: If user_id is empty or whitespace-only.
@@ -135,7 +138,7 @@ class OrderEntryContext:
         self._user_id = user_id.strip()
         self._role = role
         self._strategies = strategies
-        self._market_data_source = self._build_market_data_source(self._user_id)
+        self._market_data_source = self._build_market_data_source(self._user_id, client_id)
 
         # Subscription tracking
         self._subscriptions: list[str] = []
@@ -207,11 +210,16 @@ class OrderEntryContext:
         self._level2_service = Level2WebSocketService.get()
 
     @classmethod
-    def _build_market_data_source(cls, user_id: str) -> str:
-        """Build bounded source tag compatible with server-side validation."""
+    def _build_market_data_source(cls, user_id: str, client_id: str | None) -> str:
+        """Build bounded, recoverable source tag for market-data subscription ownership."""
         user_hash = hashlib.sha256(user_id.strip().encode("utf-8")).hexdigest()[:12]
-        session_suffix = uuid.uuid4().hex[:12]
-        return f"{cls.MARKET_DATA_SOURCE_PREFIX}:{user_hash}:{session_suffix}"
+        normalized_client_id = (client_id or "").strip()
+        client_hash = (
+            hashlib.sha256(normalized_client_id.encode("utf-8")).hexdigest()[:12]
+            if normalized_client_id
+            else "global"
+        )
+        return f"{cls.MARKET_DATA_SOURCE_PREFIX}:{user_hash}:{client_hash}"
 
     # =========================================================================
     # Component Setters
@@ -1410,7 +1418,7 @@ class OrderEntryContext:
                 last_error = exc
                 self._market_data_sync_backoff_required = True
                 if attempt == 0:
-                    await asyncio.sleep(0)
+                    await asyncio.sleep(self.MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S)
 
         logger.warning(
             "Failed to request market-data unsubscribe for %s after retry: %s",
