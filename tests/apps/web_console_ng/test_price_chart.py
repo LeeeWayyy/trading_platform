@@ -97,6 +97,8 @@ class TestPriceChartInit:
         assert comp._markers == []
         assert comp._disposed is False
         assert comp._last_realtime_update is None
+        assert comp._chart_init_lock is None
+        assert comp._price_update_lock is None
 
     def test_unique_ids_generated(self) -> None:
         """Each component gets unique chart and container IDs."""
@@ -717,7 +719,7 @@ class TestPriceChartRealtimeUpdates:
                 close=100.5 + i,
                 volume=None,
             )
-            for i in range(500)
+            for i in range(component.CHART_TRIM_HIGH_WATER_MARK)
         ]
         component._run_javascript = AsyncMock()  # type: ignore[method-assign]
         component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
@@ -726,7 +728,7 @@ class TestPriceChartRealtimeUpdates:
         last_time = component._candles[-1].time
         await component._handle_price_update(900.0, datetime.fromtimestamp(last_time + 300, UTC))
 
-        assert len(component._candles) == 500
+        assert len(component._candles) == component.MAX_CHART_CANDLES
         assert component._candles[-1].close == 900.0
         component._run_javascript.assert_awaited()
         js_payload = component._run_javascript.await_args.args[0]
@@ -779,6 +781,27 @@ class TestPriceChartOverlays:
         await component._hide_no_data_overlay()
 
         component._run_javascript.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_hide_stale_overlay_skips_when_not_visible(self) -> None:
+        """Hide stale overlay should no-op when nothing is visible."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._hide_stale_overlay()
+
+        component._run_javascript.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_show_stale_overlay_sets_visibility_flag(self) -> None:
+        """Stale overlay flag is tracked for high-frequency update optimization."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._show_stale_overlay(72)
+
+        assert component._stale_overlay_visible is True
+        assert component._fallback_overlay_visible is False
 
 
 class TestPriceChartDispose:

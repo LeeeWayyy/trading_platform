@@ -47,14 +47,16 @@ CHART_INIT_JS = """
     const loadScriptOnce = (id, src, integrity = null) => {{
         const existing = document.getElementById(id);
         if (existing) {{
-            return new Promise((resolve, reject) => {{
-                if (existing.dataset.loaded === 'true') {{
-                    resolve();
-                    return;
-                }}
-                existing.addEventListener('load', () => resolve(), {{ once: true }});
-                existing.addEventListener('error', () => reject(new Error(`Failed to load ${{src}}`)), {{ once: true }});
-            }});
+            if (existing.dataset.failed === 'true') {{
+                existing.remove();
+            }} else if (existing.dataset.loaded === 'true') {{
+                return Promise.resolve();
+            }} else {{
+                return new Promise((resolve, reject) => {{
+                    existing.addEventListener('load', () => resolve(), {{ once: true }});
+                    existing.addEventListener('error', () => reject(new Error(`Failed to load ${{src}}`)), {{ once: true }});
+                }});
+            }}
         }}
 
         const script = document.createElement('script');
@@ -67,9 +69,13 @@ CHART_INIT_JS = """
         return new Promise((resolve, reject) => {{
             script.onload = () => {{
                 script.dataset.loaded = 'true';
+                script.dataset.failed = 'false';
                 resolve();
             }};
-            script.onerror = () => reject(new Error(`Failed to load ${{src}}`));
+            script.onerror = () => {{
+                script.dataset.failed = 'true';
+                reject(new Error(`Failed to load ${{src}}`));
+            }};
             document.head.appendChild(script);
         }});
     }};

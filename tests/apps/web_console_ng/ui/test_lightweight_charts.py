@@ -73,6 +73,13 @@ def test_chart_init_js_resets_loading_promise_after_failure() -> None:
     assert "throw loadError;" in lightweight_charts.CHART_INIT_JS
 
 
+def test_chart_init_js_recreates_failed_script_nodes() -> None:
+    """Retry path should remove failed script nodes to avoid hanging listeners."""
+    assert "existing.dataset.failed === 'true'" in lightweight_charts.CHART_INIT_JS
+    assert "existing.remove();" in lightweight_charts.CHART_INIT_JS
+    assert "script.dataset.failed = 'true';" in lightweight_charts.CHART_INIT_JS
+
+
 @pytest.mark.asyncio()
 async def test_price_chart_uses_sync_timer_callback_for_init(
     monkeypatch: pytest.MonkeyPatch,

@@ -86,6 +86,8 @@ class PriceChartComponent:
     DEFAULT_TIMEFRAME = "1D"  # 1 day of data
     CANDLE_INTERVAL = "5m"  # 5-minute candles
     CANDLE_INTERVAL_SECONDS = _parse_interval_seconds(CANDLE_INTERVAL)
+    MAX_CHART_CANDLES = 500
+    CHART_TRIM_HIGH_WATER_MARK = 600
     HISTORICAL_TIMEFRAME_FALLBACKS: tuple[tuple[str, int], ...] = (
         ("5Min", 240),
         ("15Min", 240),
@@ -126,9 +128,11 @@ class PriceChartComponent:
         self._chart_initialized: bool = False
         self._ui_client: Any | None = None
         self._missing_ui_client_warned: bool = False
-        self._chart_init_lock = asyncio.Lock()
-        self._price_update_lock = asyncio.Lock()
+        self._chart_init_lock: asyncio.Lock | None = None
+        self._price_update_lock: asyncio.Lock | None = None
         self._no_data_overlay_visible: bool = False
+        self._stale_overlay_visible: bool = False
+        self._fallback_overlay_visible: bool = False
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
             # execute in the correct browser context.
@@ -215,12 +219,24 @@ class PriceChartComponent:
             self._missing_ui_client_warned = True
         return None
 
+    def _get_chart_init_lock(self) -> asyncio.Lock:
+        """Lazily create chart-init lock once an event loop is active."""
+        if self._chart_init_lock is None:
+            self._chart_init_lock = asyncio.Lock()
+        return self._chart_init_lock
+
+    def _get_price_update_lock(self) -> asyncio.Lock:
+        """Lazily create update lock once an event loop is active."""
+        if self._price_update_lock is None:
+            self._price_update_lock = asyncio.Lock()
+        return self._price_update_lock
+
     async def _ensure_chart_initialized(self) -> None:
         """Initialize chart library and chart instance once for this component."""
         if self._chart_initialized or self._disposed:
             return
 
-        async with self._chart_init_lock:
+        async with self._get_chart_init_lock():
             if self._chart_initialized or self._disposed:
                 return
             await self._run_javascript(
@@ -405,7 +421,7 @@ class PriceChartComponent:
         symbol: str | None = None,
     ) -> None:
         """Process incoming price update and update chart."""
-        async with self._price_update_lock:
+        async with self._get_price_update_lock():
             if self._disposed:
                 return
             if symbol is not None and symbol != self._current_symbol:
@@ -424,7 +440,9 @@ class PriceChartComponent:
             await self._hide_no_data_overlay()
 
             # Hide stale overlay on valid update
-            if self._last_realtime_update:
+            if self._last_realtime_update and (
+                self._stale_overlay_visible or self._fallback_overlay_visible
+            ):
                 await self._hide_stale_overlay()
             if self._disposed or (symbol is not None and symbol != self._current_symbol):
                 return
@@ -504,8 +522,8 @@ class PriceChartComponent:
 
             trimmed_history = False
             # Keep bounded history in UI-only memory.
-            if len(self._candles) > 500:
-                self._candles = self._candles[-500:]
+            if len(self._candles) > self.CHART_TRIM_HIGH_WATER_MARK:
+                self._candles = self._candles[-self.MAX_CHART_CANDLES :]
                 trimmed_history = True
 
             try:
@@ -607,8 +625,8 @@ class PriceChartComponent:
                 )
 
             parsed.sort(key=lambda candle: candle.time)
-            if len(parsed) > 500:
-                parsed = parsed[-500:]
+            if len(parsed) > self.MAX_CHART_CANDLES:
+                parsed = parsed[-self.MAX_CHART_CANDLES :]
             return parsed
 
         for timeframe, limit in self.HISTORICAL_TIMEFRAME_FALLBACKS:
@@ -955,6 +973,8 @@ class PriceChartComponent:
                 overlay.style.display = 'block';
             """
             )
+            self._stale_overlay_visible = True
+            self._fallback_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to show stale overlay: {exc}")
 
@@ -1022,7 +1042,9 @@ class PriceChartComponent:
 
     async def _hide_stale_overlay(self) -> None:
         """Hide stale data warning overlay."""
-        if self._disposed:
+        if self._disposed or (
+            not self._stale_overlay_visible and not self._fallback_overlay_visible
+        ):
             return
 
         try:
@@ -1035,6 +1057,8 @@ class PriceChartComponent:
                 if (fallback) fallback.style.display = 'none';
             """
             )
+            self._stale_overlay_visible = False
+            self._fallback_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to hide stale overlay: {exc}")
 
@@ -1088,6 +1112,8 @@ class PriceChartComponent:
                 overlay.style.display = 'flex';
             """
             )
+            self._fallback_overlay_visible = True
+            self._stale_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to show fallback overlay: {exc}")
 
