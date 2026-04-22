@@ -47,11 +47,8 @@ class Settings(BaseSettings):
         return normalized or "iex"
 
     def current_internal_token_secret(self) -> str:
-        """Return shared internal token secret with a Pydantic-backed live refresh."""
-        try:
-            refreshed_secret = type(self)(_env_file=None).internal_token_secret.strip()  # type: ignore[call-arg]
-        except Exception:
-            refreshed_secret = ""
+        """Return shared internal token secret, preferring live environment overrides."""
+        refreshed_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
         if refreshed_secret:
             return refreshed_secret
         return self.internal_token_secret.strip()
