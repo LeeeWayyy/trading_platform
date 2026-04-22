@@ -11,6 +11,11 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _live_internal_token_secret() -> str:
+    """Return live shared internal token secret from process environment."""
+    return os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+
+
 class Settings(BaseSettings):
     """Market Data Service settings."""
 
@@ -48,7 +53,7 @@ class Settings(BaseSettings):
 
     def current_internal_token_secret(self) -> str:
         """Return shared internal token secret, preferring live environment overrides."""
-        refreshed_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+        refreshed_secret = _live_internal_token_secret()
         if refreshed_secret:
             return refreshed_secret
         return self.internal_token_secret.strip()
