@@ -880,7 +880,7 @@ class TestPriceChartRealtimeUpdates:
                 high=101.0 + i,
                 low=99.0 + i,
                 close=100.5 + i,
-                volume=None,
+                volume=1000 + i,
             )
             for i in range(component.CHART_TRIM_HIGH_WATER_MARK)
         ]
@@ -896,6 +896,7 @@ class TestPriceChartRealtimeUpdates:
         component._run_javascript.assert_awaited()
         js_payload = component._run_javascript.await_args.args[0]
         assert "setData(" in js_payload
+        assert "\"volume\"" in js_payload
 
     @pytest.mark.asyncio()
     async def test_handle_price_update_new_bucket_uses_tick_as_open(self) -> None:

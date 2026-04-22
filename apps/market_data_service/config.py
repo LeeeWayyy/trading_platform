@@ -47,10 +47,7 @@ class Settings(BaseSettings):
         return normalized or "iex"
 
     def current_internal_token_secret(self) -> str:
-        """Return shared internal token secret with live env override support."""
-        live_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
-        if live_secret:
-            return live_secret
+        """Return shared internal token secret loaded via Pydantic settings."""
         return self.internal_token_secret.strip()
 
     @staticmethod
