@@ -220,6 +220,17 @@ def test_get_market_data_auth_headers_signature(monkeypatch: pytest.MonkeyPatch)
     assert headers["X-Strategy-ID"] == "alpha"
 
 
+def test_get_web_console_service_id_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Service ID should resolve once per client instance."""
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
+
+    client = AsyncTradingClient.get()
+    assert client._get_web_console_service_id() == "web_console_ng"
+
+    monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "changed_service")
+    assert client._get_web_console_service_id() == "web_console_ng"
+
+
 def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_strategy_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

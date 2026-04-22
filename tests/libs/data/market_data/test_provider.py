@@ -83,6 +83,50 @@ def test_get_bars_sync_requests_latest_window_with_desc_sort(monkeypatch: pytest
     assert bars[0]["timestamp"] == "2026-04-20T15:00:00+00:00"
 
 
+def test_get_bars_sync_sorts_results_chronologically(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = MarketDataProvider.__new__(MarketDataProvider)
+    provider._data_feed = None
+
+    def fake_stock_bars_request(**kwargs: object) -> dict[str, object]:
+        return kwargs
+
+    class FakeClient:
+        def get_stock_bars(self, request: object) -> dict[str, list[dict[str, object]]]:
+            return {
+                "AAPL": [
+                    {
+                        "timestamp": "2026-04-20T15:05:00+00:00",
+                        "open": 1.2,
+                        "high": 1.3,
+                        "low": 1.1,
+                        "close": 1.25,
+                        "volume": 8,
+                    },
+                    {
+                        "timestamp": "2026-04-20T15:00:00+00:00",
+                        "open": 1.0,
+                        "high": 1.2,
+                        "low": 0.9,
+                        "close": 1.1,
+                        "volume": 10,
+                    },
+                ]
+            }
+
+    provider._client = FakeClient()
+    monkeypatch.setattr(
+        "libs.data.market_data.provider.StockBarsRequest",
+        fake_stock_bars_request,
+    )
+
+    bars = provider._get_bars_sync("AAPL", "5Min", 10)
+
+    assert [bar["timestamp"] for bar in bars] == [
+        "2026-04-20T15:00:00+00:00",
+        "2026-04-20T15:05:00+00:00",
+    ]
+
+
 def test_normalize_bar_rejects_non_positive_ohlc_values() -> None:
     provider = MarketDataProvider.__new__(MarketDataProvider)
     bar = {

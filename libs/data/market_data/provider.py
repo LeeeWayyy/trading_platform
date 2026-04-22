@@ -176,6 +176,20 @@ class MarketDataProvider:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _normalized_bar_sort_key(bar: dict[str, Any]) -> datetime:
+        """Build a robust chronological sort key for normalized bars."""
+        raw_ts = bar.get("timestamp")
+        if isinstance(raw_ts, datetime):
+            return raw_ts.astimezone(UTC) if raw_ts.tzinfo else raw_ts.replace(tzinfo=UTC)
+        if isinstance(raw_ts, str):
+            try:
+                parsed = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            except ValueError:
+                return datetime.min.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        return datetime.min.replace(tzinfo=UTC)
+
     def _get_bars_sync(self, symbol: str, timeframe: str, limit: int) -> list[dict[str, Any]]:
         symbol = symbol.upper().strip()
         if not symbol:
@@ -218,7 +232,7 @@ class MarketDataProvider:
             if normalized_bar is not None:
                 normalized.append(normalized_bar)
 
-        normalized.sort(key=lambda bar: str(bar["timestamp"]))
+        normalized.sort(key=self._normalized_bar_sort_key)
         return normalized
 
     def _get_adv_sync(self, symbol: str) -> ADVData | None:

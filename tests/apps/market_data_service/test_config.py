@@ -271,6 +271,30 @@ class TestEnvironmentOverrides:
 
         assert config.settings.internal_token_secret == "x" * 64
 
+    def test_current_internal_token_secret_falls_back_to_settings_value(self, monkeypatch):
+        """When live env is absent, fallback should use settings-loaded secret."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET="x" * 64,
+        )
+        monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
+
+        assert config.settings.current_internal_token_secret() == "x" * 64
+
+    def test_current_internal_token_secret_prefers_live_env_override(self, monkeypatch):
+        """When live env exists, it should override settings-cached secret."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET="x" * 64,
+        )
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "y" * 64)
+
+        assert config.settings.current_internal_token_secret() == "y" * 64
+
     def test_service_internal_token_secret_normalizes_service_key(self, monkeypatch):
         """Service secret helper should normalize key casing/punctuation."""
         config = _import_config_module(

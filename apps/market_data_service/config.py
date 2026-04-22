@@ -48,7 +48,10 @@ class Settings(BaseSettings):
 
     def current_internal_token_secret(self) -> str:
         """Return shared internal token secret with live env override support."""
-        return os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+        live_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+        if live_secret:
+            return live_secret
+        return self.internal_token_secret.strip()
 
     @staticmethod
     def normalize_service_key(service_key: str) -> str:

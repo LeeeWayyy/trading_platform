@@ -37,6 +37,7 @@ class AsyncTradingClient:
     def __init__(self) -> None:
         self._http_client: httpx.AsyncClient | None = None
         self._market_data_client: httpx.AsyncClient | None = None
+        self._web_console_service_id: str | None = None
 
     @classmethod
     def get(cls) -> AsyncTradingClient:
@@ -172,6 +173,14 @@ class AsyncTradingClient:
             return per_service_secret
         return os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
 
+    def _get_web_console_service_id(self) -> str:
+        """Resolve and cache the web-console service identifier."""
+        if self._web_console_service_id:
+            return self._web_console_service_id
+        service_id = os.getenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng").strip()
+        self._web_console_service_id = service_id or "web_console_ng"
+        return self._web_console_service_id
+
     @staticmethod
     def _build_query_string(params: list[tuple[str, Any]] | None = None) -> str:
         """Build deterministic query string used for both request URL and S2S signature."""
@@ -201,7 +210,7 @@ class AsyncTradingClient:
         """Build market-data headers with legacy context + optional C6 S2S signature."""
         headers = self._get_auth_headers(user_id, role, strategies)
 
-        service_id = os.getenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng").strip() or "web_console_ng"
+        service_id = self._get_web_console_service_id()
         secret = self._get_internal_service_secret(service_id)
         if not secret:
             return headers
