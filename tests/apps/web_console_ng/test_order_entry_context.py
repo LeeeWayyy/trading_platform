@@ -70,6 +70,7 @@ class TestOrderEntryContextInit:
         assert len(ctx._market_data_source) <= 64
         assert re.fullmatch(r"[A-Za-z0-9:_-]{1,64}", ctx._market_data_source)
         assert "oauth|tenant:user@example.com" not in ctx._market_data_source
+        assert ctx._market_data_source.startswith(f"{OrderEntryContext.MARKET_DATA_SOURCE_PREFIX}:")
 
     def test_market_data_source_tag_is_recoverable_per_client(self) -> None:
         """Same user/client must derive the same source tag for orphan cleanup recovery."""

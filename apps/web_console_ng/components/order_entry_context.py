@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
+from apps.web_console_ng import config
 from apps.web_console_ng.utils.time import (
     parse_iso_timestamp,
     validate_and_normalize_symbol,
@@ -90,7 +91,7 @@ class OrderEntryContext:
     OWNER_CONNECTION = "connection"
     OWNER_LEVEL2 = "level2"
     PRICE_CHANNEL_PREFIX = "price.updated."
-    MARKET_DATA_SOURCE_PREFIX = "web_console"
+    MARKET_DATA_SOURCE_PREFIX = config.MARKET_DATA_SOURCE_PREFIX
 
     # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0

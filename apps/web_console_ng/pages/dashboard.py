@@ -876,7 +876,8 @@ async def dashboard(client: Client) -> None:
     )
 
     # Unified Execution Workspace is the only supported trading layout.
-    with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
+    with ui.element("section").classes("workspace-v2 w-full mb-3") as _workspace_root:
+        workspace_root = _workspace_root
         with ui.element("div").classes("workspace-v2-command-strip"):
             pnl_card = _MetricStripValue(
                 "UNR P&L",
@@ -2852,10 +2853,6 @@ async def dashboard(client: Client) -> None:
     async def cleanup_order_context() -> None:
         try:
             active_generation_id = client.storage.get("active_order_context_generation_id")
-            active_context_ref = client.storage.get("active_order_context_ref")
-            active_context = (
-                active_context_ref if isinstance(active_context_ref, OrderEntryContext) else None
-            )
             is_handoff = active_generation_id != order_context_generation_id
             deferred_release_symbols = await order_context.dispose(
                 release_market_data_symbols=not is_handoff
@@ -2865,20 +2862,41 @@ async def dashboard(client: Client) -> None:
                     client.storage.pop("active_order_context_ref", None)
                     client.storage.pop("active_order_context_generation_id", None)
             elif deferred_release_symbols:
-                if active_context is not None and active_context is not order_context:
-                    await active_context.adopt_deferred_market_data_releases(
-                        sorted(deferred_release_symbols)
-                    )
-                else:
-                    deferred_symbols_raw = client.storage.get("deferred_market_data_release_symbols", [])
-                    existing_symbols = (
-                        [symbol for symbol in deferred_symbols_raw if isinstance(symbol, str)]
-                        if isinstance(deferred_symbols_raw, list)
-                        else []
-                    )
-                    client.storage["deferred_market_data_release_symbols"] = sorted(
-                        set(existing_symbols).union(deferred_release_symbols)
-                    )
+                latest_generation_id = client.storage.get("active_order_context_generation_id")
+                latest_context_ref = client.storage.get("active_order_context_ref")
+                latest_active_context = (
+                    latest_context_ref
+                    if isinstance(latest_context_ref, OrderEntryContext)
+                    else None
+                )
+                can_adopt_into_latest_context = (
+                    latest_generation_id != order_context_generation_id
+                    and latest_active_context is not None
+                    and latest_active_context is not order_context
+                    and not getattr(latest_active_context, "_disposed", False)
+                )
+                if can_adopt_into_latest_context:
+                    assert latest_active_context is not None
+                    try:
+                        await latest_active_context.adopt_deferred_market_data_releases(
+                            sorted(deferred_release_symbols)
+                        )
+                        return
+                    except Exception:
+                        logger.debug(
+                            "deferred_market_data_adoption_failed; persisting for retry",
+                            extra={"client_id": client_id},
+                            exc_info=True,
+                        )
+                deferred_symbols_raw = client.storage.get("deferred_market_data_release_symbols", [])
+                existing_symbols = (
+                    [symbol for symbol in deferred_symbols_raw if isinstance(symbol, str)]
+                    if isinstance(deferred_symbols_raw, list)
+                    else []
+                )
+                client.storage["deferred_market_data_release_symbols"] = sorted(
+                    set(existing_symbols).union(deferred_release_symbols)
+                )
         except Exception as exc:
             logger.warning(
                 "order_context_dispose_failed",

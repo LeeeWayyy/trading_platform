@@ -521,4 +521,17 @@ SERVICE_URLS: dict[str, str] = {
     "model_registry": os.getenv("MODEL_REGISTRY_URL", "http://localhost:8005"),
 }
 
+_MARKET_DATA_SOURCE_PREFIX_DEFAULT = "web_console"
+MARKET_DATA_SOURCE_PREFIX = (
+    os.getenv("WEB_CONSOLE_SOURCE_PREFIX", _MARKET_DATA_SOURCE_PREFIX_DEFAULT).strip().lower()
+    or _MARKET_DATA_SOURCE_PREFIX_DEFAULT
+)
+if ":" in MARKET_DATA_SOURCE_PREFIX:
+    logger.warning(
+        "Invalid WEB_CONSOLE_SOURCE_PREFIX %r; using default %r",
+        MARKET_DATA_SOURCE_PREFIX,
+        _MARKET_DATA_SOURCE_PREFIX_DEFAULT,
+    )
+    MARKET_DATA_SOURCE_PREFIX = _MARKET_DATA_SOURCE_PREFIX_DEFAULT
+
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
