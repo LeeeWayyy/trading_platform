@@ -404,7 +404,7 @@ class PriceChartComponent:
         tick_time: datetime | None = None
         if raw_timestamp:
             try:
-                parsed = parse_iso_timestamp(str(raw_timestamp))
+                parsed = _ensure_utc_datetime(parse_iso_timestamp(str(raw_timestamp)))
                 now = datetime.now(UTC)
                 if parsed > now + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S):
                     logger.warning(
@@ -1311,11 +1311,14 @@ class PriceChartComponent:
             try:
                 await self._run_javascript(
                     f"""
-                    const container = document.getElementById('{self._container_id}');
-                    if (container) {{ container.innerHTML = ''; }}
-                    if (window.__charts && window.__charts['{self._chart_id}']) {{
+                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                    if (chartRef) {{
+                        if (chartRef.resizeObserver) chartRef.resizeObserver.disconnect();
+                        if (chartRef.chart) chartRef.chart.remove();
                         delete window.__charts['{self._chart_id}'];
                     }}
+                    const container = document.getElementById('{self._container_id}');
+                    if (container) {{ container.innerHTML = ''; }}
                 """
                 )
             except Exception:

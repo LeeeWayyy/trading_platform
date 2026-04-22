@@ -28,6 +28,7 @@ def _import_config_module(monkeypatch, **env):
         "ALPACA_SECRET_KEY",
         "ALPACA_BASE_URL",
         "ALPACA_DATA_FEED",
+        "INTERNAL_TOKEN_SECRET",
         "REDIS_HOST",
         "REDIS_PORT",
         "REDIS_DB",
@@ -74,6 +75,7 @@ class TestSettingsDefaults:
         # Alpaca defaults
         assert settings.alpaca_base_url == "https://paper-api.alpaca.markets"
         assert settings.alpaca_data_feed == "iex"
+        assert settings.internal_token_secret == ""
 
         # Redis defaults
         assert settings.redis_host == "localhost"
@@ -255,6 +257,17 @@ class TestEnvironmentOverrides:
                 ALPACA_SECRET_KEY="secret",
                 ALPACA_DATA_FEED="invalid-feed",
             )
+
+    def test_internal_token_secret_override(self, monkeypatch):
+        """Test internal token secret can be loaded via settings."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET="x" * 64,
+        )
+
+        assert config.settings.internal_token_secret == "x" * 64
 
     def test_redis_config_overrides(self, monkeypatch):
         """Test Redis configuration overrides."""

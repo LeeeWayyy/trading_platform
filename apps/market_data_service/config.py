@@ -4,6 +4,7 @@ Market Data Service Configuration
 Settings loaded from environment variables.
 """
 
+import os
 from typing import Literal
 
 from pydantic import field_validator
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
     alpaca_secret_key: str
     alpaca_base_url: str = "https://paper-api.alpaca.markets"  # Paper trading default
     alpaca_data_feed: Literal["iex", "sip", "otc", "boats"] = "iex"
+    internal_token_secret: str = ""
 
     @field_validator("alpaca_data_feed", mode="before")
     @classmethod
@@ -41,6 +43,16 @@ class Settings(BaseSettings):
         normalized = value.strip().lower()
         # Default to "iex" when environment value is empty.
         return normalized or "iex"
+
+    def current_internal_token_secret(self) -> str:
+        """Return shared internal token secret with live env override support."""
+        return os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+
+    @staticmethod
+    def service_internal_token_secret(service_key: str) -> str:
+        """Return service-scoped internal token secret from environment."""
+        env_name = f"INTERNAL_TOKEN_SECRET_{service_key}"
+        return os.getenv(env_name, "").strip()
 
     # Redis Configuration
     redis_host: str = "localhost"

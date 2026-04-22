@@ -147,6 +147,7 @@ CHART_INIT_JS = """
         markers: [],
         vwapSeries: null,
         twapSeries: null,
+        resizeObserver: null,
     }};
 
     // Add attribution footer (required by Apache 2.0 license)
@@ -164,6 +165,9 @@ CHART_INIT_JS = """
         }});
     }});
     resizeObserver.observe(container);
+    if (window.__charts && window.__charts['{chart_id}']) {{
+        window.__charts['{chart_id}'].resizeObserver = resizeObserver;
+    }}
 }})();
 """
 

@@ -346,6 +346,32 @@ class TestPriceChartPriceData:
         assert component._last_realtime_update is None
         schedule_update.assert_not_called()
 
+    def test_set_price_data_normalizes_naive_timestamps_to_utc(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Naive parsed timestamps should be normalized to UTC before skew checks."""
+        component._current_symbol = "AAPL"
+        naive_now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+
+        with (
+            patch(
+                "apps.web_console_ng.components.price_chart.parse_iso_timestamp",
+                return_value=naive_now,
+            ),
+            patch.object(component, "_schedule_price_update") as schedule_update,
+        ):
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": "2026-01-01T12:00:00",
+                }
+            )
+
+        assert component._last_realtime_update is not None
+        assert component._last_realtime_update.tzinfo == UTC
+        schedule_update.assert_called_once()
+
     def test_set_price_data_ignored_when_disposed(self, component: PriceChartComponent) -> None:
         """set_price_data does nothing when disposed."""
         component._current_symbol = "AAPL"
@@ -1020,3 +1046,17 @@ class TestPriceChartDispose:
         await component.dispose()
 
         mock_timer.cancel.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_dispose_cleans_up_chart_and_resize_observer(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Dispose should remove chart instance and disconnect resize observer."""
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component.dispose()
+
+        cleanup_js = component._run_javascript.await_args.args[0]
+        assert "chartRef.resizeObserver" in cleanup_js
+        assert "chartRef.resizeObserver.disconnect()" in cleanup_js
+        assert "chartRef.chart.remove()" in cleanup_js

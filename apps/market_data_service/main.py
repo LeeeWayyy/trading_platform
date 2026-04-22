@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import time
 from collections.abc import AsyncIterator
@@ -135,8 +134,8 @@ async def _authorize_source_override(
         )
 
     service_key = re.sub(r"[^A-Z0-9_]", "_", source_service_id.upper())
-    shared_internal_token_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
-    service_internal_token_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "").strip()
+    shared_internal_token_secret = settings.current_internal_token_secret()
+    service_internal_token_secret = settings.service_internal_token_secret(service_key)
     signed_override_required = bool(shared_internal_token_secret or service_internal_token_secret)
     if not signed_override_required:
         return
