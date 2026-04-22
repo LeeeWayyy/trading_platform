@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 import redis.exceptions
-from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
 
@@ -25,7 +25,7 @@ from apps.market_data_service.api.dependencies import build_market_data_authenti
 from apps.market_data_service.config import settings
 from apps.market_data_service.position_sync import PositionBasedSubscription
 from apps.market_data_service.routes.market_data import router as market_data_router
-from libs.core.common.api_auth_dependency import APIAuthConfig, api_auth
+from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
 from libs.core.redis_client import EventPublisher, RedisClient
 from libs.data.market_data import AlpacaMarketDataStream, SubscriptionError
 from libs.platform.web_console_auth.permissions import Permission
@@ -87,9 +87,9 @@ class HealthResponse(BaseModel):
 
 SOURCE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
 
-SOURCE_OVERRIDE_AUTH = api_auth(
+MARKET_DATA_SUBSCRIPTION_AUTH = api_auth(
     APIAuthConfig(
-        action="market_data_source_override",
+        action="market_data_subscription",
         require_role=None,
         require_permission=Permission.VIEW_MARKET_DATA,
     ),
@@ -119,7 +119,10 @@ def _normalize_subscription_source(raw_source: str | None) -> str:
     return normalized_source
 
 
-async def _authorize_source_override(request: Request, normalized_source: str) -> None:
+async def _authorize_source_override(
+    auth_context: AuthContext,
+    normalized_source: str,
+) -> None:
     """Require authenticated ownership for non-manual source overrides."""
     if normalized_source == "manual":
         return
@@ -145,22 +148,9 @@ async def _authorize_source_override(request: Request, normalized_source: str) -
             )
         return
 
-    auth_context = await SOURCE_OVERRIDE_AUTH(
-        request=request,
-        authorization=request.headers.get("Authorization"),
-        x_user_id=request.headers.get("X-User-ID"),
-        x_request_id=request.headers.get("X-Request-ID"),
-        x_session_version=request.headers.get("X-Session-Version"),
-        x_internal_token=request.headers.get("X-Internal-Token"),
-        x_internal_timestamp=request.headers.get("X-Internal-Timestamp"),
-        x_internal_nonce=request.headers.get("X-Internal-Nonce"),
-        x_service_id=request.headers.get("X-Service-ID"),
-        x_strategy_id=request.headers.get("X-Strategy-ID"),
-        x_body_hash=request.headers.get("X-Body-Hash"),
-    )
     if auth_context.auth_type != "internal_token" or auth_context.internal_claims is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Explicit source override requires authenticated internal service token",
         )
 
@@ -406,7 +396,10 @@ async def health_check() -> HealthResponse:
 
 
 @app.post("/api/v1/subscribe", response_model=SubscribeResponse, status_code=201)
-async def subscribe_symbols(request: SubscribeRequest, http_request: Request) -> SubscribeResponse:
+async def subscribe_symbols(
+    request: SubscribeRequest,
+    auth_context: AuthContext = Depends(MARKET_DATA_SUBSCRIPTION_AUTH),
+) -> SubscribeResponse:
     """
     Subscribe to real-time quotes for symbols.
 
@@ -437,7 +430,7 @@ async def subscribe_symbols(request: SubscribeRequest, http_request: Request) ->
 
         try:
             normalized_source = _normalize_subscription_source(request.source)
-            await _authorize_source_override(http_request, normalized_source)
+            await _authorize_source_override(auth_context, normalized_source)
             await stream.subscribe_symbols(request.symbols, source=normalized_source)
 
             subscribed = stream.get_subscribed_symbols()
@@ -485,9 +478,9 @@ async def subscribe_symbols(request: SubscribeRequest, http_request: Request) ->
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
 async def unsubscribe_symbol(
-    http_request: Request,
     symbol: str,
     source: str = Query(default="manual"),
+    auth_context: AuthContext = Depends(MARKET_DATA_SUBSCRIPTION_AUTH),
 ) -> UnsubscribeResponse:
     """
     Unsubscribe from a symbol.
@@ -513,7 +506,7 @@ async def unsubscribe_symbol(
 
         try:
             normalized_source = _normalize_subscription_source(source)
-            await _authorize_source_override(http_request, normalized_source)
+            await _authorize_source_override(auth_context, normalized_source)
             await stream.unsubscribe_symbols([symbol], source=normalized_source)
 
             remaining = stream.get_subscribed_symbols()

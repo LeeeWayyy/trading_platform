@@ -22,6 +22,7 @@ import pytest
 import redis.exceptions
 from fastapi.testclient import TestClient
 
+from libs.core.common.api_auth_dependency import AuthContext
 from libs.data.market_data import SubscriptionError
 
 
@@ -52,9 +53,20 @@ def test_client(monkeypatch):
 
     # Patch the lifespan before importing the app
     with patch("apps.market_data_service.main.lifespan", mock_lifespan):
-        from apps.market_data_service.main import app
+        from apps.market_data_service.main import MARKET_DATA_SUBSCRIPTION_AUTH, app
 
-        return TestClient(app, raise_server_exceptions=False)
+        async def _authenticated_context() -> AuthContext:
+            return AuthContext(
+                user=None,
+                internal_claims=None,
+                auth_type="jwt",
+                is_authenticated=True,
+            )
+
+        app.dependency_overrides[MARKET_DATA_SUBSCRIPTION_AUTH] = _authenticated_context
+        with TestClient(app, raise_server_exceptions=False) as client:
+            yield client
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture()
