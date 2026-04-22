@@ -94,9 +94,7 @@ MARKET_DATA_SUBSCRIPTION_AUTH = api_auth(
     ),
     authenticator_getter=build_market_data_authenticator,
 )
-SOURCE_OVERRIDE_PREFIX_BY_SERVICE: dict[str, str] = {
-    "web_console_ng": "web_console",
-}
+SOURCE_OVERRIDE_PREFIX_BY_SERVICE: dict[str, str] = settings.source_override_prefix_by_service()
 SOURCE_OVERRIDE_SERVICE_BY_PREFIX: dict[str, str] = {
     source_prefix: service_id
     for service_id, source_prefix in SOURCE_OVERRIDE_PREFIX_BY_SERVICE.items()
@@ -133,9 +131,8 @@ async def _authorize_source_override(
             detail=f"Unsigned source override is not allowed for prefix '{source_prefix}'",
         )
 
-    service_key = re.sub(r"[^A-Z0-9_]", "_", source_service_id.upper())
     shared_internal_token_secret = settings.current_internal_token_secret()
-    service_internal_token_secret = settings.service_internal_token_secret(service_key)
+    service_internal_token_secret = settings.service_internal_token_secret(source_service_id)
     signed_override_required = bool(shared_internal_token_secret or service_internal_token_secret)
     if not signed_override_required:
         return

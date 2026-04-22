@@ -2019,10 +2019,46 @@ class OrderEntryContext:
             await asyncio.gather(*pending, return_exceptions=True)
         self._market_data_release_tasks.clear()
 
-    async def dispose(self) -> None:
-        """Clean up all subscriptions and timers on page unload."""
+    async def adopt_deferred_market_data_releases(self, symbols: list[str]) -> None:
+        """Adopt deferred source-release symbols from a superseded context."""
         if self._disposed:
             return
+
+        normalized_symbols = {
+            symbol.strip().upper() for symbol in symbols if isinstance(symbol, str) and symbol.strip()
+        }
+        if not normalized_symbols:
+            return
+
+        async with self._subscription_lock:
+            owned_symbols = {
+                symbol.strip().upper()
+                for symbol in self._collect_owned_price_symbols()
+                if isinstance(symbol, str) and symbol.strip()
+            }
+            stale_symbols = sorted(symbol for symbol in normalized_symbols if symbol not in owned_symbols)
+            if not stale_symbols:
+                return
+
+            self._pending_market_data_unsubscribes.update(stale_symbols)
+            self._last_synced_market_data_symbols = None
+            self._market_data_sync_pending = True
+        self._schedule_market_data_sync()
+        logger.info("adopted_deferred_market_data_releases: %s", stale_symbols)
+
+    async def dispose(self, *, release_market_data_symbols: bool = True) -> set[str]:
+        """Clean up all subscriptions and timers on page unload.
+
+        Args:
+            release_market_data_symbols: When False, skip market-data source release
+                requests during cleanup. Used during reconnect handoff where a newer
+                context already owns the same session-stable source tag.
+
+        Returns:
+            Deferred market-data symbols that still need source release.
+        """
+        if self._disposed:
+            return set()
         self._disposed = True
 
         # Cancel all timers
@@ -2066,12 +2102,22 @@ class OrderEntryContext:
                 await self._realtime.unsubscribe(channel)
             except Exception as exc:
                 logger.warning(f"Error unsubscribing from {channel}: {exc}")
-        for symbol in market_data_symbols_to_release:
-            try:
-                await self._release_market_data_streaming(symbol)
-            except Exception as exc:
-                logger.warning("Error releasing market-data source for %s: %s", symbol, exc)
-        await self._flush_market_data_release_tasks()
+        deferred_release_symbols: set[str] = set()
+        if release_market_data_symbols:
+            for symbol in market_data_symbols_to_release:
+                try:
+                    await self._release_market_data_streaming(symbol)
+                except Exception as exc:
+                    logger.warning("Error releasing market-data source for %s: %s", symbol, exc)
+            await self._flush_market_data_release_tasks()
+        else:
+            deferred_release_symbols = set(market_data_symbols_to_release)
+            for task in tuple(self._market_data_release_tasks):
+                task.cancel()
+            if self._market_data_release_tasks:
+                await asyncio.gather(*self._market_data_release_tasks, return_exceptions=True)
+            self._market_data_release_tasks.clear()
+            self._pending_market_data_unsubscribes.clear()
 
         if self._current_l2_symbol:
             await self._level2_service.unsubscribe(self._user_id, self._current_l2_symbol)
@@ -2089,6 +2135,9 @@ class OrderEntryContext:
             self._dom_ladder.dispose()
 
         logger.info(f"OrderEntryContext disposed for user {self._user_id}")
+        if release_market_data_symbols:
+            return set()
+        return deferred_release_symbols
 
 
 __all__ = ["OrderEntryContext"]

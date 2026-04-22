@@ -29,6 +29,8 @@ def _import_config_module(monkeypatch, **env):
         "ALPACA_BASE_URL",
         "ALPACA_DATA_FEED",
         "INTERNAL_TOKEN_SECRET",
+        "WEB_CONSOLE_SERVICE_ID",
+        "WEB_CONSOLE_SOURCE_PREFIX",
         "REDIS_HOST",
         "REDIS_PORT",
         "REDIS_DB",
@@ -268,6 +270,39 @@ class TestEnvironmentOverrides:
         )
 
         assert config.settings.internal_token_secret == "x" * 64
+
+    def test_service_internal_token_secret_normalizes_service_key(self, monkeypatch):
+        """Service secret helper should normalize key casing/punctuation."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET_WEB_CONSOLE_NG="s" * 64,
+        )
+
+        assert config.settings.service_internal_token_secret("web-console.ng") == "s" * 64
+
+    def test_service_internal_token_secret_empty_key_returns_empty(self, monkeypatch):
+        """Empty service key should not map to a synthetic env var."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+        )
+
+        assert config.settings.service_internal_token_secret("") == ""
+
+    def test_source_override_prefix_by_service_uses_configured_values(self, monkeypatch):
+        """Source-override owner mapping should be configurable via settings."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            WEB_CONSOLE_SERVICE_ID="ui_gateway",
+            WEB_CONSOLE_SOURCE_PREFIX="web_console",
+        )
+
+        assert config.settings.source_override_prefix_by_service() == {"ui_gateway": "web_console"}
 
     def test_redis_config_overrides(self, monkeypatch):
         """Test Redis configuration overrides."""

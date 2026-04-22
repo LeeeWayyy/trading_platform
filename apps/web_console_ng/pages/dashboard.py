@@ -695,12 +695,14 @@ async def dashboard(client: Client) -> None:
         client.storage["client_id"] = client_id
         logger.debug("dashboard_generated_client_id", extra={"client_id": client_id})
 
-    # session_client_id is stable across reconnects and retained for diagnostics only.
-    # Market-data ownership must use websocket-scoped client_id to avoid overlap races.
-    session_client_id = client.storage.get("session_client_id")
-    if not isinstance(session_client_id, str) or not session_client_id:
-        session_client_id = lifecycle.generate_client_id()
-        client.storage["session_client_id"] = session_client_id
+    # Use a reconnect-stable market-data owner ID bound to this page client.
+    market_data_owner_id = client.storage.get("market_data_owner_id")
+    if not isinstance(market_data_owner_id, str) or not market_data_owner_id:
+        market_data_owner_id = lifecycle.generate_client_id()
+        client.storage["market_data_owner_id"] = market_data_owner_id
+    # Track currently active order-context generation for reconnect handoff.
+    order_context_generation_id = lifecycle.generate_client_id()
+    client.storage["active_order_context_generation_id"] = order_context_generation_id
 
     realtime = RealtimeUpdater(client_id, client)
     timers: list[ui.timer] = []
@@ -727,7 +729,7 @@ async def dashboard(client: Client) -> None:
         user_id=user_id,
         role=user_role,
         strategies=user_strategies,
-        client_id=client_id,
+        client_id=market_data_owner_id,
     )
 
     # Create OneClickHandler dependencies and wire it up (P6T7)
@@ -2845,10 +2847,49 @@ async def dashboard(client: Client) -> None:
     await lifecycle.register_cleanup_callback(client_id, cleanup_background_tasks)
     await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
 
+    # Register cleanup for OrderEntryContext before initialization so disconnects
+    # during startup still run teardown.
+    async def cleanup_order_context() -> None:
+        try:
+            active_generation_id = client.storage.get("active_order_context_generation_id")
+            active_context = client.storage.get("active_order_context_ref")
+            is_handoff = (
+                active_generation_id != order_context_generation_id
+                and isinstance(active_context, OrderEntryContext)
+                and active_context is not order_context
+            )
+            deferred_release_symbols = await order_context.dispose(
+                release_market_data_symbols=not is_handoff
+            )
+            if not is_handoff:
+                if client.storage.get("active_order_context_ref") is order_context:
+                    client.storage.pop("active_order_context_ref", None)
+                    client.storage.pop("active_order_context_generation_id", None)
+            elif deferred_release_symbols:
+                await active_context.adopt_deferred_market_data_releases(
+                    sorted(deferred_release_symbols)
+                )
+        except Exception as exc:
+            logger.warning(
+                "order_context_dispose_failed",
+                extra={"client_id": client_id, "error": str(exc)},
+            )
+
+    await lifecycle.register_cleanup_callback(client_id, cleanup_order_context)
+
     # Initialize OrderEntryContext AFTER UI creation (per spec lifecycle pattern)
     # This starts timers, loads data, and establishes subscriptions
     try:
         await order_context.initialize()
+        client.storage["active_order_context_ref"] = order_context
+        deferred_symbols_raw = client.storage.pop("deferred_market_data_release_symbols", [])
+        deferred_symbols = (
+            [symbol for symbol in deferred_symbols_raw if isinstance(symbol, str)]
+            if isinstance(deferred_symbols_raw, list)
+            else []
+        )
+        if deferred_symbols:
+            await order_context.adopt_deferred_market_data_releases(deferred_symbols)
     except Exception as exc:
         logger.error(
             "order_context_init_failed",
@@ -2858,18 +2899,6 @@ async def dashboard(client: Client) -> None:
             "Order entry initialization failed - some features may be unavailable",
             type="warning",
         )
-
-    # Register cleanup for OrderEntryContext on disconnect
-    async def cleanup_order_context() -> None:
-        try:
-            await order_context.dispose()
-        except Exception as exc:
-            logger.warning(
-                "order_context_dispose_failed",
-                extra={"client_id": client_id, "error": str(exc)},
-            )
-
-    await lifecycle.register_cleanup_callback(client_id, cleanup_order_context)
 
 
 __all__ = ["dashboard", "MarketPriceCache"]
