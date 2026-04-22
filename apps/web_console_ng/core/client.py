@@ -16,6 +16,7 @@ import json
 import os
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import quote as url_quote
 from urllib.parse import urlencode
@@ -135,7 +136,7 @@ class AsyncTradingClient:
 
         internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
         if internal_secret and resolved_user_id and resolved_role is not None:
-            timestamp = str(int(time.time()))
+            timestamp = str(self._utc_timestamp_seconds())
             strategies_str = ",".join(sorted(resolved_strategies)) if resolved_strategies else ""
             payload_data = {
                 "uid": str(resolved_user_id).strip(),
@@ -182,6 +183,11 @@ class AsyncTradingClient:
         return self._web_console_service_id
 
     @staticmethod
+    def _utc_timestamp_seconds() -> int:
+        """Return unix timestamp derived from a UTC-aware datetime."""
+        return int(datetime.fromtimestamp(time.time(), UTC).timestamp())
+
+    @staticmethod
     def _build_query_string(params: list[tuple[str, Any]] | None = None) -> str:
         """Build deterministic query string used for both request URL and S2S signature."""
         if not params:
@@ -215,7 +221,7 @@ class AsyncTradingClient:
         if not secret:
             return headers
 
-        timestamp = str(int(time.time()))
+        timestamp = str(self._utc_timestamp_seconds())
         nonce = str(uuid.uuid4())
 
         if body is None:

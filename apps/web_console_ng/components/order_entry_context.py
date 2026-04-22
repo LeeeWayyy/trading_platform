@@ -2104,11 +2104,18 @@ class OrderEntryContext:
                 logger.warning(f"Error unsubscribing from {channel}: {exc}")
         deferred_release_symbols: set[str] = set()
         if release_market_data_symbols:
-            for symbol in market_data_symbols_to_release:
-                try:
-                    await self._release_market_data_streaming(symbol)
-                except Exception as exc:
-                    logger.warning("Error releasing market-data source for %s: %s", symbol, exc)
+            release_results = await asyncio.gather(
+                *(
+                    self._release_market_data_streaming(symbol)
+                    for symbol in market_data_symbols_to_release
+                ),
+                return_exceptions=True,
+            )
+            for symbol, result in zip(
+                market_data_symbols_to_release, release_results, strict=False
+            ):
+                if isinstance(result, Exception):
+                    logger.warning("Error releasing market-data source for %s: %s", symbol, result)
             await self._flush_market_data_release_tasks()
         else:
             deferred_release_symbols = set(market_data_symbols_to_release)

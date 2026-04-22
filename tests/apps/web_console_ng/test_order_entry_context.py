@@ -1838,7 +1838,7 @@ class TestDispose:
                     source=context._market_data_source,
                 ),
             ],
-            any_order=False,
+            any_order=True,
         )
 
     @pytest.mark.asyncio()

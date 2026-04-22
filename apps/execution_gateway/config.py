@@ -26,10 +26,27 @@ import logging
 import os
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_ALPACA_DATA_FEEDS = ("iex", "sip", "otc", "boats")
+
+
+class _AlpacaDataFeedSetting(BaseModel):
+    """Pydantic-backed parser for ALPACA_DATA_FEED normalization/validation."""
+
+    alpaca_data_feed: Literal["iex", "sip", "otc", "boats"] | None = None
+
+    @field_validator("alpaca_data_feed", mode="before")
+    @classmethod
+    def normalize_alpaca_data_feed(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
 
 
 # ============================================================================
@@ -153,8 +170,9 @@ def _get_alpaca_data_feed_env(name: str = "ALPACA_DATA_FEED") -> str | None:
     if not raw.strip():
         return None
 
-    normalized = raw.strip().lower()
-    if normalized not in SUPPORTED_ALPACA_DATA_FEEDS:
+    try:
+        parsed = _AlpacaDataFeedSetting.model_validate({"alpaca_data_feed": raw}).alpaca_data_feed
+    except ValidationError:
         logger.warning(
             "Invalid %s=%s; supported options: %s. Falling back to iex.",
             name,
@@ -162,7 +180,7 @@ def _get_alpaca_data_feed_env(name: str = "ALPACA_DATA_FEED") -> str | None:
             ", ".join(SUPPORTED_ALPACA_DATA_FEEDS),
         )
         return "iex"
-    return normalized
+    return parsed
 
 
 # ============================================================================

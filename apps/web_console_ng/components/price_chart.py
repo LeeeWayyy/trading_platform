@@ -9,6 +9,7 @@ Data Flow: Redis → RealtimeUpdater → OrderEntryContext → PriceChart.set_pr
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import math
@@ -708,6 +709,20 @@ class PriceChartComponent:
             logger.debug("Historical bars fetch skipped: user_id unavailable")
             return []
 
+        supports_auth_kwargs = True
+        try:
+            signature = inspect.signature(fetch_historical_bars)
+            parameters = signature.parameters
+            has_var_keyword = any(
+                param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+            )
+            supports_auth_kwargs = has_var_keyword or all(
+                key in parameters for key in ("user_id", "role", "strategies")
+            )
+        except (TypeError, ValueError):
+            # Builtins/decorated callables may not expose a reliable signature.
+            supports_auth_kwargs = True
+
         for timeframe, limit in self.HISTORICAL_TIMEFRAME_FALLBACKS:
             request_kwargs: dict[str, Any] = {
                 "symbol": symbol,
@@ -722,19 +737,18 @@ class PriceChartComponent:
             }
 
             try:
-                response = await fetch_historical_bars(**authenticated_request_kwargs)
-            except TypeError as exc:
-                # Fallback for legacy clients/mocks that do not accept auth kwargs.
-                if "unexpected keyword argument" not in str(exc):
-                    logger.debug(
-                        "Historical bars fetch failed for %s (%s): %s",
-                        symbol,
-                        timeframe,
-                        exc,
-                    )
-                    continue
+                primary_kwargs = (
+                    authenticated_request_kwargs if supports_auth_kwargs else request_kwargs
+                )
+                response = await fetch_historical_bars(**primary_kwargs)
+            except TypeError:
+                # Signature introspection may be wrong for decorated/wrapped callables.
+                fallback_kwargs = (
+                    request_kwargs if supports_auth_kwargs else authenticated_request_kwargs
+                )
                 try:
-                    response = await fetch_historical_bars(**request_kwargs)
+                    response = await fetch_historical_bars(**fallback_kwargs)
+                    supports_auth_kwargs = not supports_auth_kwargs
                 except Exception as fallback_exc:
                     logger.debug(
                         "Historical bars fetch failed for %s (%s): %s",
