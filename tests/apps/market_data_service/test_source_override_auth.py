@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 
 import pytest
 from fastapi import HTTPException
+
+os.environ.setdefault("ALPACA_API_KEY", "test-key")
+os.environ.setdefault("ALPACA_SECRET_KEY", "test-secret")
 
 from apps.market_data_service.main import _authorize_source_override
 from libs.core.common.api_auth_dependency import AuthContext, InternalTokenClaims

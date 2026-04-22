@@ -1279,6 +1279,23 @@ class OrderEntryContext:
                 symbols.add(symbol)
         return sorted(symbols)
 
+    async def _release_stale_market_data_symbol_with_retry(self, symbol: str) -> bool:
+        """Release stale market-data symbol with bounded retry and explicit failure signal."""
+        for attempt in range(2):
+            try:
+                await self._release_market_data_streaming(symbol)
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "market_data_stale_release_attempt_failed for %s (attempt %s/2): %s",
+                    symbol,
+                    attempt + 1,
+                    exc,
+                )
+                if attempt == 0:
+                    await asyncio.sleep(self.MARKET_DATA_SYNC_RETRY_DELAY_S)
+        return False
+
     async def _sync_market_data_streaming(self) -> None:
         """Best-effort sync of backend streaming set with currently owned symbols."""
         subscribe = getattr(self._client, "subscribe_market_data_symbols", None)
@@ -1297,14 +1314,7 @@ class OrderEntryContext:
             return
 
         for stale_symbol in stale_symbols:
-            try:
-                await self._release_market_data_streaming(stale_symbol)
-            except Exception as exc:
-                logger.warning(
-                    "market_data_stale_release_failed for %s: %s",
-                    stale_symbol,
-                    exc,
-                )
+            if not await self._release_stale_market_data_symbol_with_retry(stale_symbol):
                 self._market_data_sync_pending = True
                 self._market_data_sync_backoff_required = True
 

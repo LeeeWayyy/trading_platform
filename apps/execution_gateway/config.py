@@ -156,12 +156,12 @@ def _get_alpaca_data_feed_env(name: str = "ALPACA_DATA_FEED") -> str | None:
     normalized = raw.strip().lower()
     if normalized not in SUPPORTED_ALPACA_DATA_FEEDS:
         logger.warning(
-            "Invalid %s=%s; supported options: %s. Ignoring override.",
+            "Invalid %s=%s; supported options: %s. Falling back to iex.",
             name,
             raw,
             ", ".join(SUPPORTED_ALPACA_DATA_FEEDS),
         )
-        return None
+        return "iex"
     return normalized
 
 

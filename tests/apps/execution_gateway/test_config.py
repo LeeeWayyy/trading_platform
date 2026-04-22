@@ -109,5 +109,5 @@ def test_get_config_invalid_alpaca_data_feed_logs_warning(monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         cfg = config_module.get_config()
 
-    assert cfg.alpaca_data_feed is None
+    assert cfg.alpaca_data_feed == "iex"
     assert "Invalid ALPACA_DATA_FEED" in caplog.text

@@ -135,10 +135,9 @@ async def _authorize_source_override(
         )
 
     service_key = re.sub(r"[^A-Z0-9_]", "_", source_service_id.upper())
-    signed_override_required = bool(
-        os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
-        or os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "").strip()
-    )
+    shared_internal_token_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+    service_internal_token_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "").strip()
+    signed_override_required = bool(shared_internal_token_secret or service_internal_token_secret)
     if not signed_override_required:
         return
 
