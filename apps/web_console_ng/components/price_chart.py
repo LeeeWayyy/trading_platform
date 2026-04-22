@@ -580,7 +580,8 @@ class PriceChartComponent:
                     high=updated_candle["high"],
                     low=updated_candle["low"],
                     close=updated_candle["close"],
-                    volume=last_candle.volume,
+                    # Live quote ticks do not carry per-tick volume; mark unknown.
+                    volume=None,
                 )
 
             trimmed_history = False

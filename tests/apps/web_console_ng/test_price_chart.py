@@ -855,6 +855,24 @@ class TestPriceChartRealtimeUpdates:
         assert newest.low == 108.0
         assert newest.close == 108.0
 
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_same_bucket_sets_volume_unknown(self) -> None:
+        """Live same-bucket updates should clear volume because quote ticks lack trade size."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(time=1500, open=100.0, high=101.0, low=99.0, close=100.5, volume=25000),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(102.0, datetime.fromtimestamp(1510, UTC))
+
+        assert component._candles[-1].time == 1500
+        assert component._candles[-1].close == 102.0
+        assert component._candles[-1].volume is None
+
 
 class TestPriceChartOverlays:
     """Tests for chart overlays."""
