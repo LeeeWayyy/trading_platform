@@ -103,8 +103,8 @@ SOURCE_OVERRIDE_SERVICE_BY_PREFIX: dict[str, str] = {
 
 def _normalize_subscription_source(raw_source: str | None) -> str:
     """Normalize and validate caller-provided source ownership tags."""
-    normalized_source = (raw_source or "").strip() or "manual"
-    if not SOURCE_TAG_PATTERN.fullmatch(normalized_source):
+    source = (raw_source or "").strip() or "manual"
+    if not SOURCE_TAG_PATTERN.fullmatch(source):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
@@ -112,7 +112,12 @@ def _normalize_subscription_source(raw_source: str | None) -> str:
                 "with max length 64."
             ),
         )
-    return normalized_source
+
+    prefix, sep, suffix = source.partition(":")
+    canonical_prefix = prefix.lower()
+    if not sep:
+        return canonical_prefix
+    return f"{canonical_prefix}:{suffix}"
 
 
 async def _authorize_source_override(

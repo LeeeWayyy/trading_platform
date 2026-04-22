@@ -14,6 +14,7 @@ Tests cover:
 
 import asyncio
 import os
+import sys
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -33,6 +34,15 @@ def _clear_internal_token_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     for env_key in tuple(os.environ):
         if env_key.startswith("INTERNAL_TOKEN_SECRET_"):
             monkeypatch.delenv(env_key, raising=False)
+
+    # Tests import a module-level settings singleton; clear cached values as well.
+    config_module = sys.modules.get("apps.market_data_service.config")
+    if config_module is not None and hasattr(config_module, "settings"):
+        config_module.settings.internal_token_secret = ""
+
+    main_module = sys.modules.get("apps.market_data_service.main")
+    if main_module is not None and hasattr(main_module, "settings"):
+        main_module.settings.internal_token_secret = ""
 
 
 @pytest.fixture()
@@ -204,6 +214,41 @@ class TestSubscribeEndpoint:
             source="web_console:user-1:abc",
         )
 
+    def test_subscribe_normalizes_source_prefix_casing(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Mixed-case source prefixes should be canonicalized for stable ownership keys."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "WEB_CONSOLE:user-1:abc"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_subscribe_accepts_uppercase_manual_source_when_internal_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """MANUAL should normalize to manual and bypass explicit-source auth requirements."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "MANUAL"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
+
     def test_subscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
         """Authorized internal requests may use explicit source tags."""
         mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
@@ -363,6 +408,35 @@ class TestUnsubscribeEndpoint:
             ["AAPL"],
             source="web_console:user-1:abc",
         )
+
+    def test_unsubscribe_normalizes_source_prefix_casing(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Mixed-case source prefixes should normalize before source-set bookkeeping."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=WEB_CONSOLE:user-1:abc")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_unsubscribe_accepts_uppercase_manual_source_when_internal_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """MANUAL should normalize to manual for unsubscribe flow as well."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=MANUAL")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
 
     def test_unsubscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
         """Authorized internal requests may unsubscribe with explicit source tags."""
