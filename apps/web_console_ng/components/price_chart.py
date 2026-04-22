@@ -424,7 +424,7 @@ class PriceChartComponent:
                     return
                 self._last_realtime_update = parsed
                 tick_time = parsed
-            except (ValueError, TypeError):
+            except (AttributeError, ValueError, TypeError):
                 # Invalid timestamp format - FAIL-CLOSED: treat as missing
                 logger.debug(f"PriceChart: unparseable timestamp {raw_timestamp!r}, keeping stale")
                 self._last_realtime_update = None  # Will show stale overlay

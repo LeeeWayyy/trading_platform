@@ -128,12 +128,13 @@ async def _authorize_source_override(
     if normalized_source == "manual":
         return
 
-    source_prefix = normalized_source.split(":", 1)[0].strip().lower()
-    source_service_id = SOURCE_OVERRIDE_SERVICE_BY_PREFIX.get(source_prefix)
+    source_prefix = normalized_source.split(":", 1)[0]
+    canonical_source_prefix = source_prefix.lower()
+    source_service_id = SOURCE_OVERRIDE_SERVICE_BY_PREFIX.get(canonical_source_prefix)
     if source_service_id is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Unsigned source override is not allowed for prefix '{source_prefix}'",
+            detail=f"Unsigned source override is not allowed for prefix '{canonical_source_prefix}'",
         )
 
     shared_internal_token_secret = settings.current_internal_token_secret()
@@ -155,7 +156,7 @@ async def _authorize_source_override(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Source override is not allowed for service '{service_id}'",
         )
-    if source_prefix != service_source_prefix:
+    if canonical_source_prefix != service_source_prefix:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Source '{normalized_source}' is not owned by service '{service_id}'",
