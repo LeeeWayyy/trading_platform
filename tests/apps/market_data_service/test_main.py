@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 import pytest
 import redis.exceptions
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from libs.core.common.api_auth_dependency import AuthContext
@@ -303,6 +304,23 @@ class TestSubscribeEndpoint:
         assert "Subscription failed" in response.json()["detail"]
         assert "WebSocket not connected" in response.json()["detail"]
 
+    def test_subscribe_propagates_authorization_http_exception(self, test_client, mock_stream):
+        """Authorization HTTPException should not be swallowed into a 500."""
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(side_effect=HTTPException(status_code=403, detail="forbidden")),
+            ),
+        ):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "forbidden"
+
 
 class TestUnsubscribeEndpoint:
     """Tests for unsubscribe endpoint."""
@@ -427,6 +445,20 @@ class TestUnsubscribeEndpoint:
         assert response.status_code == 500
         assert "Unsubscription failed" in response.json()["detail"]
         assert "Symbol not subscribed" in response.json()["detail"]
+
+    def test_unsubscribe_propagates_authorization_http_exception(self, test_client, mock_stream):
+        """Authorization HTTPException should not be swallowed into a 500."""
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(side_effect=HTTPException(status_code=403, detail="forbidden")),
+            ),
+        ):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "forbidden"
 
 
 class TestGetSubscriptionsEndpoint:

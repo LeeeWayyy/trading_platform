@@ -15,6 +15,7 @@ from apps.web_console_ng.components.price_chart import (
     CandleData,
     ExecutionMarker,
     PriceChartComponent,
+    _ensure_utc_datetime,
 )
 
 
@@ -83,6 +84,28 @@ class TestExecutionMarker:
 
         assert marker.side == "sell"
         assert marker.quantity == 50
+
+
+class TestPriceChartTimeNormalization:
+    """Tests for internal datetime normalization helpers."""
+
+    def test_ensure_utc_datetime_assumes_naive_utc(self) -> None:
+        """Naive datetimes are treated as UTC for candle bucketing."""
+        naive = datetime(2026, 4, 22, 13, 5, 0)
+        normalized = _ensure_utc_datetime(naive)
+
+        assert normalized.tzinfo == UTC
+        assert normalized.hour == 13
+        assert normalized.minute == 5
+
+    def test_ensure_utc_datetime_converts_aware_offsets(self) -> None:
+        """Offset-aware datetimes are converted to equivalent UTC instants."""
+        offset_dt = datetime.fromisoformat("2026-04-22T13:05:00+02:00")
+        normalized = _ensure_utc_datetime(offset_dt)
+
+        assert normalized.tzinfo == UTC
+        assert normalized.hour == 11
+        assert normalized.minute == 5
 
 
 class TestPriceChartInit:

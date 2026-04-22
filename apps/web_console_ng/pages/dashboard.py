@@ -695,7 +695,8 @@ async def dashboard(client: Client) -> None:
         client.storage["client_id"] = client_id
         logger.debug("dashboard_generated_client_id", extra={"client_id": client_id})
 
-    # session_client_id is stable across reconnects and used for market-data ownership tags.
+    # session_client_id is stable across reconnects and retained for diagnostics only.
+    # Market-data ownership must use websocket-scoped client_id to avoid overlap races.
     session_client_id = client.storage.get("session_client_id")
     if not isinstance(session_client_id, str) or not session_client_id:
         session_client_id = lifecycle.generate_client_id()
@@ -726,7 +727,7 @@ async def dashboard(client: Client) -> None:
         user_id=user_id,
         role=user_role,
         strategies=user_strategies,
-        client_id=session_client_id,
+        client_id=client_id,
     )
 
     # Create OneClickHandler dependencies and wire it up (P6T7)

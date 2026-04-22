@@ -41,6 +41,13 @@ MAX_FUTURE_TICK_SKEW_S = 60  # Drop ticks with timestamps too far in the future
 MAX_PAST_TICK_SKEW_S = 15 * 60  # Drop ticks that are too stale for realtime charting
 
 
+def _ensure_utc_datetime(value: datetime) -> datetime:
+    """Normalize any datetime to an aware UTC datetime."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _parse_interval_seconds(interval: str) -> int:
     """Convert interval strings like '5m' into seconds."""
     if len(interval) < 2:
@@ -502,6 +509,7 @@ class PriceChartComponent:
             if self._disposed or (symbol is not None and symbol != self._current_symbol):
                 return
 
+            tick_time = _ensure_utc_datetime(tick_time)
             bucket_start = (
                 int(tick_time.timestamp()) // self.CANDLE_INTERVAL_SECONDS
             ) * self.CANDLE_INTERVAL_SECONDS

@@ -428,9 +428,10 @@ async def subscribe_symbols(
                 detail="No symbols provided",
             )
 
+        normalized_source = _normalize_subscription_source(request.source)
+        await _authorize_source_override(auth_context, normalized_source)
+
         try:
-            normalized_source = _normalize_subscription_source(request.source)
-            await _authorize_source_override(auth_context, normalized_source)
             await stream.subscribe_symbols(request.symbols, source=normalized_source)
 
             subscribed = stream.get_subscribed_symbols()
@@ -504,9 +505,10 @@ async def unsubscribe_symbol(
                 detail="Market data stream not initialized",
             )
 
+        normalized_source = _normalize_subscription_source(source)
+        await _authorize_source_override(auth_context, normalized_source)
+
         try:
-            normalized_source = _normalize_subscription_source(source)
-            await _authorize_source_override(auth_context, normalized_source)
             await stream.unsubscribe_symbols([symbol], source=normalized_source)
 
             remaining = stream.get_subscribed_symbols()
