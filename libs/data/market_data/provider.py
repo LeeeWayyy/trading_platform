@@ -162,6 +162,7 @@ class MarketDataProvider:
                 or not math.isfinite(high_px)
                 or not math.isfinite(low_px)
                 or not math.isfinite(close_px)
+                or min(open_px, high_px, low_px, close_px) <= 0
             ):
                 return None
             return {

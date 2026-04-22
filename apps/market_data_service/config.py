@@ -35,14 +35,12 @@ class Settings(BaseSettings):
         - otc: OTC symbols feed
         - boats: Blue Ocean ATS feed
         """
-        if value is None:
-            return "iex"
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if not normalized:
-                return "iex"
-            return normalized
-        return str(value).strip().lower()
+        if not isinstance(value, str):
+            # Handles None and other non-string types.
+            value = str(value or "")
+        normalized = value.strip().lower()
+        # Default to "iex" when environment value is empty.
+        return normalized or "iex"
 
     # Redis Configuration
     redis_host: str = "localhost"

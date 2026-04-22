@@ -155,9 +155,7 @@ async def _authorize_source_override(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Source override is not allowed for service '{service_id}'",
         )
-    if normalized_source != service_source_prefix and not normalized_source.startswith(
-        f"{service_source_prefix}:"
-    ):
+    if source_prefix != service_source_prefix:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Source '{normalized_source}' is not owned by service '{service_id}'",

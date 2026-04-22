@@ -81,3 +81,17 @@ def test_get_bars_sync_requests_latest_window_with_desc_sort(monkeypatch: pytest
 
     assert captured_kwargs["sort"] == "desc"
     assert bars[0]["timestamp"] == "2026-04-20T15:00:00+00:00"
+
+
+def test_normalize_bar_rejects_non_positive_ohlc_values() -> None:
+    provider = MarketDataProvider.__new__(MarketDataProvider)
+    bar = {
+        "timestamp": "2026-04-20T15:00:00+00:00",
+        "open": 100.0,
+        "high": 100.5,
+        "low": 0.0,
+        "close": 100.2,
+        "volume": 12,
+    }
+
+    assert provider._normalize_bar(bar) is None
