@@ -1696,6 +1696,17 @@ class TestMarketDataSync:
         )
 
     @pytest.mark.asyncio()
+    async def test_release_market_data_streaming_skips_when_unsubscribe_missing(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        context._client.unsubscribe_market_data_symbol = None  # type: ignore[assignment]
+
+        await context._release_market_data_streaming("AAPL")
+
+        assert context._pending_market_data_unsubscribes == set()
+
+    @pytest.mark.asyncio()
     async def test_release_market_data_streaming_retries_and_persists_failed_symbol(
         self,
         context: OrderEntryContext,

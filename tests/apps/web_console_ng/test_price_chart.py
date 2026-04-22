@@ -919,8 +919,8 @@ class TestPriceChartRealtimeUpdates:
         assert newest.close == 108.0
 
     @pytest.mark.asyncio()
-    async def test_handle_price_update_same_bucket_sets_volume_unknown(self) -> None:
-        """Live same-bucket updates should clear volume because quote ticks lack trade size."""
+    async def test_handle_price_update_same_bucket_preserves_known_volume(self) -> None:
+        """Live same-bucket updates should preserve previously known bucket volume."""
         component = PriceChartComponent(trading_client=MagicMock())
         component._chart_initialized = True
         component._candles = [
@@ -934,7 +934,7 @@ class TestPriceChartRealtimeUpdates:
 
         assert component._candles[-1].time == 1500
         assert component._candles[-1].close == 102.0
-        assert component._candles[-1].volume is None
+        assert component._candles[-1].volume == 25000
 
     @pytest.mark.asyncio()
     async def test_handle_price_update_uses_selected_live_bucket_interval(self) -> None:

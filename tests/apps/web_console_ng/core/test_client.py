@@ -234,7 +234,7 @@ def test_get_web_console_service_id_is_cached(monkeypatch: pytest.MonkeyPatch) -
 def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_strategy_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Use stable strategy-id fallback when multiple strategies are present."""
+    """Use stable strategy scope when multiple strategies are present."""
     monkeypatch.setattr(config, "DEBUG", True)
     monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "secret")
     monkeypatch.setenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng")
@@ -263,14 +263,14 @@ def test_get_market_data_auth_headers_uses_deterministic_strategy_id_for_multi_s
         "timestamp": "1700000000",
         "nonce": "00000000-0000-0000-0000-000000000003",
         "user_id": "user-1",
-        "strategy_id": "alpha",
+        "strategy_id": "alpha,beta",
         "body_hash": hashlib.sha256(b"").hexdigest(),
     }
     payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
     expected_sig = hmac.new(b"secret", payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
     assert headers["X-Internal-Token"] == expected_sig
-    assert headers["X-Strategy-ID"] == "alpha"
+    assert headers["X-Strategy-ID"] == "alpha,beta"
 
 
 def test_build_query_string_sorts_params_deterministically() -> None:
@@ -321,7 +321,7 @@ def test_get_market_data_auth_headers_uses_resolved_debug_user_and_strategies(
         "timestamp": "1700000000",
         "nonce": "00000000-0000-0000-0000-000000000099",
         "user_id": "dev-user-42",
-        "strategy_id": "alpha",
+        "strategy_id": "alpha,beta",
         "body_hash": hashlib.sha256(b"").hexdigest(),
     }
     payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
@@ -329,7 +329,7 @@ def test_get_market_data_auth_headers_uses_resolved_debug_user_and_strategies(
 
     assert headers["X-User-Id"] == "dev-user-42"
     assert headers["X-Internal-Token"] == expected_sig
-    assert headers["X-Strategy-ID"] == "alpha"
+    assert headers["X-Strategy-ID"] == "alpha,beta"
 
 
 @pytest.mark.asyncio()

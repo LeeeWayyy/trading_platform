@@ -1418,7 +1418,7 @@ class OrderEntryContext:
         if not normalized_symbol:
             return
         unsubscribe = getattr(self._client, "unsubscribe_market_data_symbol", None)
-        if unsubscribe is None:
+        if unsubscribe is None or not callable(unsubscribe):
             return
         self._pending_market_data_unsubscribes.add(normalized_symbol)
         last_error: Exception | None = None

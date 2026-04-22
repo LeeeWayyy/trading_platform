@@ -35,44 +35,42 @@ CHART_INIT_JS = """
     const container = document.getElementById('{container_id}');
     if (!container) return;
 
-    if (!window.__lwc_load_script_once) {{
-        window.__lwc_load_script_once = (id, src, integrity = null) => {{
-            const existing = document.getElementById(id);
-            if (existing) {{
-                if (existing.dataset.failed === 'true') {{
-                    existing.remove();
-                }} else if (existing.dataset.loaded === 'true') {{
-                    return Promise.resolve();
-                }} else {{
-                    return new Promise((resolve, reject) => {{
-                        existing.addEventListener('load', () => resolve(), {{ once: true }});
-                        existing.addEventListener('error', () => reject(new Error(`Failed to load ${{src}}`)), {{ once: true }});
-                    }});
-                }}
+    const loadScriptOnce = window.__lwc_load_script_once || ((id, src, integrity = null) => {{
+        const existing = document.getElementById(id);
+        if (existing) {{
+            if (existing.dataset.failed === 'true') {{
+                existing.remove();
+            }} else if (existing.dataset.loaded === 'true') {{
+                return Promise.resolve();
+            }} else {{
+                return new Promise((resolve, reject) => {{
+                    existing.addEventListener('load', () => resolve(), {{ once: true }});
+                    existing.addEventListener('error', () => reject(new Error(`Failed to load ${{src}}`)), {{ once: true }});
+                }});
             }}
+        }}
 
-            const script = document.createElement('script');
-            script.id = id;
-            script.src = src;
-            if (integrity) {{
-                script.integrity = integrity;
-                script.crossOrigin = 'anonymous';
-            }}
-            return new Promise((resolve, reject) => {{
-                script.onload = () => {{
-                    script.dataset.loaded = 'true';
-                    script.dataset.failed = 'false';
-                    resolve();
-                }};
-                script.onerror = () => {{
-                    script.dataset.failed = 'true';
-                    reject(new Error(`Failed to load ${{src}}`));
-                }};
-                document.head.appendChild(script);
-            }});
-        }};
-    }}
-    const loadScriptOnce = window.__lwc_load_script_once;
+        const script = document.createElement('script');
+        script.id = id;
+        script.src = src;
+        if (integrity) {{
+            script.integrity = integrity;
+            script.crossOrigin = 'anonymous';
+        }}
+        return new Promise((resolve, reject) => {{
+            script.onload = () => {{
+                script.dataset.loaded = 'true';
+                script.dataset.failed = 'false';
+                resolve();
+            }};
+            script.onerror = () => {{
+                script.dataset.failed = 'true';
+                reject(new Error(`Failed to load ${{src}}`));
+            }};
+            document.head.appendChild(script);
+        }});
+    }});
+    window.__lwc_load_script_once = loadScriptOnce;
 
     if (typeof window.LightweightCharts === 'undefined') {{
         window.__lwc_loading_promise = window.__lwc_loading_promise || (async () => {{

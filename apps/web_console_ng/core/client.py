@@ -250,9 +250,8 @@ class AsyncTradingClient:
                 {strategy for strategy in resolved_strategies if strategy}
             )
             if normalized_strategy_ids:
-                # Deterministic fallback for multi-strategy contexts until the S2S
-                # signature schema supports strategy lists.
-                normalized_strategy_id = normalized_strategy_ids[0]
+                # Preserve full deterministic strategy scope for multi-strategy sessions.
+                normalized_strategy_id = ",".join(normalized_strategy_ids)
 
         payload_data = {
             "service_id": service_id,

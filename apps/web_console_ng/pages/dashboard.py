@@ -2856,11 +2856,7 @@ async def dashboard(client: Client) -> None:
             active_context = (
                 active_context_ref if isinstance(active_context_ref, OrderEntryContext) else None
             )
-            is_handoff = (
-                active_generation_id != order_context_generation_id
-                and active_context is not None
-                and active_context is not order_context
-            )
+            is_handoff = active_generation_id != order_context_generation_id
             deferred_release_symbols = await order_context.dispose(
                 release_market_data_symbols=not is_handoff
             )
@@ -2868,10 +2864,21 @@ async def dashboard(client: Client) -> None:
                 if client.storage.get("active_order_context_ref") is order_context:
                     client.storage.pop("active_order_context_ref", None)
                     client.storage.pop("active_order_context_generation_id", None)
-            elif deferred_release_symbols and active_context is not None:
-                await active_context.adopt_deferred_market_data_releases(
-                    sorted(deferred_release_symbols)
-                )
+            elif deferred_release_symbols:
+                if active_context is not None and active_context is not order_context:
+                    await active_context.adopt_deferred_market_data_releases(
+                        sorted(deferred_release_symbols)
+                    )
+                else:
+                    deferred_symbols_raw = client.storage.get("deferred_market_data_release_symbols", [])
+                    existing_symbols = (
+                        [symbol for symbol in deferred_symbols_raw if isinstance(symbol, str)]
+                        if isinstance(deferred_symbols_raw, list)
+                        else []
+                    )
+                    client.storage["deferred_market_data_release_symbols"] = sorted(
+                        set(existing_symbols).union(deferred_release_symbols)
+                    )
         except Exception as exc:
             logger.warning(
                 "order_context_dispose_failed",
