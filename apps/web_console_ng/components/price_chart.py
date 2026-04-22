@@ -103,6 +103,14 @@ class PriceChartComponent:
         ("1Hour", 200),
         ("1Day", 120),
     )
+    HISTORICAL_TIMEFRAME_SECONDS: dict[str, int] = {
+        "1min": 60,
+        "5min": 300,
+        "15min": 900,
+        "30min": 1800,
+        "1hour": 3600,
+        "1day": 86400,
+    }
 
     def __init__(
         self,
@@ -141,6 +149,7 @@ class PriceChartComponent:
         self._price_update_lock: asyncio.Lock | None = None
         self._price_update_task: asyncio.Task[None] | None = None
         self._pending_price_update: tuple[float, datetime, str | None] | None = None
+        self._live_bucket_interval_seconds: int = self.CANDLE_INTERVAL_SECONDS
         self._no_data_overlay_visible: bool = False
         self._stale_overlay_visible: bool = False
         self._fallback_overlay_visible: bool = False
@@ -294,6 +303,7 @@ class PriceChartComponent:
         before updating state/UI to prevent stale fetches from overwriting newer data.
         """
         self._current_symbol = symbol
+        self._live_bucket_interval_seconds = self.CANDLE_INTERVAL_SECONDS
 
         # CRITICAL: Reset realtime update timestamp for staleness tracking
         # Without this, staleness badge would show wrong age for new symbol
@@ -510,9 +520,10 @@ class PriceChartComponent:
                 return
 
             tick_time = _ensure_utc_datetime(tick_time)
+            live_bucket_interval_seconds = max(1, self._live_bucket_interval_seconds)
             bucket_start = (
-                int(tick_time.timestamp()) // self.CANDLE_INTERVAL_SECONDS
-            ) * self.CANDLE_INTERVAL_SECONDS
+                int(tick_time.timestamp()) // live_bucket_interval_seconds
+            ) * live_bucket_interval_seconds
 
             if not self._candles:
                 seeded_candle = CandleData(
@@ -685,6 +696,7 @@ class PriceChartComponent:
         """Fetch historical candle data for the selected symbol."""
         if self._disposed:
             return []
+        self._live_bucket_interval_seconds = self.CANDLE_INTERVAL_SECONDS
 
         fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
         if fetch_historical_bars is None:
@@ -736,6 +748,10 @@ class PriceChartComponent:
 
             candles = self._parse_historical_bars(response.get("bars", []))
             if candles:
+                self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
+                    timeframe.strip().lower(),
+                    self.CANDLE_INTERVAL_SECONDS,
+                )
                 return candles
 
         logger.debug("Historical bars unavailable for %s across fallback timeframes", symbol)

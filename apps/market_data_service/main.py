@@ -102,7 +102,6 @@ SOURCE_OVERRIDE_SERVICE_BY_PREFIX: dict[str, str] = {
     source_prefix: service_id
     for service_id, source_prefix in SOURCE_OVERRIDE_PREFIX_BY_SERVICE.items()
 }
-UNSIGNED_SOURCE_PREFIXES = frozenset(SOURCE_OVERRIDE_PREFIX_BY_SERVICE.values())
 
 
 def _normalize_subscription_source(raw_source: str | None) -> str:
@@ -141,11 +140,6 @@ async def _authorize_source_override(
         or os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "").strip()
     )
     if not signed_override_required:
-        if source_prefix not in UNSIGNED_SOURCE_PREFIXES:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Unsigned source override is not allowed for prefix '{source_prefix}'",
-            )
         return
 
     if auth_context.auth_type != "internal_token" or auth_context.internal_claims is None:

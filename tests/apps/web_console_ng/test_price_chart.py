@@ -126,6 +126,7 @@ class TestPriceChartInit:
         assert comp._price_update_lock is None
         assert comp._price_update_task is None
         assert comp._pending_price_update is None
+        assert comp._live_bucket_interval_seconds == comp.CANDLE_INTERVAL_SECONDS
 
     def test_unique_ids_generated(self) -> None:
         """Each component gets unique chart and container IDs."""
@@ -683,6 +684,7 @@ class TestPriceChartHistoricalBars:
         assert len(candles) == 2
         assert candles[0].open == 180.1
         assert candles[1].close == 181.1
+        assert component._live_bucket_interval_seconds == 300
         client.fetch_historical_bars.assert_awaited_once_with(
             symbol="AAPL",
             user_id="user-1",
@@ -720,6 +722,41 @@ class TestPriceChartHistoricalBars:
             ("MSFT", "1Hour", 200),
             ("MSFT", "1Day", 120),
         ]
+        assert component._live_bucket_interval_seconds == component.CANDLE_INTERVAL_SECONDS
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_tracks_fallback_interval_for_live_bucketing(self) -> None:
+        """Fallback historical interval should drive subsequent realtime bucket sizing."""
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(
+            side_effect=[
+                {"bars": []},  # 5Min unavailable
+                {
+                    "bars": [
+                        {
+                            "timestamp": "2026-04-20T13:30:00Z",
+                            "open": 180.1,
+                            "high": 181.0,
+                            "low": 179.9,
+                            "close": 180.6,
+                            "volume": 1200,
+                        },
+                    ]
+                },
+            ]
+        )
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("AAPL")
+
+        assert len(candles) == 1
+        assert component._live_bucket_interval_seconds == 900
+        assert client.fetch_historical_bars.await_count == 2
 
 
 class TestPriceChartExecutionMarkers:
@@ -872,6 +909,25 @@ class TestPriceChartRealtimeUpdates:
         assert component._candles[-1].time == 1500
         assert component._candles[-1].close == 102.0
         assert component._candles[-1].volume is None
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_uses_selected_live_bucket_interval(self) -> None:
+        """Realtime bucket math should follow the historical fallback interval in use."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._live_bucket_interval_seconds = 900
+        component._candles = [
+            CandleData(time=1800, open=100.0, high=101.0, low=99.0, close=100.5, volume=None),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(102.0, datetime.fromtimestamp(2400, UTC))
+
+        assert len(component._candles) == 1
+        assert component._candles[-1].time == 1800
+        assert component._candles[-1].close == 102.0
 
 
 class TestPriceChartOverlays:
