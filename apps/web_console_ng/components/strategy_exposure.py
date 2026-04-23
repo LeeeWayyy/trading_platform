@@ -230,16 +230,8 @@ def build_exposure_rows(
     include_total: bool = True,
 ) -> list[dict[str, Any]]:
     """Build AG Grid rows with per-strategy breakdown + TOTAL row."""
-    # Avoid synthetic "$0 TOTAL" row before first successful fetch.
-    if (
-        not exposures
-        and total.strategy_count <= 0
-        and total.long_total == 0.0
-        and total.short_total == 0.0
-        and total.gross_total == 0.0
-        and total.net_total == 0.0
-        and total.net_pct == 0.0
-    ):
+    # Placeholder payloads should not render synthetic totals.
+    if not exposures and total.is_placeholder:
         return []
 
     rows = []

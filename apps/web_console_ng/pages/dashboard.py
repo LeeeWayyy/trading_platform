@@ -2943,7 +2943,7 @@ def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
     target = resolve_rooted_path_from_ui("/", ui_module=ui_module)
     try:
         request = ui_module.context.client.request
-    except (AttributeError, RuntimeError, KeyError, TypeError, ValueError) as exc:
+    except (AttributeError, RuntimeError) as exc:
         logger.debug(
             "trade_alias_request_unavailable",
             extra={"error_type": type(exc).__name__, "error": str(exc)},
@@ -2955,10 +2955,18 @@ def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
         return target
 
     raw_query = scope.get("query_string", b"")
-    query_items = parse_qsl(
-        raw_query.decode("utf-8") if isinstance(raw_query, bytes) else str(raw_query),
-        keep_blank_values=False,
-    )
+    if isinstance(raw_query, bytes):
+        try:
+            raw_query_str = raw_query.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            logger.warning(
+                "trade_alias_query_decode_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+            return target
+    else:
+        raw_query_str = str(raw_query)
+    query_items = parse_qsl(raw_query_str, keep_blank_values=False)
     safe_items = [(key, value) for key, value in query_items if key in TRADE_REDIRECT_QUERY_KEYS]
     if not safe_items:
         return target

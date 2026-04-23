@@ -226,12 +226,10 @@ async def circuit_breaker_page() -> None:
             history_count = _count_trips_today(history_data, now_utc=now)
             backend_count = 0
             backend_value = status_data.get("trip_count_today", 0)
-            if (
-                isinstance(backend_value, int | float)
-                and math.isfinite(backend_value)
-                and int(backend_value) > 0
-            ):
-                backend_count = int(backend_value)
+            if isinstance(backend_value, int | float) and math.isfinite(backend_value):
+                backend_value_int = int(backend_value)
+                if backend_value_int > 0:
+                    backend_count = backend_value_int
             trip_count = max(history_count, backend_count)
             if trip_count > 0:
                 with ui.row().classes("mt-2"):
