@@ -32,6 +32,14 @@ logger = logging.getLogger(__name__)
 _COST_BASIS_METHODS = ["fifo", "lifo", "specific_id"]
 
 
+class MarketPriceFetchError(RuntimeError):
+    """Domain error for market-price fetch failures with UI status mapping."""
+
+    def __init__(self, status: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 @ui.page("/tax-lots")
 @requires_auth
 @main_layout
@@ -88,7 +96,10 @@ async def tax_lots_page() -> None:
     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
 
     # Fetch current prices for harvesting (graceful degradation)
-    current_prices, price_status = await _fetch_current_prices_with_status(lots, user)
+    try:
+        current_prices, price_status = await _fetch_current_prices_with_status(lots, user)
+    except MarketPriceFetchError as exc:
+        current_prices, price_status = ({}, exc.status)
     harvester = TaxLossHarvester(db_pool)  # type: ignore[arg-type]
     suggestions = None
     if current_prices and not show_all_users:
@@ -123,9 +134,12 @@ async def tax_lots_page() -> None:
                 show_all_users = e.value
                 lots = await _load_lots()
                 wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
-                current_prices, price_status = await _fetch_current_prices_with_status(
-                    lots, get_current_user(),
-                )
+                try:
+                    current_prices, price_status = await _fetch_current_prices_with_status(
+                        lots, get_current_user(),
+                    )
+                except MarketPriceFetchError as exc:
+                    current_prices, price_status = ({}, exc.status)
                 suggestions = None
                 if current_prices and not show_all_users:
                     try:
@@ -237,9 +251,12 @@ async def tax_lots_page() -> None:
                     nonlocal lots, wash_sale_lot_ids, current_prices, suggestions, price_status
                     lots = await _load_lots()
                     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
-                    current_prices, price_status = await _fetch_current_prices_with_status(
-                        lots, get_current_user(),
-                    )
+                    try:
+                        current_prices, price_status = await _fetch_current_prices_with_status(
+                            lots, get_current_user(),
+                        )
+                    except MarketPriceFetchError as exc:
+                        current_prices, price_status = ({}, exc.status)
                     suggestions = None
                     if current_prices and not show_all_users:
                         try:
@@ -368,22 +385,35 @@ async def _fetch_current_prices_with_status(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
             logger.info("market_prices_permission_denied", extra={"role": user.get("role")})
-            return ({}, "permission_denied")
+            raise MarketPriceFetchError("permission_denied", "Market data permission denied") from exc
         logger.warning("market_prices_http_error", extra={"status": exc.response.status_code})
-        return ({}, "unavailable")
+        raise MarketPriceFetchError("unavailable", "Market data service HTTP failure") from exc
     except httpx.HTTPError as exc:
         logger.warning("market_prices_fetch_failed", extra={"error": str(exc)})
-        return ({}, "unavailable")
+        raise MarketPriceFetchError("unavailable", "Market data fetch transport failure") from exc
     except ValueError as exc:
         logger.warning("market_prices_invalid_payload", extra={"error": str(exc)})
-        return ({}, "unavailable")
+        raise MarketPriceFetchError("unavailable", "Market data payload invalid") from exc
     prices: dict[str, Decimal] = {}
     for item in raw:
+        if not isinstance(item, dict):
+            continue
+        symbol_value = item.get("symbol")
+        if symbol_value is None:
+            continue
+        sym = str(symbol_value)
+        if sym not in symbols_needed:
+            continue
+        mid_value = item.get("mid")
+        if mid_value is None:
+            continue
         try:
-            sym = str(item["symbol"])
-            if sym in symbols_needed and item.get("mid") is not None:
-                prices[sym] = Decimal(str(item["mid"]))
-        except (KeyError, TypeError, ValueError, ArithmeticError):
+            prices[sym] = Decimal(str(mid_value))
+        except (ArithmeticError, TypeError, ValueError) as exc:
+            logger.warning(
+                "market_prices_invalid_mid",
+                extra={"symbol": sym, "error": str(exc)},
+            )
             continue
     if not prices:
         return ({}, "no_prices")
@@ -392,8 +422,11 @@ async def _fetch_current_prices_with_status(
 
 async def _fetch_current_prices(lots: list[Any], user: dict[str, Any]) -> dict[str, Decimal]:
     """Backward-compatible helper returning only symbol->price mapping."""
-    prices, _status = await _fetch_current_prices_with_status(lots, user)
-    return prices
+    try:
+        prices, _status = await _fetch_current_prices_with_status(lots, user)
+        return prices
+    except MarketPriceFetchError:
+        return {}
 
 
 async def _render_summary_metrics(
