@@ -40,9 +40,22 @@ class StatusBar:
                 remove="bg-red-600 bg-green-600 text-white",
             )
 
-    def update_state(self, state: str | None) -> None:
-        """Update status bar text and color based on kill switch state."""
+    def update_state(self, state: str | None, *, circuit_state: str | None = None) -> None:
+        """Update status bar from kill-switch and circuit-breaker state."""
         normalized = (state or "UNKNOWN").upper()
+        cb_normalized = (circuit_state or "UNKNOWN").upper()
+
+        if cb_normalized == "TRIPPED":
+            if self._label:
+                self._label.set_text("TRADING HALTED (CIRCUIT)")
+            self._set_state_classes("ENGAGED")
+            return
+        if cb_normalized == "QUIET_PERIOD":
+            if self._label:
+                self._label.set_text("TRADING PAUSED (QUIET)")
+            self._set_state_classes("UNKNOWN")
+            return
+
         if self._label:
             if normalized == "ENGAGED":
                 self._label.set_text("TRADING HALTED")

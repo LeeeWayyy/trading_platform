@@ -9,9 +9,10 @@ from nicegui import ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components.strategy_exposure import (
+    build_exposure_chart_figure,
+    build_exposure_rows,
     render_bias_warning,
     render_data_quality_warning,
-    render_exposure_chart,
     render_exposure_grid,
     render_exposure_summary_cards,
     render_exposure_unavailable,
@@ -22,13 +23,13 @@ from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.utils.session import get_or_create_client_id
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 from libs.web_console_services.exposure_service import ExposureService
+from libs.web_console_services.schemas.exposure import TotalExposureDTO
 
 logger = logging.getLogger(__name__)
 
 _CLEANUP_OWNER_KEY = "exposure_timers"
 
 
-@ui.page("/exposure")
 @ui.page("/risk/exposure")
 @requires_auth
 @main_layout
@@ -54,13 +55,28 @@ async def exposure_page() -> None:
     grid_container = ui.column().classes("w-full")
     chart_container = ui.column().classes("w-full")
     badge_container = ui.column().classes("w-full")
+    status_container = ui.column().classes("w-full")
+
+    empty_total = TotalExposureDTO(
+        long_total=0.0,
+        short_total=0.0,
+        gross_total=0.0,
+        net_total=0.0,
+        net_pct=0.0,
+        strategy_count=0,
+    )
+    with grid_container:
+        exposure_grid = render_exposure_grid([], empty_total)
+    with chart_container:
+        exposure_chart = ui.plotly(build_exposure_chart_figure([])).classes("w-full")
 
     _refreshing = False
     _error_count = 0
+    _had_success = False
     _timer_ref: list[ui.timer | None] = [None]
 
     async def refresh_exposure() -> None:
-        nonlocal _refreshing, _error_count
+        nonlocal _refreshing, _error_count, _had_success
         if _refreshing:
             return
         _refreshing = True
@@ -78,8 +94,10 @@ async def exposure_page() -> None:
                 timeout=25.0,  # Must complete before next 30s poll
             )
             _error_count = 0  # Reset on success
+            _had_success = True
 
             badge_container.clear()
+            status_container.clear()
             if total.is_placeholder:
                 with badge_container:
                     if total.strategy_count == 0:
@@ -97,10 +115,12 @@ async def exposure_page() -> None:
             if not exposures and total.is_partial:
                 summary_container.clear()
                 warning_container.clear()
-                grid_container.clear()
-                chart_container.clear()
                 with warning_container:
                     render_exposure_unavailable(total)
+                exposure_grid.options["rowData"] = []
+                exposure_grid.update()
+                exposure_chart.figure = build_exposure_chart_figure([])
+                exposure_chart.update()
             else:
                 summary_container.clear()
                 with summary_container:
@@ -111,21 +131,17 @@ async def exposure_page() -> None:
                     render_bias_warning(total)
                     render_data_quality_warning(total)
 
-                grid_container.clear()
-                with grid_container:
-                    render_exposure_grid(exposures, total)
-
-                chart_container.clear()
-                with chart_container:
-                    render_exposure_chart(exposures)
+                exposure_grid.options["rowData"] = build_exposure_rows(exposures, total)
+                exposure_grid.update()
+                exposure_chart.figure = build_exposure_chart_figure(exposures)
+                exposure_chart.update()
 
         except PermissionError as exc:
             for container in (
+                status_container,
                 badge_container,
                 summary_container,
                 warning_container,
-                grid_container,
-                chart_container,
             ):
                 container.clear()
             with warning_container:
@@ -172,6 +188,14 @@ async def exposure_page() -> None:
                         "inline-block px-3 py-1 rounded bg-red-100 "
                         "text-red-700 text-xs font-semibold mb-3"
                     )
+            status_container.clear()
+            with status_container:
+                with ui.card().classes("w-full p-2 bg-amber-50 border border-amber-300"):
+                    ui.label(
+                        "Exposure refresh failed; showing last successful data."
+                        if _had_success
+                        else "Exposure data is currently unavailable."
+                    ).classes("text-xs text-amber-700")
         finally:
             _refreshing = False
 
@@ -192,3 +216,10 @@ async def exposure_page() -> None:
 
 
 __all__ = ["exposure_page"]
+
+
+@ui.page("/exposure")
+@requires_auth
+async def exposure_alias_page() -> None:
+    """Legacy alias route; keep deep links working with canonical path."""
+    ui.navigate.to("/risk/exposure")

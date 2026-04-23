@@ -55,6 +55,7 @@ async def data_coverage_page() -> None:
 
     analyzer = CoverageAnalyzer()
     available_tickers = await asyncio.to_thread(analyzer.get_available_tickers)
+    has_coverage_data = bool(available_tickers)
 
     results_container = ui.column().classes("w-full mt-4")
     export_container = ui.column().classes("w-full")
@@ -129,12 +130,19 @@ async def data_coverage_page() -> None:
                 available_tickers=available_tickers,
                 on_analyze=on_analyze,
             )
+            if not has_coverage_data:
+                ui.button("Analyze Coverage", color="primary").props("disable").classes("mt-4")
 
         with ui.column().classes("flex-1"):
             with results_container:
-                ui.label(
-                    "Configure analysis parameters and click Analyze."
-                ).classes("text-gray-500")
+                if has_coverage_data:
+                    ui.label(
+                        "Configure analysis parameters and click Analyze."
+                    ).classes("text-gray-500")
+                else:
+                    ui.label(
+                        "No adjusted data found yet. Run ETL sync, then return to analyze coverage."
+                    ).classes("text-gray-500")
             with export_container:
                 pass
 

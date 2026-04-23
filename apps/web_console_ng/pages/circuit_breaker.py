@@ -18,6 +18,7 @@ PARITY: Mirrors apps/web_console/pages/circuit_breaker.py functionality
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from nicegui import app, run, ui
@@ -35,6 +36,35 @@ if TYPE_CHECKING:
     from libs.web_console_services.cb_service import CircuitBreakerService
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    """Parse ISO-ish timestamps to timezone-aware UTC datetime."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _count_trips_today(history: list[dict[str, Any]], *, now_utc: datetime) -> int:
+    """Count trip events by tripped_at date from local history payload."""
+    today = now_utc.date()
+    count = 0
+    for entry in history:
+        tripped_at = _parse_utc_datetime(entry.get("tripped_at"))
+        if tripped_at is not None and tripped_at.date() == today:
+            count += 1
+    return count
 
 
 def _get_cb_service() -> CircuitBreakerService | None:
@@ -186,8 +216,14 @@ async def circuit_breaker_page() -> None:
             else:
                 ui.label(f"Status: {state}").classes("text-2xl font-bold text-gray-600")
 
-            # Trip count today
-            trip_count = status_data.get("trip_count_today", 0)
+            # Trip count today (prefer local history-derived count).
+            trip_count = _count_trips_today(history_data, now_utc=datetime.now(UTC))
+            if trip_count == 0:
+                backend_count = status_data.get("trip_count_today", 0)
+                if isinstance(backend_count, int | float) and int(backend_count) > 0:
+                    tripped_at = _parse_utc_datetime(status_data.get("tripped_at"))
+                    if tripped_at is not None and tripped_at.date() == datetime.now(UTC).date():
+                        trip_count = int(backend_count)
             if trip_count > 0:
                 with ui.row().classes("mt-2"):
                     ui.label("Trips Today:").classes("font-medium")

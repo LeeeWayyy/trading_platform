@@ -65,7 +65,6 @@ def _get_service(db_pool: Any, user: dict[str, Any]) -> Any:
     )
 
 
-@ui.page("/reports/scheduled")
 @ui.page("/reports")
 @requires_auth
 @main_layout
@@ -785,3 +784,10 @@ def _format_dt(value: datetime | None) -> str:
 
 
 __all__ = ["scheduled_reports_page"]
+
+
+@ui.page("/reports/scheduled")
+@requires_auth
+async def scheduled_reports_alias_page() -> None:
+    """Legacy alias route for scheduled reports."""
+    ui.navigate.to("/reports")

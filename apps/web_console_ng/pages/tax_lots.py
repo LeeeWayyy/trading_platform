@@ -88,7 +88,7 @@ async def tax_lots_page() -> None:
     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
 
     # Fetch current prices for harvesting (graceful degradation)
-    current_prices = await _fetch_current_prices(lots, user)
+    current_prices, price_status = await _fetch_current_prices_with_status(lots, user)
     harvester = TaxLossHarvester(db_pool)  # type: ignore[arg-type]
     suggestions = None
     if current_prices and not show_all_users:
@@ -103,7 +103,9 @@ async def tax_lots_page() -> None:
     # Summary metrics (refreshable for toggle)
     @ui.refreshable  # type: ignore[arg-type]
     async def summary_section() -> None:
-        await _render_summary_metrics(lots, current_prices, wash_sale_lot_ids, db_pool)
+        await _render_summary_metrics(
+            lots, current_prices, wash_sale_lot_ids, db_pool, price_status=price_status,
+        )
 
     await summary_section()
 
@@ -117,11 +119,13 @@ async def tax_lots_page() -> None:
                 )
                 if not allowed:
                     return
-                nonlocal show_all_users, lots, wash_sale_lot_ids, current_prices, suggestions
+                nonlocal show_all_users, lots, wash_sale_lot_ids, current_prices, suggestions, price_status
                 show_all_users = e.value
                 lots = await _load_lots()
                 wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
-                current_prices = await _fetch_current_prices(lots, get_current_user())
+                current_prices, price_status = await _fetch_current_prices_with_status(
+                    lots, get_current_user(),
+                )
                 suggestions = None
                 if current_prices and not show_all_users:
                     try:
@@ -230,10 +234,12 @@ async def tax_lots_page() -> None:
                         logger.debug("audit_log_lot_close_failed")
                     ui.notify(f"Lot {lot_id[:8]}... closed", type="positive")
                     # Refresh all sections
-                    nonlocal lots, wash_sale_lot_ids, current_prices, suggestions
+                    nonlocal lots, wash_sale_lot_ids, current_prices, suggestions, price_status
                     lots = await _load_lots()
                     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
-                    current_prices = await _fetch_current_prices(lots, get_current_user())
+                    current_prices, price_status = await _fetch_current_prices_with_status(
+                        lots, get_current_user(),
+                    )
                     suggestions = None
                     if current_prices and not show_all_users:
                         try:
@@ -253,6 +259,12 @@ async def tax_lots_page() -> None:
 
             @ui.refreshable
             def lot_grid() -> None:
+                if not lots:
+                    with ui.card().classes("w-full p-3 mb-2 bg-slate-800 border border-slate-600"):
+                        ui.label("No open tax lots found.").classes("text-sm text-slate-200")
+                        ui.label(
+                            "Tax lots populate after fills are reconciled into lot records."
+                        ).classes("text-xs text-slate-400")
                 render_tax_lot_table(
                     lots,
                     wash_sale_lot_ids=wash_sale_lot_ids,
@@ -273,7 +285,7 @@ async def tax_lots_page() -> None:
 
             @ui.refreshable
             def harvesting_section() -> None:
-                render_harvesting_suggestions(suggestions)
+                render_harvesting_suggestions(suggestions, price_status=price_status)
 
             harvesting_section()
 
@@ -330,13 +342,21 @@ async def _fetch_wash_sale_lot_ids(db_pool: Any, lots: list[Any]) -> set[str]:
         return set()
 
 
-async def _fetch_current_prices(lots: list[Any], user: dict[str, Any]) -> dict[str, Decimal]:
+async def _fetch_current_prices_with_status(
+    lots: list[Any], user: dict[str, Any],
+) -> tuple[dict[str, Decimal], str]:
     """Fetch current prices via AsyncTradingClient.
 
-    Graceful degradation: returns empty dict on 403 or any error.
+    Returns:
+        (prices, status) where status is one of:
+        - ``ok``: at least one symbol priced
+        - ``no_open_lots``: no lots to price
+        - ``permission_denied``: backend denied market data access
+        - ``no_prices``: backend returned no usable prices
+        - ``unavailable``: transport/service error
     """
     if not lots:
-        return {}
+        return ({}, "no_open_lots")
     symbols_needed = {lot.symbol for lot in lots}
     client = AsyncTradingClient.get()
     try:
@@ -348,15 +368,15 @@ async def _fetch_current_prices(lots: list[Any], user: dict[str, Any]) -> dict[s
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
             logger.info("market_prices_permission_denied", extra={"role": user.get("role")})
-            return {}
+            return ({}, "permission_denied")
         logger.warning("market_prices_http_error", extra={"status": exc.response.status_code})
-        return {}
+        return ({}, "unavailable")
     except httpx.HTTPError as exc:
         logger.warning("market_prices_fetch_failed", extra={"error": str(exc)})
-        return {}
+        return ({}, "unavailable")
     except ValueError as exc:
         logger.warning("market_prices_invalid_payload", extra={"error": str(exc)})
-        return {}
+        return ({}, "unavailable")
     prices: dict[str, Decimal] = {}
     for item in raw:
         try:
@@ -365,6 +385,14 @@ async def _fetch_current_prices(lots: list[Any], user: dict[str, Any]) -> dict[s
                 prices[sym] = Decimal(str(item["mid"]))
         except (KeyError, TypeError, ValueError, ArithmeticError):
             continue
+    if not prices:
+        return ({}, "no_prices")
+    return (prices, "ok")
+
+
+async def _fetch_current_prices(lots: list[Any], user: dict[str, Any]) -> dict[str, Decimal]:
+    """Backward-compatible helper returning only symbol->price mapping."""
+    prices, _status = await _fetch_current_prices_with_status(lots, user)
     return prices
 
 
@@ -373,6 +401,8 @@ async def _render_summary_metrics(
     current_prices: dict[str, Decimal],
     wash_sale_lot_ids: set[str],
     db_pool: Any,
+    *,
+    price_status: str = "ok",
 ) -> None:
     """Render summary header cards."""
     # Pro-rate cost basis for partially sold lots (remaining < quantity)
@@ -419,6 +449,8 @@ async def _render_summary_metrics(
                 ui.label(label).classes(f"text-xl font-bold {color}")
             else:
                 ui.label("N/A").classes("text-xl font-bold text-gray-400")
+                if price_status in {"permission_denied", "unavailable", "no_prices"}:
+                    ui.label("Live price feed unavailable").classes("text-xs text-amber-600")
         with ui.card().classes("flex-1 p-3"):
             ui.label("Short / Long Term").classes("text-gray-500 text-sm")
             ui.label(f"{len(short_term)} / {len(long_term)}").classes("text-xl font-bold")

@@ -24,6 +24,7 @@ from libs.web_console_services.sql_explorer_service import (
     SqlExplorerService,
     can_query_dataset,
 )
+from libs.web_console_services.sql_validator import DATASET_TABLES
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,6 @@ async def _get_validated_paths() -> tuple[dict[str, set[str]], list[str]]:
         return result
 
 
-@ui.page("/sql-explorer")
 @ui.page("/data/sql-explorer")
 @requires_auth
 @main_layout
@@ -99,18 +99,24 @@ async def sql_explorer_page() -> None:
     for warning in warnings:
         logger.warning("sql_explorer_path_warning", extra={"detail": warning})
 
-    allowed_datasets = sorted(
-        [
-            dataset
-            for dataset in available_tables_by_dataset
-            if can_query_dataset(user, dataset)
-        ]
+    queryable_datasets = sorted(
+        [dataset for dataset in DATASET_TABLES if can_query_dataset(user, dataset)]
     )
+    allowed_datasets = queryable_datasets
 
     if not allowed_datasets:
         with ui.card().classes("w-full p-4"):
             ui.label("No queryable datasets available for your account.").classes("text-gray-400")
         return
+
+    dataset_options = {
+        dataset: (
+            dataset.upper()
+            if available_tables_by_dataset.get(dataset)
+            else f"{dataset.upper()} (no local data)"
+        )
+        for dataset in allowed_datasets
+    }
 
     history: list[dict[str, Any]] = []
     query_running = False
@@ -119,7 +125,7 @@ async def sql_explorer_page() -> None:
     with ui.row().classes("w-full gap-3 items-end"):
         dataset_select = ui.select(
             label="Dataset",
-            options=allowed_datasets,
+            options=dataset_options,
             value=allowed_datasets[0],
         ).classes("w-56")
         timeout_select = ui.select(
@@ -136,11 +142,21 @@ async def sql_explorer_page() -> None:
         ).classes("w-40")
 
     tables_label = ui.label("").classes("text-sm text-gray-400 mb-1")
+    dataset_state_label = ui.label("").classes("text-xs mb-1")
 
     def _update_table_hint() -> None:
         dataset = str(dataset_select.value)
         tables = sorted(available_tables_by_dataset.get(dataset, set()))
-        tables_label.text = f"Available tables: {', '.join(tables)}" if tables else "Available tables: -"
+        if tables:
+            tables_label.text = f"Available tables: {', '.join(tables)}"
+            dataset_state_label.text = ""
+            dataset_state_label.classes("text-amber-600", remove="text-gray-500")
+        else:
+            tables_label.text = "Available tables: -"
+            dataset_state_label.text = (
+                "No local parquet files discovered for this dataset in the current environment."
+            )
+            dataset_state_label.classes("text-amber-600", remove="text-gray-500")
 
     _update_table_hint()
     dataset_select.on_value_change(lambda _: _update_table_hint())
@@ -231,6 +247,16 @@ async def sql_explorer_page() -> None:
             return
 
         dataset = str(dataset_select.value)
+        available_tables = available_tables_by_dataset.get(dataset, set())
+        if not available_tables:
+            status_label.text = "No local data files found for selected dataset"
+            ui.notify(
+                "No local parquet files found for selected dataset. "
+                "Sync data before querying.",
+                type="warning",
+            )
+            return
+
         timeout = int(str(timeout_select.value))
         max_rows_raw = int(max_rows_input.value or 10_000)
         max_rows = min(max_rows_raw, _MAX_ROWS_LIMIT)
@@ -245,7 +271,7 @@ async def sql_explorer_page() -> None:
                 query=query,
                 timeout_seconds=timeout,
                 max_rows=max_rows,
-                available_tables=available_tables_by_dataset.get(dataset, set()),
+                available_tables=available_tables,
             )
 
             cell_count = len(result.df) * len(result.df.columns)
@@ -336,3 +362,10 @@ async def sql_explorer_page() -> None:
 
 
 __all__ = ["sql_explorer_page"]
+
+
+@ui.page("/sql-explorer")
+@requires_auth
+async def sql_explorer_alias_page() -> None:
+    """Legacy alias route for SQL Explorer."""
+    ui.navigate.to("/data/sql-explorer")

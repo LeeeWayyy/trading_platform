@@ -664,6 +664,11 @@ class MarketPriceCache:
 @main_layout
 async def dashboard(client: Client) -> None:
     """Main trading dashboard with real-time updates."""
+    request = getattr(client, "request", None)
+    if request is not None and str(request.scope.get("path", "")) == "/trade":
+        ui.navigate.to("/")
+        return
+
     trading_client = AsyncTradingClient.get()
     user = get_current_user()
     user_id = str(user.get("user_id") or user.get("username") or "").strip()
@@ -1502,13 +1507,13 @@ async def dashboard(client: Client) -> None:
             return
 
         pnl_card.update(_coerce_float(pnl_data.get("total_unrealized_pl", 0)))
-        positions_card.update(_coerce_int(pnl_data.get("total_positions", 0)))
         realized_card.update(_coerce_float(pnl_data.get("realized_pl_today", 0)))
         buying_power = account_info.get("buying_power")
         if buying_power is None:
             buying_power = pnl_data.get("buying_power", 0)
         bp_card.update(_coerce_float(buying_power))
         positions_snapshot = list(positions.get("positions", []))
+        positions_card.update(len(positions_snapshot))
         orders_snapshot = list(orders.get("orders", []))
         await sparkline_service.record_positions(user_id, positions_snapshot)
 
@@ -2022,7 +2027,7 @@ async def dashboard(client: Client) -> None:
         _evaluate_workspace_mask()
         if "total_unrealized_pl" in data:
             pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
-        if "total_positions" in data:
+        if "total_positions" in data and "positions" not in data:
             positions_card.update(_coerce_int(data["total_positions"]))
         if "realized_pl_today" in data:
             realized_card.update(_coerce_float(data["realized_pl_today"]))
@@ -2030,6 +2035,7 @@ async def dashboard(client: Client) -> None:
             bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
             positions_snapshot = list(data["positions"])
+            positions_card.update(len(positions_snapshot))
             await sparkline_service.record_positions(user_id, positions_snapshot)
             _update_filter_options()
             if tabbed_panel is not None:

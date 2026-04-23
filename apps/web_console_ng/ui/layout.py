@@ -150,9 +150,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         client = AsyncTradingClient.get()
 
         # Left drawer (sidebar)
-        drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64")
+        drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64 h-screen overflow-y-auto")
         with drawer:
-            with ui.column().classes("w-full gap-1 p-3"):
+            with ui.column().classes("w-full gap-1 p-3 min-h-screen pb-4"):
                 ui.label("Navigation").classes("text-gray-500 text-xs uppercase tracking-wide mb-2")
 
                 nav_items = [
@@ -372,6 +372,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         # Header
         status_bar = StatusBar()
+
+        def _update_status_bar(state: str | None, cb_state: str | None = None) -> None:
+            """Call StatusBar with backward-compatible fallback for test doubles."""
+            try:
+                status_bar.update_state(state, circuit_state=cb_state)
+            except TypeError:
+                status_bar.update_state(state)
 
         with ui.header().classes(
             "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"
@@ -751,7 +758,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             "bg-amber-500 text-black",
                             remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
-                    status_bar.update_state(display_state)
+                    _update_status_bar(display_state, cb_state)
 
                     if cb_state == "TRIPPED":
                         circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
@@ -797,7 +804,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "bg-amber-500 text-black",
                         remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                     )
-                    status_bar.update_state("UNKNOWN")
+                    _update_status_bar("UNKNOWN", "UNKNOWN")
                     set_kill_switch_controls("UNKNOWN")
                     circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
                     circuit_breaker_badge.classes(

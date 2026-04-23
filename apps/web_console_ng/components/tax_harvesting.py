@@ -7,7 +7,11 @@ from typing import Any
 from nicegui import ui
 
 
-def render_harvesting_suggestions(suggestions: Any | None) -> None:
+def render_harvesting_suggestions(
+    suggestions: Any | None,
+    *,
+    price_status: str | None = None,
+) -> None:
     """Render tax-loss harvesting suggestions as ranked cards.
 
     Args:
@@ -17,11 +21,22 @@ def render_harvesting_suggestions(suggestions: Any | None) -> None:
     ui.label("Tax-Loss Harvesting").classes("text-lg font-bold mb-2")
 
     if suggestions is None:
+        status = (price_status or "unavailable").strip().lower()
+        if status == "no_open_lots":
+            primary = "No open tax lots available yet."
+            secondary = "Harvesting suggestions appear after fills create tax lots."
+        elif status == "permission_denied":
+            primary = "Current prices unavailable for harvesting suggestions."
+            secondary = "Price feed access is restricted for this session."
+        elif status == "no_prices":
+            primary = "Current prices unavailable for harvesting suggestions."
+            secondary = "No quotes returned for current symbols."
+        else:
+            primary = "Current prices unavailable for harvesting suggestions."
+            secondary = "Market data service is temporarily unavailable."
         with ui.card().classes("w-full p-3"):
-            ui.label("Current prices unavailable — harvesting suggestions hidden.").classes(
-                "text-gray-500 text-sm"
-            )
-            ui.label("Price data requires VIEW_PNL permission.").classes("text-gray-400 text-xs")
+            ui.label(primary).classes("text-gray-500 text-sm")
+            ui.label(secondary).classes("text-gray-400 text-xs")
         return
 
     opportunities = getattr(suggestions, "opportunities", [])

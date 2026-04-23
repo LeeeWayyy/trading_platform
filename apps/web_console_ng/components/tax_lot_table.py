@@ -54,49 +54,58 @@ def render_tax_lot_table(
         )
 
     column_defs: list[dict[str, Any]] = [
-        {"headerName": "Symbol", "field": "symbol", "width": 100, "filter": True},
+        {"headerName": "Symbol", "field": "symbol", "minWidth": 110, "width": 120, "filter": True},
         {
             "headerName": "Quantity",
             "field": "quantity",
-            "width": 100,
+            "minWidth": 100,
+            "width": 110,
             "type": "numericColumn",
             ":valueFormatter": "x => x.value != null ? x.value.toFixed(2) : '-'",
         },
         {
             "headerName": "Cost Basis",
             "field": "cost_basis",
-            "width": 120,
+            "minWidth": 120,
+            "width": 130,
             "type": "numericColumn",
             ":valueFormatter": "x => x.value != null ? '$' + x.value.toFixed(2) : '-'",
         },
         {
             "headerName": "Cost/Share",
             "field": "cost_per_share",
-            "width": 110,
+            "minWidth": 120,
+            "width": 130,
             "type": "numericColumn",
             ":valueFormatter": "x => x.value != null ? '$' + x.value.toFixed(2) : '-'",
         },
-        {"headerName": "Acquired", "field": "acquisition_date", "width": 110},
-        {"headerName": "Strategy", "field": "strategy_id", "width": 120},
-        {"headerName": "Status", "field": "status", "width": 80},
-        {"headerName": "Holding", "field": "holding_period", "width": 100},
+        {"headerName": "Acquired", "field": "acquisition_date", "minWidth": 120, "width": 130},
+        {"headerName": "Strategy", "field": "strategy_id", "minWidth": 140, "flex": 1},
+        {"headerName": "Status", "field": "status", "minWidth": 90, "width": 100},
+        {"headerName": "Holding", "field": "holding_period", "minWidth": 120, "width": 130},
         {
             "headerName": "Wash Sale",
             "field": "wash_sale",
-            "width": 90,
-            "cellStyle": "params.value === 'Yes' ? {'color': 'red', 'fontWeight': 'bold'} : {}",
+            "minWidth": 110,
+            "width": 120,
+            ":cellStyle": "params => params.value === 'Yes' ? {'color': 'red', 'fontWeight': 'bold'} : {}",
         },
     ]
 
     grid_options: dict[str, Any] = {
         "columnDefs": column_defs,
         "rowData": rows,
-        "defaultColDef": {"sortable": True, "resizable": True},
+        "defaultColDef": {
+            "sortable": True,
+            "resizable": True,
+            "minWidth": 100,
+            "suppressSizeToFit": False,
+        },
         "rowSelection": "single" if (on_select or (on_close and can_close)) else None,
-        "domLayout": "autoHeight",
+        "domLayout": "normal",
     }
 
-    grid = ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark")
+    grid = ui.aggrid(grid_options).classes("w-full h-96 ag-theme-alpine-dark")
 
     if on_select:
 

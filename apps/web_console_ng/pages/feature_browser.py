@@ -37,6 +37,11 @@ _CLEANUP_OWNER_KEY = "feature_browser_cache"
 _CACHE_KEY = "feature_cache"
 
 
+def _notify(message: str, *, type: str = "info") -> None:
+    """Consistent top-right notifications for feature browser."""
+    ui.notify(message, type=type, position="top-right")
+
+
 def _get_alpha158_features(
     *, symbols: list[str], start_date: str, end_date: str
 ) -> pd.DataFrame | None:
@@ -115,7 +120,7 @@ async def feature_browser_page() -> None:
     user = get_current_user()
 
     if not has_permission(user, Permission.VIEW_FEATURES):
-        ui.notify("Permission denied: VIEW_FEATURES required", type="negative")
+        _notify("Permission denied: VIEW_FEATURES required", type="negative")
         with ui.card().classes("w-full p-6"):
             ui.label("Permission denied: VIEW_FEATURES required.").classes(
                 "text-red-500 text-center"
@@ -135,6 +140,7 @@ async def feature_browser_page() -> None:
 
     selected_feature: dict[str, str | None] = {"name": None}
     loading_state = {"feature_data_loading": False, "detail_loading": False}
+    data_state: dict[str, str | None] = {"message": None}
 
     with ui.row().classes("w-full gap-3 mb-3 items-end"):
         category_select = ui.select(
@@ -232,9 +238,10 @@ async def feature_browser_page() -> None:
                     },
                 )
 
+            data_state["message"] = None
             return features_df
         except FileNotFoundError:
-            ui.notify("Feature data not available — run ETL pipeline first", type="warning")
+            data_state["message"] = "Feature data not available — run ETL pipeline first."
             return None
         except RuntimeError as exc:
             if "alpha158 feature dependencies are unavailable" in str(exc):
@@ -242,14 +249,14 @@ async def feature_browser_page() -> None:
                     "feature_dependencies_unavailable",
                     extra={"dependency": "qlib"},
                 )
-                ui.notify("Feature data unavailable: optional qlib dependency missing", type="warning")
+                data_state["message"] = "Feature data unavailable: optional qlib dependency missing."
                 return None
             logger.exception("feature_data_load_failed")
-            ui.notify("Feature data unavailable", type="warning")
+            data_state["message"] = "Feature data unavailable."
             return None
         except Exception:
             logger.exception("feature_data_load_failed")
-            ui.notify("Feature data unavailable", type="warning")
+            data_state["message"] = "Feature data unavailable."
             return None
         finally:
             loading_state["feature_data_loading"] = False
@@ -367,7 +374,8 @@ async def feature_browser_page() -> None:
                 chart_panel.clear()
                 with samples_panel:
                     ui.label(
-                        "No feature data available. Run the ETL pipeline to generate features."
+                        data_state["message"]
+                        or "No feature data available. Run the ETL pipeline to generate features."
                     ).classes("text-gray-500")
                 return
 
@@ -384,7 +392,7 @@ async def feature_browser_page() -> None:
             _render_chart(samples, feature_name)
         except Exception:
             logger.exception("feature_statistics_failed", extra={"feature": feature_name})
-            ui.notify("Feature statistics unavailable", type="warning")
+            _notify("Feature statistics unavailable", type="warning")
         finally:
             loading_state["detail_loading"] = False
 
@@ -404,7 +412,7 @@ async def feature_browser_page() -> None:
     async def _open_selected() -> None:
         selected_rows = await grid.get_selected_rows()
         if not selected_rows:
-            ui.notify("Select a feature first", type="info")
+            _notify("Select a feature first")
             return
         feature_name = str(selected_rows[0].get("name", "")).strip()
         if not feature_name:
@@ -426,13 +434,11 @@ async def feature_browser_page() -> None:
 
     with ui.row().classes("w-full justify-end mb-3"):
         ui.button("Open Selected Feature", on_click=_open_selected)
-
-    with ui.card().classes("w-full p-4"):
-        ui.label("Select a feature row to view metadata, lineage, samples, and statistics.").classes(
-            "text-gray-400"
-        )
-
-    await _load_detail(catalog[0].name)
+    if catalog:
+        await _load_detail(catalog[0].name)
+    else:
+        with ui.card().classes("w-full p-4"):
+            ui.label("No feature definitions available.").classes("text-gray-400")
 
     lifecycle = ClientLifecycleManager.get()
     client_id = get_or_create_client_id()

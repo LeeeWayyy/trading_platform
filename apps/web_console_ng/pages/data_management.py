@@ -116,7 +116,6 @@ def _get_user_id_safe(user: Any) -> str | None:
     return str(val) if val is not None else None
 
 
-@ui.page("/data/management")
 @ui.page("/data")
 @requires_auth
 @main_layout
@@ -1586,3 +1585,10 @@ async def _load_quarantine_preview(entry: Any) -> None:
 
 
 __all__ = ["data_management_page"]
+
+
+@ui.page("/data/management")
+@requires_auth
+async def data_management_alias_page() -> None:
+    """Legacy alias route for Data Hub."""
+    ui.navigate.to("/data")

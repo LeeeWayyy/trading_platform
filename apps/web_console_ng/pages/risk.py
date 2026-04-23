@@ -28,6 +28,7 @@ from apps.web_console_ng.config import (
     RISK_BUDGET_VAR_LIMIT,
     RISK_BUDGET_WARNING_THRESHOLD,
 )
+from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.core.redis_ha import get_redis_store
@@ -108,10 +109,11 @@ async def risk_dashboard(client: Client) -> None:
     risk_data: dict[str, Any] = {}
     error_state: str | None = None  # Persistent error message for inline display
     prev_error_state: str | None = None  # Track previous error to avoid notification spam
+    live_position_count_hint: int | None = None
 
     async def load_risk_data() -> None:
         """Fetch risk data via RiskService (same as Streamlit, NOT REST)."""
-        nonlocal risk_data, error_state, prev_error_state
+        nonlocal risk_data, error_state, prev_error_state, live_position_count_hint
 
         def set_error(msg: str) -> None:
             """Set error state and notify only on state transition."""
@@ -151,6 +153,19 @@ async def risk_dashboard(client: Client) -> None:
                     "placeholder_reason": data.placeholder_reason,
                 }
             )
+            live_position_count_hint = None
+            if not data.risk_metrics:
+                try:
+                    positions_payload = await AsyncTradingClient.get().fetch_positions(
+                        str(user_id),
+                        role=str(user_role or ""),
+                        strategies=list(authorized_strategies),
+                    )
+                    positions_rows = positions_payload.get("positions", [])
+                    if isinstance(positions_rows, list):
+                        live_position_count_hint = len(positions_rows)
+                except Exception:
+                    logger.debug("risk_live_position_hint_failed", exc_info=True)
             error_state = None  # Clear error on success
             prev_error_state = None
         except PermissionError as e:
@@ -227,7 +242,20 @@ async def risk_dashboard(client: Client) -> None:
         def risk_overview_section() -> None:
             metrics = risk_data.get("risk_metrics", {})
             if not metrics:
-                ui.label("Risk metrics not available").classes("text-gray-500 p-4")
+                if isinstance(live_position_count_hint, int) and live_position_count_hint > 0:
+                    with ui.card().classes("w-full p-4 bg-amber-50 border border-amber-300"):
+                        ui.label("Risk model metrics unavailable").classes(
+                            "text-amber-700 font-semibold"
+                        )
+                        ui.label(
+                            f"Detected {live_position_count_hint} live position(s), "
+                            "but model-derived risk metrics are not ready."
+                        ).classes("text-sm text-amber-700")
+                        ui.link("Open Strategy Exposure", "/risk/exposure").classes(
+                            "text-sm text-blue-600 hover:underline mt-1"
+                        )
+                else:
+                    ui.label("Risk metrics not available").classes("text-gray-500 p-4")
                 return
 
             ui.label("Risk Overview").classes("text-xl font-semibold mb-4")

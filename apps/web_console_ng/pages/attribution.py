@@ -105,6 +105,24 @@ async def attribution_page(client: Client) -> None:
             ui.label("Factor data directory not configured. Set FF_DATA_DIR in settings.").classes(
                 "text-gray-600"
             )
+            with ui.row().classes("mt-4 gap-2"):
+                ui.button(
+                    "Open Data Hub",
+                    icon="storage",
+                    on_click=lambda: ui.navigate.to(
+                        resolve_rooted_path_from_ui("/data", ui_module=ui)
+                    ),
+                ).props("flat")
+                ui.button(
+                    "Open Setup Guide",
+                    icon="description",
+                    on_click=lambda: ui.navigate.to(
+                        resolve_rooted_path_from_ui(
+                            "/data/sources",
+                            ui_module=ui,
+                        )
+                    ),
+                ).props("flat")
         return
 
     ff_data_path = Path(settings.ff_data_dir)
@@ -115,6 +133,19 @@ async def attribution_page(client: Client) -> None:
                 f"Factor data directory not found: {ff_data_path}. "
                 "Please run the Fama-French sync command."
             ).classes("text-gray-600")
+            ui.separator().classes("my-3")
+            ui.label("Run in terminal:").classes("text-xs text-gray-500")
+            ui.label("python scripts/fama_french_sync.py --sync").classes(
+                "font-mono text-xs bg-slate-100 px-2 py-1 rounded text-slate-800"
+            )
+            with ui.row().classes("mt-3 gap-2"):
+                ui.button(
+                    "Open Data Sources",
+                    icon="cloud_sync",
+                    on_click=lambda: ui.navigate.to(
+                        resolve_rooted_path_from_ui("/data/sources", ui_module=ui)
+                    ),
+                ).props("flat")
         return
 
     # === DATA STATE ===
