@@ -408,7 +408,7 @@ async def _fetch_current_prices_with_status(
         mid_value = item.get("mid")
         if mid_value is None:
             continue
-        if not isinstance(mid_value, (int, float, Decimal, str)):
+        if not isinstance(mid_value, int | float | Decimal | str):
             logger.warning(
                 "market_prices_invalid_mid_type",
                 extra={"symbol": sym, "mid_type": type(mid_value).__name__},
