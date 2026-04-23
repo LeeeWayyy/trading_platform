@@ -213,7 +213,9 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:
@@ -409,7 +411,9 @@ async def test_exposure_link_hidden_without_permission(
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:
@@ -559,7 +563,9 @@ async def test_universes_link_hidden_without_permission(
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:

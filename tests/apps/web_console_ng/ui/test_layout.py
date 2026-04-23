@@ -119,7 +119,9 @@ class _DummyStatusBar:
     def __init__(self) -> None:
         self.state: str | None = None
 
-    def update_state(self, state: str) -> None:
+    def update_state(
+        self, state: str | None, *, circuit_state: str | None = None
+    ) -> None:
         self.state = state
 
 

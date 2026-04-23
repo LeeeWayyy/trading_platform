@@ -117,8 +117,9 @@ async def risk_dashboard(client: Client) -> None:
 
         def set_error(msg: str) -> None:
             """Set error state and notify only on state transition."""
-            nonlocal error_state, prev_error_state
+            nonlocal error_state, prev_error_state, live_position_count_hint
             risk_data.clear()  # Clear stale data on error
+            live_position_count_hint = None
             if error_state != msg:  # Only notify on state change (avoid spam)
                 error_state = msg
                 ui.notify(msg, type="negative")

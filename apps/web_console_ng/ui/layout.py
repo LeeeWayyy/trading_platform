@@ -331,6 +331,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # directly to canonical dashboard path to avoid redirect hops.
                     return "/" if path == "/trade" else path
 
+                current_nav_path = _nav_target(current_path)
+
                 for section_label, section_paths in nav_groups:
                     section_items = [
                         nav_lookup[path]
@@ -346,7 +348,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     for label, path, icon, _required_role in section_items:
                         rendered_paths.add(path)
-                        is_active = current_path == path
+                        is_active = current_nav_path == _nav_target(path)
                         active_classes = (
                             "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                         )
@@ -365,7 +367,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path in rendered_paths or not is_nav_item_visible(path):
                         continue
 
-                    is_active = current_path == path
+                    is_active = current_nav_path == _nav_target(path)
                     active_classes = (
                         "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                     )
@@ -381,11 +383,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         status_bar = StatusBar()
 
         def _update_status_bar(state: str | None, cb_state: str | None = None) -> None:
-            """Call StatusBar with backward-compatible fallback for test doubles."""
-            try:
-                status_bar.update_state(state, circuit_state=cb_state)
-            except TypeError:
-                status_bar.update_state(state)
+            status_bar.update_state(state, circuit_state=cb_state)
 
         with ui.header().classes(
             "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"

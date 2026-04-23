@@ -99,10 +99,14 @@ async def sql_explorer_page() -> None:
     for warning in warnings:
         logger.warning("sql_explorer_path_warning", extra={"detail": warning})
 
-    queryable_datasets = sorted(
-        [dataset for dataset in DATASET_TABLES if can_query_dataset(user, dataset)]
+    all_datasets = sorted(DATASET_TABLES)
+    allowed_datasets = sorted(
+        [dataset for dataset in all_datasets if can_query_dataset(user, dataset)]
     )
-    allowed_datasets = queryable_datasets
+    unauthorized_count = len(all_datasets) - len(allowed_datasets)
+    missing_local_count = sum(
+        1 for dataset in allowed_datasets if not available_tables_by_dataset.get(dataset)
+    )
 
     if not allowed_datasets:
         with ui.card().classes("w-full p-4"):
@@ -143,6 +147,22 @@ async def sql_explorer_page() -> None:
 
     tables_label = ui.label("").classes("text-sm text-gray-400 mb-1")
     dataset_state_label = ui.label("").classes("text-xs mb-1")
+    if unauthorized_count > 0 and missing_local_count > 0:
+        ui.label(
+            f"Showing {len(allowed_datasets)} authorized dataset(s). "
+            f"{unauthorized_count} hidden by permissions, "
+            f"{missing_local_count} missing local data."
+        ).classes("text-xs text-gray-500 mb-1")
+    elif unauthorized_count > 0:
+        ui.label(
+            f"Showing {len(allowed_datasets)} authorized dataset(s). "
+            f"{unauthorized_count} hidden by permissions."
+        ).classes("text-xs text-gray-500 mb-1")
+    elif missing_local_count > 0:
+        ui.label(
+            f"Showing {len(allowed_datasets)} authorized dataset(s). "
+            f"{missing_local_count} missing local data."
+        ).classes("text-xs text-gray-500 mb-1")
 
     def _update_table_hint() -> None:
         dataset = str(dataset_select.value)
