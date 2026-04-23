@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -51,6 +52,45 @@ class TestOrderEntryContextInit:
         assert OrderEntryContext.OWNER_KILL_SWITCH == "kill_switch"
         assert OrderEntryContext.OWNER_CIRCUIT_BREAKER == "circuit_breaker"
         assert OrderEntryContext.OWNER_CONNECTION == "connection"
+
+    def test_market_data_source_tag_is_bounded_and_valid(self) -> None:
+        """Generated source tag must satisfy market-data service validation rules."""
+        ctx = OrderEntryContext(
+            realtime_updater=MagicMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=MagicMock(),
+            user_id="oauth|tenant:user@example.com",
+            role="trader",
+            strategies=["alpha"],
+            client_id="browser-session-123",
+        )
+
+        assert len(ctx._market_data_source) <= 64
+        assert re.fullmatch(r"[A-Za-z0-9:_-]{1,64}", ctx._market_data_source)
+        assert "oauth|tenant:user@example.com" not in ctx._market_data_source
+        assert ctx._market_data_source.startswith(f"{OrderEntryContext.MARKET_DATA_SOURCE_PREFIX}:")
+
+    def test_market_data_source_tag_is_recoverable_per_client(self) -> None:
+        """Same user/client must derive the same source tag for orphan cleanup recovery."""
+        common_kwargs = {
+            "realtime_updater": MagicMock(),
+            "trading_client": MagicMock(),
+            "state_manager": MagicMock(),
+            "connection_monitor": MagicMock(),
+            "redis": MagicMock(),
+            "user_id": "test-user",
+            "role": "trader",
+            "strategies": ["alpha"],
+        }
+
+        ctx_a = OrderEntryContext(**common_kwargs, client_id="client-a")
+        ctx_a_repeat = OrderEntryContext(**common_kwargs, client_id="client-a")
+        ctx_b = OrderEntryContext(**common_kwargs, client_id="client-b")
+
+        assert ctx_a._market_data_source == ctx_a_repeat._market_data_source
+        assert ctx_a._market_data_source != ctx_b._market_data_source
 
 
 class TestOrderEntryContextComponentSetters:
@@ -169,6 +209,241 @@ class TestStrategyModelContextDispatch:
             model_status=None,
             gate_enabled=False,
         )
+
+
+class TestOrderEntryContextInitialize:
+    """Tests for initialize() startup behavior."""
+
+    @pytest.mark.asyncio()
+    async def test_initialize_bootstraps_connected_state_when_unset(self) -> None:
+        """initialize() seeds CONNECTED state if no connection event arrives."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        callback = MagicMock()
+        ctx.set_connection_state_callback(callback)
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        assert ctx._cached_connection_state == "CONNECTED"
+        ctx._order_ticket.set_connection_state.assert_called_with("CONNECTED", False)
+        callback.assert_called_with("CONNECTED", False)
+
+    @pytest.mark.asyncio()
+    async def test_initialize_bootstraps_disconnected_state_when_read_only(self) -> None:
+        """initialize() seeds DISCONNECTED state when monitor is read-only."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = True
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        assert ctx._cached_connection_state == "DISCONNECTED"
+        ctx._order_ticket.set_connection_state.assert_called_with("DISCONNECTED", True)
+
+    @pytest.mark.asyncio()
+    async def test_initialize_auto_selects_first_watchlist_symbol(self) -> None:
+        """initialize() auto-selects the first watchlist symbol when none selected."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._watchlist = MagicMock()
+        ctx._watchlist.initialize = AsyncMock()
+        ctx._watchlist.get_symbols.return_value = ["SPY", "QQQ"]
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx.on_symbol_selected = AsyncMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        ctx.on_symbol_selected.assert_awaited_once_with("SPY")
+
+    @pytest.mark.asyncio()
+    async def test_initialize_preserves_restored_ticket_symbol(self) -> None:
+        """Restored pending-form symbol should override watchlist default auto-select."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._watchlist = MagicMock()
+        ctx._watchlist.initialize = AsyncMock()
+        ctx._watchlist.get_symbols.return_value = ["SPY", "QQQ"]
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx._order_ticket.get_current_symbol.return_value = "TSLA"
+
+        async def _select_symbol(symbol: str | None) -> None:
+            ctx._selected_symbol = symbol
+
+        ctx.on_symbol_selected = AsyncMock(side_effect=_select_symbol)
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        ctx.on_symbol_selected.assert_awaited_once_with("TSLA")
+
+    @pytest.mark.asyncio()
+    async def test_initialize_falls_back_to_watchlist_when_restored_symbol_noops(self) -> None:
+        """Fallback should run when restored symbol selection silently no-ops."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._watchlist = MagicMock()
+        ctx._watchlist.initialize = AsyncMock()
+        ctx._watchlist.get_symbols.return_value = ["SPY", "QQQ"]
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx._order_ticket.get_current_symbol.return_value = "TSLA"
+        ctx.on_symbol_selected = AsyncMock(side_effect=[None, None])
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            await ctx.initialize()
+
+        assert ctx.on_symbol_selected.await_args_list == [call("TSLA"), call("SPY")]
+
+    @pytest.mark.asyncio()
+    async def test_initialize_does_not_schedule_market_data_sync_before_late_failures(self) -> None:
+        """Initialization failures before completion must not trigger market-data sync."""
+        realtime = MagicMock()
+        connection_monitor = MagicMock()
+        connection_monitor.is_read_only.return_value = False
+
+        ctx = OrderEntryContext(
+            realtime_updater=realtime,
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=connection_monitor,
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+        ctx._order_ticket = MagicMock()
+        ctx._order_ticket.initialize = AsyncMock()
+        ctx._order_ticket.set_connection_state = MagicMock()
+        ctx._order_ticket.set_circuit_breaker_state = MagicMock()
+        ctx._order_ticket.set_kill_switch_state = MagicMock()
+
+        ctx._subscribe_to_kill_switch_channel = AsyncMock()
+        ctx._subscribe_to_circuit_breaker_channel = AsyncMock()
+        ctx._subscribe_to_connection_channel = AsyncMock()
+        ctx._subscribe_to_positions_channel = AsyncMock()
+        ctx._fetch_initial_safety_state = AsyncMock()
+        ctx._load_initial_risk_limits = AsyncMock(side_effect=RuntimeError("boom"))
+        ctx._schedule_market_data_sync = MagicMock()
+
+        with patch("apps.web_console_ng.components.order_entry_context.ui.timer") as timer_mock:
+            timer_mock.return_value = MagicMock()
+            with pytest.raises(RuntimeError, match="boom"):
+                await ctx.initialize()
+
+        ctx._schedule_market_data_sync.assert_not_called()
 
 
 class TestFetchInitialSafetyState:
@@ -1105,6 +1380,33 @@ class TestChannelOwnership:
         context._realtime.unsubscribe.assert_called_once()
 
     @pytest.mark.asyncio()
+    async def test_release_channel_offloads_market_data_release(self, context: OrderEntryContext) -> None:
+        """Price channel release should not block on upstream unsubscribe retries."""
+        callback = AsyncMock()
+        await context._acquire_channel("price.updated.AAPL", "owner1", callback)
+
+        release_started = asyncio.Event()
+        release_continue = asyncio.Event()
+
+        async def fake_release(symbol: str) -> None:
+            assert symbol == "AAPL"
+            release_started.set()
+            await release_continue.wait()
+
+        context._release_market_data_streaming = fake_release  # type: ignore[method-assign]
+        context._schedule_market_data_sync = MagicMock()
+
+        await asyncio.wait_for(context._release_channel("price.updated.AAPL", "owner1"), timeout=0.1)
+        await asyncio.wait_for(release_started.wait(), timeout=0.1)
+
+        # Sync should trigger only after background release completes.
+        context._schedule_market_data_sync.assert_not_called()
+        release_continue.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        context._schedule_market_data_sync.assert_called_once()
+
+    @pytest.mark.asyncio()
     async def test_callback_mismatch_raises(self, context: OrderEntryContext) -> None:
         """Different callback for same channel raises ValueError."""
         callback1 = AsyncMock()
@@ -1144,6 +1446,303 @@ class TestChannelOwnership:
         assert "selected" in context._channel_owners["prices:AAPL"]
 
 
+class TestMarketDataSync:
+    """Tests for market-data stream synchronization helpers."""
+
+    @pytest.fixture()
+    def context(self) -> OrderEntryContext:
+        return OrderEntryContext(
+            realtime_updater=AsyncMock(),
+            trading_client=MagicMock(),
+            state_manager=MagicMock(),
+            connection_monitor=MagicMock(),
+            redis=AsyncMock(),
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+    def test_collect_owned_price_symbols_filters_and_sorts(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {
+            "price.updated.msft": {"watchlist"},
+            "price.updated.AAPL": {"selected_symbol"},
+            "orders:test-user": {"orders"},
+        }
+
+        symbols = context._collect_owned_price_symbols()
+
+        assert symbols == ["AAPL", "MSFT"]
+
+    def test_collect_owned_price_symbols_skips_pending_subscriptions(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {
+            "price.updated.msft": {"watchlist"},
+            "price.updated.AAPL": {"selected_symbol"},
+        }
+        context._pending_subscribes = {"price.updated.msft": MagicMock()}
+
+        symbols = context._collect_owned_price_symbols()
+
+        assert symbols == ["AAPL"]
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_batches_symbols(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {
+            "price.updated.MSFT": {"watchlist"},
+            "price.updated.AAPL": {"watchlist"},
+        }
+        context._client.subscribe_market_data_symbols = AsyncMock()
+
+        await context._sync_market_data_streaming()
+
+        context._client.subscribe_market_data_symbols.assert_awaited_once_with(
+            ["AAPL", "MSFT"],
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_acquire_channel_defers_market_data_sync_while_initializing(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._initializing = True
+        context._schedule_market_data_sync = MagicMock()
+        callback = AsyncMock()
+
+        await context._acquire_channel("price.updated.AAPL", "watchlist", callback)
+
+        context._schedule_market_data_sync.assert_not_called()
+        assert context._last_synced_market_data_symbols is None
+
+    @pytest.mark.asyncio()
+    async def test_acquire_channel_schedules_market_data_sync_after_initialize(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._initializing = False
+        context._schedule_market_data_sync = MagicMock()
+        callback = AsyncMock()
+
+        await context._acquire_channel("price.updated.AAPL", "watchlist", callback)
+
+        context._schedule_market_data_sync.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_schedule_market_data_sync_requeues_when_inflight(
+        self, context: OrderEntryContext
+    ) -> None:
+        """A sync request arriving mid-flight should trigger one follow-up sync."""
+        run_count = 0
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def fake_sync() -> None:
+            nonlocal run_count
+            run_count += 1
+            if run_count == 1:
+                first_started.set()
+                await release_first.wait()
+
+        context._sync_market_data_streaming = fake_sync  # type: ignore[method-assign]
+
+        context._schedule_market_data_sync()
+        await first_started.wait()
+        context._schedule_market_data_sync()
+
+        assert context._market_data_sync_pending is True
+        release_first.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        if context._market_data_sync_task is not None:
+            await context._market_data_sync_task
+
+        assert run_count == 2
+        assert context._market_data_sync_pending is False
+
+    @pytest.mark.asyncio()
+    async def test_schedule_market_data_sync_backoff_retries_after_failure(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Failed sync should retry once after backoff instead of hot-looping immediately."""
+        run_count = 0
+        context.MARKET_DATA_SYNC_RETRY_DELAY_S = 0
+
+        async def fake_sync() -> None:
+            nonlocal run_count
+            run_count += 1
+            if run_count == 1:
+                context._market_data_sync_pending = True
+                context._market_data_sync_backoff_required = True
+
+        context._sync_market_data_streaming = fake_sync  # type: ignore[method-assign]
+
+        context._schedule_market_data_sync()
+
+        # First sync completes and schedules delayed retry.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert context._market_data_retry_task is not None
+
+        await context._market_data_retry_task
+        if context._market_data_sync_task is not None:
+            await context._market_data_sync_task
+
+        assert run_count == 2
+        assert context._market_data_sync_pending is False
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_tracks_race_during_subscribe(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {"price.updated.AAPL": {"watchlist"}}
+
+        async def fake_subscribe(*args: object, **kwargs: object) -> None:
+            # Simulate symbol ownership changing while subscribe call is in-flight.
+            context._channel_owners = {}
+
+        context._client.subscribe_market_data_symbols = AsyncMock(side_effect=fake_subscribe)
+
+        await context._sync_market_data_streaming()
+
+        assert context._market_data_sync_pending is True
+        assert context._last_synced_market_data_symbols is None
+        assert context._pending_market_data_unsubscribes == {"AAPL"}
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_retries_pending_unsubscribes_when_empty(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {}
+        context._last_synced_market_data_symbols = ("AAPL",)
+        context._pending_market_data_unsubscribes = {"AAPL"}
+        context._client.unsubscribe_market_data_symbol = AsyncMock(
+            return_value={"message": "ok", "remaining_subscriptions": 0}
+        )
+
+        await context._sync_market_data_streaming()
+
+        context._client.unsubscribe_market_data_symbol.assert_awaited_once_with(
+            "AAPL",
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+        assert context._pending_market_data_unsubscribes == set()
+        assert context._last_synced_market_data_symbols == ()
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_continues_after_stale_release_failure(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {"price.updated.MSFT": {"watchlist"}}
+        context._last_synced_market_data_symbols = ("AAPL",)
+        context._client.unsubscribe_market_data_symbol = AsyncMock(
+            side_effect=[RuntimeError("down"), RuntimeError("still-down")]
+        )
+        context._client.subscribe_market_data_symbols = AsyncMock(
+            return_value={"message": "ok", "subscribed_symbols": ["MSFT"], "total_subscriptions": 1}
+        )
+        context.MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S = 0
+
+        await context._sync_market_data_streaming()
+
+        context._client.subscribe_market_data_symbols.assert_awaited_once_with(
+            ["MSFT"],
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+        assert context._pending_market_data_unsubscribes == {"AAPL"}
+        assert context._market_data_sync_pending is True
+
+    @pytest.mark.asyncio()
+    async def test_sync_market_data_streaming_marks_pending_after_subscribe_failure(
+        self, context: OrderEntryContext
+    ) -> None:
+        context._channel_owners = {"price.updated.AAPL": {"watchlist"}}
+        context._client.subscribe_market_data_symbols = AsyncMock(
+            side_effect=RuntimeError("temporary upstream outage")
+        )
+
+        with pytest.raises(RuntimeError, match="temporary upstream outage"):
+            await context._sync_market_data_streaming()
+
+        assert context._last_synced_market_data_symbols is None
+        assert context._market_data_sync_pending is True
+
+    @pytest.mark.asyncio()
+    async def test_release_market_data_streaming_uses_session_source(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        context._client.unsubscribe_market_data_symbol = AsyncMock()
+
+        await context._release_market_data_streaming("AAPL")
+
+        context._client.unsubscribe_market_data_symbol.assert_awaited_once_with(
+            "AAPL",
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_release_market_data_streaming_skips_when_unsubscribe_missing(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        context._client.unsubscribe_market_data_symbol = None  # type: ignore[assignment]
+
+        await context._release_market_data_streaming("AAPL")
+
+        assert context._pending_market_data_unsubscribes == set()
+
+    @pytest.mark.asyncio()
+    async def test_release_market_data_streaming_retries_and_persists_failed_symbol(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        context._client.unsubscribe_market_data_symbol = AsyncMock(
+            side_effect=[RuntimeError("network"), RuntimeError("still-down")]
+        )
+
+        with pytest.raises(RuntimeError, match="still-down"):
+            await context._release_market_data_streaming("AAPL")
+
+        assert context._client.unsubscribe_market_data_symbol.await_count == 2
+        assert context._pending_market_data_unsubscribes == {"AAPL"}
+        assert context._last_synced_market_data_symbols is None
+        assert context._market_data_sync_pending is True
+
+    @pytest.mark.asyncio()
+    async def test_resubscribe_forces_market_data_sync_even_with_same_symbols(
+        self,
+        context: OrderEntryContext,
+    ) -> None:
+        callback = AsyncMock()
+        context._subscriptions = ["price.updated.AAPL"]
+        context._channel_owners = {"price.updated.AAPL": {"watchlist"}}
+        context._channel_callbacks = {"price.updated.AAPL": callback}
+        context._last_synced_market_data_symbols = ("AAPL",)
+        context._schedule_market_data_sync = MagicMock()
+
+        await context._resubscribe_all_channels()
+
+        context._realtime.subscribe.assert_awaited_once_with("price.updated.AAPL", callback)
+        assert context._last_synced_market_data_symbols is None
+        context._schedule_market_data_sync.assert_called_once()
+
+
 class TestDispose:
     """Tests for dispose/cleanup."""
 
@@ -1164,6 +1763,7 @@ class TestDispose:
         ctx._market_context = AsyncMock()
         ctx._price_chart = AsyncMock()
         ctx._watchlist = AsyncMock()
+        ctx._client.unsubscribe_market_data_symbol = AsyncMock()
         return ctx
 
     @pytest.mark.asyncio()
@@ -1209,6 +1809,57 @@ class TestDispose:
         assert context._realtime.unsubscribe.call_count == 2
 
     @pytest.mark.asyncio()
+    async def test_dispose_releases_owned_market_data_sources(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() should release per-session market-data sources for owned symbols."""
+        context._subscriptions = ["price.updated.AAPL", "price.updated.msft"]
+        context._channel_owners = {
+            "price.updated.AAPL": {"watchlist"},
+            "price.updated.msft": {"selected_symbol"},
+            "orders:test-user": {"orders"},
+        }
+
+        await context.dispose()
+
+        context._client.unsubscribe_market_data_symbol.assert_has_awaits(
+            [
+                call(
+                    "AAPL",
+                    user_id="test-user",
+                    role="trader",
+                    strategies=["alpha"],
+                    source=context._market_data_source,
+                ),
+                call(
+                    "MSFT",
+                    user_id="test-user",
+                    role="trader",
+                    strategies=["alpha"],
+                    source=context._market_data_source,
+                ),
+            ],
+            any_order=True,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_dispose_releases_pending_market_data_unsubscribes(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() should also flush symbols queued for retry unsubscribe."""
+        context._pending_market_data_unsubscribes = {"AAPL"}
+
+        await context.dispose()
+
+        context._client.unsubscribe_market_data_symbol.assert_awaited_once_with(
+            "AAPL",
+            user_id="test-user",
+            role="trader",
+            strategies=["alpha"],
+            source=context._market_data_source,
+        )
+
+    @pytest.mark.asyncio()
     async def test_dispose_disposes_components(self, context: OrderEntryContext) -> None:
         """dispose() disposes all child components."""
         await context.dispose()
@@ -1238,6 +1889,57 @@ class TestDispose:
         assert future.done()
         with pytest.raises(asyncio.CancelledError):
             future.result()
+
+    @pytest.mark.asyncio()
+    async def test_dispose_cancels_market_data_retry_task(self, context: OrderEntryContext) -> None:
+        """dispose() cancels any queued market-data backoff retry task."""
+        retry_task = asyncio.create_task(asyncio.sleep(60))
+        context._market_data_retry_task = retry_task
+
+        await context.dispose()
+        await asyncio.sleep(0)
+
+        assert retry_task.cancelled()
+        assert context._market_data_retry_task is None
+
+    @pytest.mark.asyncio()
+    async def test_dispose_cancels_market_data_release_tasks(self, context: OrderEntryContext) -> None:
+        """dispose() cancels in-flight async release tasks."""
+        context.MARKET_DATA_RELEASE_FLUSH_TIMEOUT_S = 0
+        release_task = asyncio.create_task(asyncio.sleep(60))
+        context._market_data_release_tasks.add(release_task)
+
+        await context.dispose()
+        await asyncio.sleep(0)
+
+        assert release_task.cancelled()
+        assert context._market_data_release_tasks == set()
+
+    @pytest.mark.asyncio()
+    async def test_dispose_flushes_completed_market_data_release_tasks(
+        self, context: OrderEntryContext
+    ) -> None:
+        """dispose() should allow already-running release tasks to finish cleanly."""
+        release_started = asyncio.Event()
+        allow_release_complete = asyncio.Event()
+
+        async def slow_release() -> None:
+            release_started.set()
+            await allow_release_complete.wait()
+
+        release_task = asyncio.create_task(slow_release())
+        context._market_data_release_tasks.add(release_task)
+
+        dispose_task = asyncio.create_task(context.dispose())
+        await release_started.wait()
+        assert not dispose_task.done()
+
+        allow_release_complete.set()
+        await dispose_task
+
+        assert release_task.done()
+        assert not release_task.cancelled()
+        assert context._market_data_release_tasks == set()
 
     @pytest.mark.asyncio()
     async def test_dispose_cancels_risk_refresh_task(self, context: OrderEntryContext) -> None:
@@ -1360,7 +2062,11 @@ class TestFactoryMethods:
             context.create_price_chart(width=800, height=400)
 
             assert context._price_chart is mock_instance
-            mock_instance.create.assert_called_once_with(width=800, height=400)
+            mock_instance.create.assert_called_once_with(
+                width=800,
+                height=400,
+                fill_parent=False,
+            )
 
     def test_create_order_ticket_stores_reference(self, context: OrderEntryContext) -> None:
         """create_order_ticket stores component reference."""

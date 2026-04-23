@@ -26,8 +26,27 @@ import logging
 import os
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_ALPACA_DATA_FEEDS = ("iex", "sip", "otc", "boats")
+
+
+class _AlpacaDataFeedSetting(BaseModel):
+    """Pydantic-backed parser for ALPACA_DATA_FEED normalization/validation."""
+
+    alpaca_data_feed: Literal["iex", "sip", "otc", "boats"] | None = None
+
+    @field_validator("alpaca_data_feed", mode="before")
+    @classmethod
+    def normalize_alpaca_data_feed(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
 
 
 # ============================================================================
@@ -139,6 +158,29 @@ def _get_bool_env_permissive(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.lower() in ("true", "yes", "on", "1")
+
+
+def _get_alpaca_data_feed_env(name: str = "ALPACA_DATA_FEED") -> str | None:
+    """Parse Alpaca data feed from environment with explicit option validation.
+
+    Supported values: iex, sip, otc, boats.
+    Empty values are treated as unset (None).
+    """
+    raw = os.getenv(name, "")
+    if not raw.strip():
+        return None
+
+    try:
+        parsed = _AlpacaDataFeedSetting.model_validate({"alpaca_data_feed": raw}).alpaca_data_feed
+    except ValidationError:
+        logger.warning(
+            "Invalid %s=%s; supported options: %s. Falling back to iex.",
+            name,
+            raw,
+            ", ".join(SUPPORTED_ALPACA_DATA_FEEDS),
+        )
+        return "iex"
+    return parsed
 
 
 # ============================================================================
@@ -337,8 +379,8 @@ def get_config() -> ExecutionGatewayConfig:
         )
         max_slice_pct_of_adv = 0.01
 
-    # Parse Alpaca data feed (strip whitespace, convert empty to None)
-    alpaca_data_feed = os.getenv("ALPACA_DATA_FEED", "").strip() or None
+    # Parse Alpaca data feed (supported: iex, sip, otc, boats)
+    alpaca_data_feed = _get_alpaca_data_feed_env()
 
     return ExecutionGatewayConfig(
         # Core Settings

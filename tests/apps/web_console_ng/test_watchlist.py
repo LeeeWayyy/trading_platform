@@ -178,6 +178,42 @@ class TestWatchlistInitialize:
             mock_render.assert_called_once()
 
 
+class TestWatchlistAddSymbol:
+    """Tests for add-symbol workflow."""
+
+    @pytest.fixture()
+    def component(self) -> WatchlistComponent:
+        """Create component for add-symbol tests."""
+        client = MagicMock()
+        comp = WatchlistComponent(
+            trading_client=client,
+            on_subscribe_symbol=AsyncMock(),
+        )
+        comp._list_container = MagicMock()
+        comp._add_input = MagicMock()
+        comp._add_input.value = "NVDA"
+        return comp
+
+    @pytest.mark.asyncio()
+    async def test_add_symbol_rolls_back_when_subscribe_fails(
+        self, component: WatchlistComponent
+    ) -> None:
+        """Failed subscribe keeps watchlist unchanged and surfaces an error."""
+        component._on_subscribe_symbol = AsyncMock(side_effect=RuntimeError("subscribe failed"))
+
+        with (
+            patch("apps.web_console_ng.components.watchlist.ui.notify") as notify_mock,
+            patch.object(component, "_render_items") as render_mock,
+        ):
+            await component._add_symbol_from_input()
+
+        assert "NVDA" not in component._items
+        assert "NVDA" not in component._symbol_order
+        assert component._add_input.value == ""
+        render_mock.assert_not_called()
+        notify_mock.assert_called_with("Unable to subscribe NVDA", type="negative")
+
+
 class TestWatchlistPriceData:
     """Tests for price data handling."""
 

@@ -15,8 +15,11 @@ import hmac
 import json
 import os
 import time
+import uuid
+from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import quote as url_quote
+from urllib.parse import urlencode
 
 import httpx
 
@@ -35,6 +38,7 @@ class AsyncTradingClient:
     def __init__(self) -> None:
         self._http_client: httpx.AsyncClient | None = None
         self._market_data_client: httpx.AsyncClient | None = None
+        self._web_console_service_id: str | None = None
 
     @classmethod
     def get(cls) -> AsyncTradingClient:
@@ -132,7 +136,7 @@ class AsyncTradingClient:
 
         internal_secret = os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
         if internal_secret and resolved_user_id and resolved_role is not None:
-            timestamp = str(int(time.time()))
+            timestamp = str(self._utc_timestamp_seconds())
             strategies_str = ",".join(sorted(resolved_strategies)) if resolved_strategies else ""
             payload_data = {
                 "uid": str(resolved_user_id).strip(),
@@ -158,6 +162,130 @@ class AsyncTradingClient:
                 "(INTERNAL_TOKEN_SECRET is set but role is missing)"
             )
 
+        return headers
+
+    def _get_internal_service_secret(self, service_id: str) -> str:
+        """Resolve per-service secret, falling back to global INTERNAL_TOKEN_SECRET."""
+        service_key = "".join(
+            char if char.isalnum() else "_" for char in service_id.upper().strip()
+        )
+        per_service_secret = os.getenv(f"INTERNAL_TOKEN_SECRET_{service_key}", "").strip()
+        if per_service_secret:
+            return per_service_secret
+        return os.getenv("INTERNAL_TOKEN_SECRET", "").strip()
+
+    def _get_web_console_service_id(self) -> str:
+        """Resolve and cache the web-console service identifier."""
+        if self._web_console_service_id:
+            return self._web_console_service_id
+        service_id = os.getenv("WEB_CONSOLE_SERVICE_ID", "web_console_ng").strip()
+        self._web_console_service_id = service_id or "web_console_ng"
+        return self._web_console_service_id
+
+    @staticmethod
+    def _utc_timestamp_seconds() -> int:
+        """Return unix timestamp derived from a UTC-aware datetime."""
+        return int(datetime.fromtimestamp(time.time(), UTC).timestamp())
+
+    @staticmethod
+    def _build_query_string(params: list[tuple[str, Any]] | None = None) -> str:
+        """Build deterministic query string used for both request URL and S2S signature."""
+        if not params:
+            return ""
+        normalized = sorted(
+            [
+                (str(key), str(value))
+                for key, value in params
+                if value is not None
+            ],
+            key=lambda pair: (pair[0], pair[1]),
+        )
+        return urlencode(normalized, doseq=True)
+
+    def _get_market_data_auth_headers(
+        self,
+        *,
+        method: str,
+        path: str,
+        query: str,
+        body: bytes | str | None,
+        user_id: str,
+        role: str | None,
+        strategies: list[str] | None,
+    ) -> dict[str, str]:
+        """Build market-data headers with legacy context + optional C6 S2S signature."""
+        headers = self._get_auth_headers(user_id, role, strategies)
+
+        service_id = self._get_web_console_service_id()
+        secret = self._get_internal_service_secret(service_id)
+        if not secret:
+            return headers
+
+        timestamp = str(self._utc_timestamp_seconds())
+        nonce = str(uuid.uuid4())
+
+        if body is None:
+            body_bytes = b""
+        elif isinstance(body, str):
+            body_bytes = body.encode("utf-8")
+        else:
+            body_bytes = body
+        body_hash = hashlib.sha256(body_bytes).hexdigest()
+
+        resolved_user_header = headers.get("X-User-Id") or headers.get("X-User-ID") or ""
+        normalized_user_id = str(resolved_user_header).strip()
+        if not normalized_user_id and user_id:
+            normalized_user_id = str(user_id).strip()
+
+        resolved_strategies: list[str] = []
+        header_strategies = headers.get("X-User-Strategies", "")
+        if header_strategies:
+            resolved_strategies.extend(
+                strategy.strip()
+                for strategy in str(header_strategies).split(",")
+                if strategy.strip()
+            )
+        if strategies:
+            resolved_strategies.extend(
+                str(strategy).strip() for strategy in strategies if str(strategy).strip()
+            )
+
+        normalized_strategy_id = ""
+        if resolved_strategies:
+            normalized_strategy_ids = sorted(
+                {strategy for strategy in resolved_strategies if strategy}
+            )
+            if normalized_strategy_ids:
+                # Preserve full deterministic strategy scope for multi-strategy sessions.
+                normalized_strategy_id = ",".join(normalized_strategy_ids)
+
+        payload_data = {
+            "service_id": service_id,
+            "method": method.upper(),
+            "path": path,
+            "query": query,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "user_id": normalized_user_id,
+            "strategy_id": normalized_strategy_id,
+            "body_hash": body_hash,
+        }
+        payload = json.dumps(payload_data, separators=(",", ":"), sort_keys=True)
+        signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        headers.update(
+            {
+                "X-Internal-Token": signature,
+                "X-Internal-Timestamp": timestamp,
+                "X-Internal-Nonce": nonce,
+                "X-Service-ID": service_id,
+                "X-Body-Hash": body_hash,
+            }
+        )
+        if normalized_user_id and "x-user-id" not in {key.lower() for key in headers}:
+            headers["X-User-ID"] = normalized_user_id
+        if normalized_strategy_id:
+            headers["X-Strategy-ID"] = normalized_strategy_id
         return headers
 
     def _json_dict(self, response: httpx.Response) -> dict[str, Any]:
@@ -319,8 +447,123 @@ class AsyncTradingClient:
         strategies: list[str] | None = None,
     ) -> dict[str, Any]:
         """Fetch 20-day average daily volume (ADV) for a symbol."""
-        headers = self._get_auth_headers(user_id, role, strategies)
-        resp = await self._market_client.get(f"/api/v1/market-data/{symbol}/adv", headers=headers)
+        safe_symbol = url_quote(symbol.upper(), safe="")
+        path = f"/api/v1/market-data/{safe_symbol}/adv"
+        headers = self._get_market_data_auth_headers(
+            method="GET",
+            path=path,
+            query="",
+            body=None,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        resp = await self._market_client.get(path, headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_historical_bars(
+        self,
+        symbol: str,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        *,
+        timeframe: str = "5Min",
+        limit: int = 240,
+    ) -> dict[str, Any]:
+        """Fetch historical bars for a symbol from market-data-service."""
+        safe_symbol = url_quote(symbol.upper(), safe="")
+        path = f"/api/v1/market-data/{safe_symbol}/bars"
+        query = self._build_query_string(
+            [
+                ("timeframe", timeframe),
+                ("limit", limit),
+            ]
+        )
+        headers = self._get_market_data_auth_headers(
+            method="GET",
+            path=path,
+            query=query,
+            body=None,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        request_path = f"{path}?{query}" if query else path
+        resp = await self._market_client.get(
+            request_path,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
+    async def subscribe_market_data_symbols(
+        self,
+        symbols: list[str],
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        *,
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        """Request market-data-service to stream specified symbols."""
+        request_payload: dict[str, Any] = {
+            "symbols": [str(symbol).upper() for symbol in symbols if str(symbol).strip()]
+        }
+        normalized_source = str(source).strip() if source is not None else ""
+        if normalized_source:
+            request_payload["source"] = normalized_source
+        request_body = json.dumps(request_payload, separators=(",", ":"), sort_keys=True)
+        path = "/api/v1/subscribe"
+        headers = self._get_market_data_auth_headers(
+            method="POST",
+            path=path,
+            query="",
+            body=request_body,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        resp = await self._market_client.post(
+            path,
+            headers=headers,
+            content=request_body,
+        )
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
+    @with_retry(max_attempts=3, backoff_base=1.0, method="DELETE")
+    async def unsubscribe_market_data_symbol(
+        self,
+        symbol: str,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+        *,
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        """Request market-data-service to stop streaming one symbol."""
+        safe_symbol = url_quote(symbol.upper(), safe="")
+        normalized_source = str(source).strip() if source is not None else ""
+        query = self._build_query_string([("source", normalized_source)]) if normalized_source else ""
+        path = f"/api/v1/subscribe/{safe_symbol}"
+        headers = self._get_market_data_auth_headers(
+            method="DELETE",
+            path=path,
+            query=query,
+            body=None,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        request_path = f"{path}?{query}" if query else path
+        resp = await self._market_client.delete(
+            request_path,
+            headers=headers,
+        )
         resp.raise_for_status()
         return self._json_dict(resp)
 

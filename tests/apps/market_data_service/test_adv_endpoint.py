@@ -45,14 +45,22 @@ class DummyCache:
 
 
 class DummyProvider:
-    def __init__(self, adv_data=None, error=None):
+    def __init__(self, adv_data=None, bars_data=None, error=None):
         self._adv_data = adv_data
+        self._bars_data = bars_data or []
         self._error = error
 
     async def get_adv(self, symbol: str):
         if self._error:
             raise self._error
         return self._adv_data
+
+    async def get_bars(self, symbol: str, *, timeframe: str = "5Min", limit: int = 240):
+        if isinstance(self._error, ValueError):
+            raise self._error
+        if self._error:
+            raise self._error
+        return list(self._bars_data)
 
 
 def test_adv_returns_404_for_unknown_symbol(test_client, monkeypatch):
@@ -139,3 +147,71 @@ def test_adv_staleness_calculation(test_client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["stale"] is True
+
+
+def test_bars_returns_historical_payload(test_client, monkeypatch):
+    from apps.market_data_service.routes import market_data
+
+    expected_bars = [
+        {
+            "timestamp": "2026-04-20T13:30:00+00:00",
+            "open": 180.1,
+            "high": 181.0,
+            "low": 179.9,
+            "close": 180.6,
+            "volume": 1200,
+        }
+    ]
+    monkeypatch.setattr(
+        market_data,
+        "_get_provider",
+        lambda: DummyProvider(bars_data=expected_bars),
+    )
+
+    response = test_client.get("/api/v1/market-data/aapl/bars?timeframe=5Min&limit=100")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == "AAPL"
+    assert body["timeframe"] == "5Min"
+    assert len(body["bars"]) == 1
+    assert body["bars"][0]["open"] == expected_bars[0]["open"]
+    assert body["bars"][0]["high"] == expected_bars[0]["high"]
+    assert body["bars"][0]["low"] == expected_bars[0]["low"]
+    assert body["bars"][0]["close"] == expected_bars[0]["close"]
+    assert body["bars"][0]["volume"] == expected_bars[0]["volume"]
+    assert body["bars"][0]["timestamp"] in {
+        "2026-04-20T13:30:00Z",
+        "2026-04-20T13:30:00+00:00",
+    }
+
+
+def test_bars_returns_400_for_invalid_limit(test_client):
+    response = test_client.get("/api/v1/market-data/AAPL/bars?limit=0")
+    assert response.status_code == 400
+
+
+def test_bars_returns_400_for_invalid_timeframe(test_client, monkeypatch):
+    from apps.market_data_service.routes import market_data
+
+    monkeypatch.setattr(
+        market_data,
+        "_get_provider",
+        lambda: DummyProvider(error=ValueError("Unsupported timeframe: 2Min")),
+    )
+
+    response = test_client.get("/api/v1/market-data/AAPL/bars?timeframe=2Min")
+    assert response.status_code == 400
+    assert "Unsupported timeframe" in response.text
+
+
+def test_bars_returns_503_when_provider_unavailable(test_client, monkeypatch):
+    from apps.market_data_service.routes import market_data
+
+    monkeypatch.setattr(
+        market_data,
+        "_get_provider",
+        lambda: DummyProvider(error=MarketDataError("down")),
+    )
+
+    response = test_client.get("/api/v1/market-data/AAPL/bars")
+    assert response.status_code == 503

@@ -117,3 +117,9 @@ def test_dashboard_has_trade_alias_route() -> None:
 def test_dashboard_session_expiry_redirects_to_login() -> None:
     source = inspect.getsource(dashboard_module.dashboard)
     assert 'with_root_path("/login"' in source
+
+
+def test_dashboard_handoff_defers_market_data_release_until_replacement_context() -> None:
+    source = inspect.getsource(dashboard_module.dashboard)
+    assert "is_handoff = active_generation_id != order_context_generation_id" in source
+    assert 'client.storage["deferred_market_data_release_symbols"]' in source

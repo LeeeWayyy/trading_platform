@@ -10,23 +10,16 @@ Licensing Notes:
 
 Security Notes:
 - CDN assets loaded with SRI (Subresource Integrity) hash
-- CSP allowlist entry required: script-src unpkg.com
+- CSP allowlist entry required: script-src cdn.jsdelivr.net
 - Alternative: Host locally in /static/vendor/ for airgapped deployments
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
-
-from nicegui import ui
-
-logger = logging.getLogger(__name__)
-
 # CDN with SRI hash for supply-chain security
 # Hash generated via: curl -s "$CDN_URL" | openssl dgst -sha384 -binary | openssl base64 -A
 LIGHTWEIGHT_CHARTS_CDN = (
-    "https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
+    "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
 )
 LIGHTWEIGHT_CHARTS_SRI = "sha384-rcCMiCptH4kTlEbg0euOTUKWe72TESbrjElatnG+9BfbmUIV268UK/Pro5biJdGm"
 
@@ -38,28 +31,96 @@ LIGHTWEIGHT_CHARTS_LOCAL = "/static/vendor/lightweight-charts.4.1.0.production.j
 
 # Chart initialization JavaScript template
 CHART_INIT_JS = """
-(function() {{
+(async function() {{
     const container = document.getElementById('{container_id}');
     if (!container) return;
-    if (typeof LightweightCharts === 'undefined') {{
+
+    const loadScriptOnce = window.__lwc_load_script_once || ((id, src, integrity = null) => {{
+        const existing = document.getElementById(id);
+        if (existing) {{
+            if (existing.dataset.failed === 'true') {{
+                existing.remove();
+            }} else if (existing.dataset.loaded === 'true') {{
+                return Promise.resolve();
+            }} else {{
+                return new Promise((resolve, reject) => {{
+                    existing.addEventListener('load', () => resolve(), {{ once: true }});
+                    existing.addEventListener('error', () => reject(new Error(`Failed to load ${{src}}`)), {{ once: true }});
+                }});
+            }}
+        }}
+
+        const script = document.createElement('script');
+        script.id = id;
+        script.src = src;
+        if (integrity) {{
+            script.integrity = integrity;
+            script.crossOrigin = 'anonymous';
+        }}
+        return new Promise((resolve, reject) => {{
+            script.onload = () => {{
+                script.dataset.loaded = 'true';
+                script.dataset.failed = 'false';
+                resolve();
+            }};
+            script.onerror = () => {{
+                script.dataset.failed = 'true';
+                reject(new Error(`Failed to load ${{src}}`));
+            }};
+            document.head.appendChild(script);
+        }});
+    }});
+    window.__lwc_load_script_once = loadScriptOnce;
+
+    if (typeof window.LightweightCharts === 'undefined') {{
+        window.__lwc_loading_promise = window.__lwc_loading_promise || (async () => {{
+            try {{
+                await loadScriptOnce('lwc-script-cdn-v410', '{cdn}', '{sri}');
+            }} catch (cdnError) {{
+                try {{
+                    await loadScriptOnce('lwc-script-local-v410', '{local}');
+                }} catch (fallbackError) {{
+                    console.warn('LightweightCharts load failed from CDN and local fallback', fallbackError);
+                    throw fallbackError;
+                }}
+            }}
+        }})();
+
+        try {{
+            await window.__lwc_loading_promise;
+        }} catch (loadError) {{
+            window.__lwc_loading_promise = null;
+            console.warn('LightweightCharts load promise failed; will retry on next init', loadError);
+            throw loadError;
+        }} finally {{
+            window.__lwc_ready = typeof window.LightweightCharts !== 'undefined';
+        }}
+    }}
+
+    if (typeof window.LightweightCharts === 'undefined') {{
         console.warn('LightweightCharts unavailable; skipping chart init for {chart_id}');
         return;
     }}
+    const lwc = window.LightweightCharts;
+    const MIN_CHART_WIDTH = 320;
+    const MIN_CHART_HEIGHT = 180;
 
     // Create chart
-    const chart = LightweightCharts.createChart(container, {{
-        width: {width},
-        height: {height},
+    const initialWidth = Math.max(container.clientWidth || 0, {width}, MIN_CHART_WIDTH);
+    const initialHeight = Math.max(container.clientHeight || 0, {height}, MIN_CHART_HEIGHT);
+    const chart = lwc.createChart(container, {{
+        width: initialWidth,
+        height: initialHeight,
         layout: {{
-            background: {{ type: 'solid', color: '#1e1e1e' }},
-            textColor: '#d1d4dc',
+            background: {{ type: 'solid', color: '#0f172a' }},
+            textColor: '#94a3b8',
         }},
         grid: {{
-            vertLines: {{ color: '#2B2B43' }},
-            horzLines: {{ color: '#363C4E' }},
+            vertLines: {{ color: '#1e293b' }},
+            horzLines: {{ color: '#334155' }},
         }},
         crosshair: {{
-            mode: LightweightCharts.CrosshairMode.Normal,
+            mode: lwc.CrosshairMode.Normal,
         }},
         timeScale: {{
             timeVisible: true,
@@ -84,6 +145,7 @@ CHART_INIT_JS = """
         markers: [],
         vwapSeries: null,
         twapSeries: null,
+        resizeObserver: null,
     }};
 
     // Add attribution footer (required by Apache 2.0 license)
@@ -94,96 +156,23 @@ CHART_INIT_JS = """
     container.appendChild(attribution);
 
     // Resize handler
-    const resizeObserver = new ResizeObserver(entries => {{
-        chart.applyOptions({{ width: container.clientWidth }});
+    const resizeObserver = new ResizeObserver(() => {{
+        chart.applyOptions({{
+            width: Math.max(container.clientWidth || 0, {width}, MIN_CHART_WIDTH),
+            height: Math.max(container.clientHeight || 0, {height}, MIN_CHART_HEIGHT),
+        }});
     }});
     resizeObserver.observe(container);
+    if (window.__charts && window.__charts['{chart_id}']) {{
+        window.__charts['{chart_id}'].resizeObserver = resizeObserver;
+    }}
 }})();
 """
 
 
-class LightweightChartsLoader:
-    """Load Lightweight Charts library via CDN with SRI and fallback."""
-
-    _loaded: bool = False
-    _ready: bool = False  # Track if chart API is ready
-
-    @classmethod
-    async def ensure_loaded(cls) -> None:
-        """Ensure the library is loaded exactly once with SRI verification."""
-        if cls._loaded:
-            # Wait for ready state if already loading
-            for _ in range(100):  # Max 5 seconds
-                if cls._ready:
-                    return
-                await asyncio.sleep(0.05)
-            # Still not ready after waiting - raise error (FAIL-CLOSED)
-            raise RuntimeError("Lightweight Charts library failed to load")  # noqa: TRY003
-
-        cls._loaded = True
-
-        # Load with SRI hash and crossorigin for supply-chain security
-        # Falls back to local copy if CDN fails
-        await ui.run_javascript(
-            f"""
-            (async function() {{
-                if (typeof LightweightCharts !== 'undefined') {{
-                    window.__lwc_ready = true;
-                    return;
-                }}
-
-                try {{
-                    const script = document.createElement('script');
-                    script.src = '{LIGHTWEIGHT_CHARTS_CDN}';
-                    script.integrity = '{LIGHTWEIGHT_CHARTS_SRI}';
-                    script.crossOrigin = 'anonymous';
-
-                    await new Promise((resolve, reject) => {{
-                        script.onload = resolve;
-                        script.onerror = reject;
-                        document.head.appendChild(script);
-                    }});
-                    console.log('Lightweight Charts loaded from CDN');
-                }} catch (e) {{
-                    console.warn('CDN load failed, using local fallback:', e);
-                    const fallback = document.createElement('script');
-                    fallback.src = '{LIGHTWEIGHT_CHARTS_LOCAL}';
-                    await new Promise((resolve, reject) => {{
-                        fallback.onload = resolve;
-                        fallback.onerror = reject;
-                        document.head.appendChild(fallback);
-                    }});
-                    console.log('Lightweight Charts loaded from local fallback');
-                }}
-                window.__lwc_ready = true;
-            }})();
-        """,
-            timeout=10.0,
-        )
-
-        # Wait for library to be ready
-        for _ in range(100):  # Max 5 seconds
-            try:
-                ready = await ui.run_javascript("window.__lwc_ready === true")
-                if ready:
-                    cls._ready = True
-                    return
-            except Exception:
-                pass  # JavaScript may not be ready yet
-            await asyncio.sleep(0.05)
-
-        raise RuntimeError("Failed to load Lightweight Charts library")
-
-    @classmethod
-    def reset(cls) -> None:
-        """Reset loader state (for testing)."""
-        cls._loaded = False
-        cls._ready = False
-
-
 __all__ = [
-    "LightweightChartsLoader",
     "CHART_INIT_JS",
     "LIGHTWEIGHT_CHARTS_CDN",
     "LIGHTWEIGHT_CHARTS_SRI",
+    "LIGHTWEIGHT_CHARTS_LOCAL",
 ]

@@ -396,7 +396,7 @@ def resolve_workspace_kill_switch_pill(state: str | None) -> tuple[str, str]:
     normalized = str(state or "UNKNOWN").upper()
     if normalized == "ENGAGED":
         return ("KILL ENGAGED", "danger")
-    if normalized == "DISENGAGED":
+    if normalized in {"DISENGAGED", "ACTIVE"}:
         return ("KILL DISARMED", "muted")
     return (f"KILL {normalized}", "warning")
 
@@ -688,12 +688,21 @@ async def dashboard(client: Client) -> None:
 
     lifecycle = ClientLifecycleManager.get()
 
-    # Get or generate client_id (may not be set yet if WebSocket hasn't connected)
+    # client_id is per-websocket lifecycle key for cleanup tracking.
     client_id = client.storage.get("client_id")
     if not isinstance(client_id, str) or not client_id:
         client_id = lifecycle.generate_client_id()
         client.storage["client_id"] = client_id
         logger.debug("dashboard_generated_client_id", extra={"client_id": client_id})
+
+    # Use a reconnect-stable market-data owner ID bound to this page client.
+    market_data_owner_id = client.storage.get("market_data_owner_id")
+    if not isinstance(market_data_owner_id, str) or not market_data_owner_id:
+        market_data_owner_id = lifecycle.generate_client_id()
+        client.storage["market_data_owner_id"] = market_data_owner_id
+    # Track currently active order-context generation for reconnect handoff.
+    order_context_generation_id = lifecycle.generate_client_id()
+    client.storage["active_order_context_generation_id"] = order_context_generation_id
 
     realtime = RealtimeUpdater(client_id, client)
     timers: list[ui.timer] = []
@@ -720,6 +729,7 @@ async def dashboard(client: Client) -> None:
         user_id=user_id,
         role=user_role,
         strategies=user_strategies,
+        client_id=market_data_owner_id,
     )
 
     # Create OneClickHandler dependencies and wire it up (P6T7)
@@ -866,7 +876,8 @@ async def dashboard(client: Client) -> None:
     )
 
     # Unified Execution Workspace is the only supported trading layout.
-    with ui.element("section").classes("workspace-v2 w-full mb-3") as workspace_root:
+    with ui.element("section").classes("workspace-v2 w-full mb-3") as _workspace_root:
+        workspace_root = _workspace_root
         with ui.element("div").classes("workspace-v2-command-strip"):
             pnl_card = _MetricStripValue(
                 "UNR P&L",
@@ -898,7 +909,7 @@ async def dashboard(client: Client) -> None:
         with ui.element("div").classes("workspace-v2-body"):
             with ui.element("div").classes("workspace-v2-zone-b workspace-v2-enter-zone workspace-v2-enter-zone-b"):
                 with ui.element("div").classes("workspace-v2-chart-pane"):
-                    order_context.create_price_chart(width=960, height=420).classes(
+                    order_context.create_price_chart(fill_parent=True).classes(
                         "w-full h-full"
                     )
                 with ui.element("div").classes("workspace-v2-microstructure"):
@@ -1554,7 +1565,7 @@ async def dashboard(client: Client) -> None:
         state = str(state_raw or "").upper()
         if state == "ENGAGED":
             return True
-        if state == "DISENGAGED":
+        if state in {"DISENGAGED", "ACTIVE"}:
             return False
         return None
 
@@ -1617,7 +1628,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = state
             kill_switch_engaged = _parse_kill_switch_state(state)
             _update_workspace_kill_switch_pill()
-            if state != "DISENGAGED":
+            if state not in {"DISENGAGED", "ACTIVE"}:
                 return (False, "Cannot flatten: Kill Switch is not DISENGAGED")
             return (True, "")
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
@@ -2837,10 +2848,76 @@ async def dashboard(client: Client) -> None:
     await lifecycle.register_cleanup_callback(client_id, cleanup_background_tasks)
     await lifecycle.register_cleanup_callback(client_id, realtime.cleanup)
 
+    # Register cleanup for OrderEntryContext before initialization so disconnects
+    # during startup still run teardown.
+    async def cleanup_order_context() -> None:
+        try:
+            active_generation_id = client.storage.get("active_order_context_generation_id")
+            is_handoff = active_generation_id != order_context_generation_id
+            deferred_release_symbols = await order_context.dispose(
+                release_market_data_symbols=not is_handoff
+            )
+            if not is_handoff:
+                if client.storage.get("active_order_context_ref") is order_context:
+                    client.storage.pop("active_order_context_ref", None)
+                    client.storage.pop("active_order_context_generation_id", None)
+            elif deferred_release_symbols:
+                latest_generation_id = client.storage.get("active_order_context_generation_id")
+                latest_context_ref = client.storage.get("active_order_context_ref")
+                latest_active_context = (
+                    latest_context_ref
+                    if isinstance(latest_context_ref, OrderEntryContext)
+                    else None
+                )
+                can_adopt_into_latest_context = (
+                    latest_generation_id != order_context_generation_id
+                    and latest_active_context is not None
+                    and latest_active_context is not order_context
+                    and not getattr(latest_active_context, "_disposed", False)
+                )
+                if can_adopt_into_latest_context:
+                    assert latest_active_context is not None
+                    try:
+                        await latest_active_context.adopt_deferred_market_data_releases(
+                            sorted(deferred_release_symbols)
+                        )
+                        return
+                    except Exception:
+                        logger.debug(
+                            "deferred_market_data_adoption_failed; persisting for retry",
+                            extra={"client_id": client_id},
+                            exc_info=True,
+                        )
+                deferred_symbols_raw = client.storage.get("deferred_market_data_release_symbols", [])
+                existing_symbols = (
+                    [symbol for symbol in deferred_symbols_raw if isinstance(symbol, str)]
+                    if isinstance(deferred_symbols_raw, list)
+                    else []
+                )
+                client.storage["deferred_market_data_release_symbols"] = sorted(
+                    set(existing_symbols).union(deferred_release_symbols)
+                )
+        except Exception as exc:
+            logger.warning(
+                "order_context_dispose_failed",
+                extra={"client_id": client_id, "error": str(exc)},
+            )
+
+    await lifecycle.register_cleanup_callback(client_id, cleanup_order_context)
+
     # Initialize OrderEntryContext AFTER UI creation (per spec lifecycle pattern)
     # This starts timers, loads data, and establishes subscriptions
     try:
         await order_context.initialize()
+        client.storage["active_order_context_ref"] = order_context
+        deferred_symbols_raw = client.storage.pop("deferred_market_data_release_symbols", [])
+        deferred_symbols = (
+            [symbol for symbol in deferred_symbols_raw if isinstance(symbol, str)]
+            if isinstance(deferred_symbols_raw, list)
+            else []
+        )
+        if deferred_symbols:
+            await order_context.adopt_deferred_market_data_releases(deferred_symbols)
     except Exception as exc:
         logger.error(
             "order_context_init_failed",
@@ -2850,18 +2927,6 @@ async def dashboard(client: Client) -> None:
             "Order entry initialization failed - some features may be unavailable",
             type="warning",
         )
-
-    # Register cleanup for OrderEntryContext on disconnect
-    async def cleanup_order_context() -> None:
-        try:
-            await order_context.dispose()
-        except Exception as exc:
-            logger.warning(
-                "order_context_dispose_failed",
-                extra={"client_id": client_id, "error": str(exc)},
-            )
-
-    await lifecycle.register_cleanup_callback(client_id, cleanup_order_context)
 
 
 __all__ = ["dashboard", "MarketPriceCache"]

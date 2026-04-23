@@ -75,10 +75,12 @@ class DummyLifecycle:
 
     def __init__(self, client_id: str = "client-123") -> None:
         self.client_id = client_id
+        self.generate_calls = 0
         self.registered: list[str] = []
         self.cleaned: list[str] = []
 
     def generate_client_id(self) -> str:
+        self.generate_calls += 1
         return self.client_id
 
     async def register_client(self, client_id: str) -> None:
@@ -209,7 +211,9 @@ async def test_on_connect_registers_client_and_metrics(handlers) -> None:
     await dummy_app.on_connect_handler(client)
 
     assert client.storage["client_id"] == "client-123"
+    assert client.storage["session_client_id"] == "client-123"
     assert client.storage["session_conn_key"] == "session_conns:abc"
+    assert scope["state"]["lifecycle_client_id"] == "client-123"
     assert scope["state"]["handshake_complete"] is True
     assert lifecycle.registered == ["client-123"]
     assert health.connection_counter.value == 1
@@ -217,6 +221,25 @@ async def test_on_connect_registers_client_and_metrics(handlers) -> None:
     assert metrics.ws_connections.set_values == [1]
     assert metrics.ws_connects_total.label_args == [{"pod": config.POD_NAME}]
     assert metrics.ws_connections.label_args == [{"pod": config.POD_NAME}]
+    assert lifecycle.generate_calls == 2
+
+
+@pytest.mark.asyncio()
+async def test_on_connect_reuses_existing_client_id(handlers) -> None:
+    """Reconnect should preserve a previously assigned client_id."""
+    dummy_app, lifecycle, metrics, _semaphore = handlers
+
+    scope = {"state": {}}
+    client = DummyClient(scope)
+    client.storage["session_client_id"] = "persisted-client-001"
+
+    await dummy_app.on_connect_handler(client)
+
+    assert client.storage["session_client_id"] == "persisted-client-001"
+    assert client.storage["client_id"] == "client-123"
+    assert lifecycle.registered == ["client-123"]
+    assert lifecycle.generate_calls == 1
+    assert metrics.ws_connects_total.inc_count == 1
 
 
 @pytest.mark.asyncio()
@@ -324,6 +347,26 @@ async def test_on_disconnect_cleans_up_and_releases(
     assert metrics.ws_disconnects_total.label_args == [{"pod": config.POD_NAME, "reason": "normal"}]
     assert semaphore.release_count == 1
     assert redis.eval_calls
+
+
+@pytest.mark.asyncio()
+async def test_on_disconnect_prefers_scoped_lifecycle_client_id(
+    handlers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disconnect must use per-connection lifecycle ID, not mutable storage state."""
+    dummy_app, lifecycle, _metrics, _semaphore = handlers
+
+    redis = DummyRedis()
+    monkeypatch.setattr(connection_events, "get_redis_store", lambda: DummyRedisStore(redis))
+
+    scope = {"state": {"handshake_complete": False, "lifecycle_client_id": "old-connection-id"}}
+    client = DummyClient(scope)
+    # Simulate storage overwritten by a newer socket before stale disconnect arrives.
+    client.storage["client_id"] = "new-connection-id"
+
+    await dummy_app.on_disconnect_handler(client)
+
+    assert lifecycle.cleaned == ["old-connection-id"]
 
 
 @pytest.mark.asyncio()

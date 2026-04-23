@@ -502,16 +502,18 @@
 .workspace-v2-chart-pane {
     border: 1px solid var(--workspace-border);
     border-radius: 8px;
-    flex: 1;
+    flex: 0 0 auto;
+    height: clamp(300px, 44vh, 520px);
     min-height: 0;
     overflow: hidden;
 }
 
 .workspace-v2-microstructure {
     display: grid;
+    flex: 1 1 auto;
     gap: 8px;
     grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
-    min-height: 324px;
+    min-height: 240px;
 }
 
 .workspace-v2-microstructure-dom {
@@ -975,6 +977,10 @@
         grid-template-columns: minmax(0, 1fr);
         grid-template-rows: minmax(180px, 1fr) minmax(156px, 0.92fr);
         min-height: 292px;
+    }
+
+    .workspace-v2-chart-pane {
+        height: clamp(260px, 40vh, 420px);
     }
 
     .workspace-v2-microstructure-side {

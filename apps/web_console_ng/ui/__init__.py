@@ -2,8 +2,4 @@
 
 from __future__ import annotations
 
-from apps.web_console_ng.ui.lightweight_charts import LightweightChartsLoader
-
-__all__ = [
-    "LightweightChartsLoader",
-]
+__all__: list[str] = []

@@ -13,15 +13,36 @@ Tests cover:
 """
 
 import asyncio
+import os
+import sys
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
 import redis.exceptions
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from libs.core.common.api_auth_dependency import AuthContext
 from libs.data.market_data import SubscriptionError
+
+
+def _clear_internal_token_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear any configured internal-token secrets for deterministic unsigned-mode tests."""
+    monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
+    for env_key in tuple(os.environ):
+        if env_key.startswith("INTERNAL_TOKEN_SECRET_"):
+            monkeypatch.delenv(env_key, raising=False)
+
+    # Tests import a module-level settings singleton; clear cached values as well.
+    config_module = sys.modules.get("apps.market_data_service.config")
+    if config_module is not None and hasattr(config_module, "settings"):
+        config_module.settings.internal_token_secret = ""
+
+    main_module = sys.modules.get("apps.market_data_service.main")
+    if main_module is not None and hasattr(main_module, "settings"):
+        main_module.settings.internal_token_secret = ""
 
 
 @pytest.fixture()
@@ -33,6 +54,7 @@ def test_client(monkeypatch):
     monkeypatch.setenv("REDIS_HOST", "localhost")
     monkeypatch.setenv("REDIS_PORT", "6379")
     monkeypatch.setenv("EXECUTION_GATEWAY_URL", "http://localhost:8002")
+    monkeypatch.setenv("API_AUTH_MODE", "enforce")
 
     # Create a mock lifespan that doesn't connect to external services
     @asynccontextmanager
@@ -42,9 +64,20 @@ def test_client(monkeypatch):
 
     # Patch the lifespan before importing the app
     with patch("apps.market_data_service.main.lifespan", mock_lifespan):
-        from apps.market_data_service.main import app
+        from apps.market_data_service.main import MARKET_DATA_SUBSCRIPTION_AUTH, app
 
-        return TestClient(app, raise_server_exceptions=False)
+        async def _authenticated_context() -> AuthContext:
+            return AuthContext(
+                user=None,
+                internal_claims=None,
+                auth_type="jwt",
+                is_authenticated=True,
+            )
+
+        app.dependency_overrides[MARKET_DATA_SUBSCRIPTION_AUTH] = _authenticated_context
+        with TestClient(app, raise_server_exceptions=False) as client:
+            yield client
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture()
@@ -160,7 +193,147 @@ class TestSubscribeEndpoint:
         assert data["total_subscriptions"] == 3
 
         # Verify subscribe_symbols was called
-        mock_stream.subscribe_symbols.assert_called_once_with(["AAPL", "MSFT"])
+        mock_stream.subscribe_symbols.assert_called_once_with(["AAPL", "MSFT"], source="manual")
+
+    def test_subscribe_success_with_explicit_source(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Unsigned environments should preserve explicit web_console source tags."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_subscribe_normalizes_source_prefix_casing(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Mixed-case source prefixes should be canonicalized for stable ownership keys."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "WEB_CONSOLE:user-1:abc"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_subscribe_accepts_uppercase_manual_source_when_internal_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """MANUAL should normalize to manual and bypass explicit-source auth requirements."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "MANUAL"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
+
+    def test_subscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
+        """Authorized internal requests may use explicit source tags."""
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(),
+            ) as authorize_source_override,
+        ):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 201
+        authorize_source_override.assert_awaited_once()
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_subscribe_rejects_explicit_source_without_internal_auth_when_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When internal signing is configured, explicit source requires auth."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 401
+        mock_stream.subscribe_symbols.assert_not_called()
+
+    def test_subscribe_allows_explicit_source_when_only_other_service_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Service-specific secrets for unrelated services must not force signed web_console tags."""
+        _clear_internal_token_secrets(monkeypatch)
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET_SIGNAL_SERVICE", "s" * 64)
+        mock_stream.get_subscribed_symbols.return_value = ["AAPL"]
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 201
+        mock_stream.subscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_subscribe_rejects_explicit_source_when_owner_service_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When web_console secret is configured, explicit source requires signed auth."""
+        _clear_internal_token_secrets(monkeypatch)
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET_WEB_CONSOLE_NG", "s" * 64)
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 401
+        mock_stream.subscribe_symbols.assert_not_called()
+
+    def test_subscribe_rejects_invalid_source(self, test_client, mock_stream):
+        """Source tags must stay bounded and contain only safe characters."""
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "bad source with spaces !"},
+            )
+
+        assert response.status_code == 400
+        assert "Invalid source" in response.json()["detail"]
+        mock_stream.subscribe_symbols.assert_not_called()
 
     def test_subscribe_subscription_error(self, test_client, mock_stream):
         """Test subscribe handles SubscriptionError."""
@@ -175,6 +348,23 @@ class TestSubscribeEndpoint:
         assert response.status_code == 500
         assert "Subscription failed" in response.json()["detail"]
         assert "WebSocket not connected" in response.json()["detail"]
+
+    def test_subscribe_propagates_authorization_http_exception(self, test_client, mock_stream):
+        """Authorization HTTPException should not be swallowed into a 500."""
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(side_effect=HTTPException(status_code=403, detail="forbidden")),
+            ),
+        ):
+            response = test_client.post(
+                "/api/v1/subscribe",
+                json={"symbols": ["AAPL"], "source": "web_console:user-1:abc"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "forbidden"
 
 
 class TestUnsubscribeEndpoint:
@@ -201,7 +391,123 @@ class TestUnsubscribeEndpoint:
         assert data["remaining_subscriptions"] == 2
 
         # Verify unsubscribe_symbols was called
-        mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"])
+        mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
+
+    def test_unsubscribe_success_with_explicit_source(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Unsigned environments should preserve explicit web_console source tags."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_unsubscribe_normalizes_source_prefix_casing(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Mixed-case source prefixes should normalize before source-set bookkeeping."""
+        _clear_internal_token_secrets(monkeypatch)
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=WEB_CONSOLE:user-1:abc")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_unsubscribe_accepts_uppercase_manual_source_when_internal_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """MANUAL should normalize to manual for unsubscribe flow as well."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=MANUAL")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
+
+    def test_unsubscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
+        """Authorized internal requests may unsubscribe with explicit source tags."""
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(),
+            ) as authorize_source_override,
+        ):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 200
+        authorize_source_override.assert_awaited_once()
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_unsubscribe_rejects_explicit_source_without_internal_auth_when_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When internal signing is configured, explicit source requires auth."""
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "s" * 64)
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 401
+        mock_stream.unsubscribe_symbols.assert_not_called()
+
+    def test_unsubscribe_allows_explicit_source_when_only_other_service_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Unrelated service secrets must not block unsigned web_console source unsubscription."""
+        _clear_internal_token_secrets(monkeypatch)
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET_SIGNAL_SERVICE", "s" * 64)
+        mock_stream.get_subscribed_symbols.return_value = []
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 200
+        mock_stream.unsubscribe_symbols.assert_called_once_with(
+            ["AAPL"],
+            source="web_console:user-1:abc",
+        )
+
+    def test_unsubscribe_rejects_explicit_source_when_owner_service_secret_configured(
+        self, test_client, mock_stream, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When web_console secret is configured, explicit source requires signed auth."""
+        _clear_internal_token_secrets(monkeypatch)
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET_WEB_CONSOLE_NG", "s" * 64)
+
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 401
+        mock_stream.unsubscribe_symbols.assert_not_called()
+
+    def test_unsubscribe_rejects_invalid_source(self, test_client, mock_stream):
+        """Unsubscribe source tags must pass the same validation rules."""
+        with patch("apps.market_data_service.main.stream", mock_stream):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=bad source !!")
+
+        assert response.status_code == 400
+        assert "Invalid source" in response.json()["detail"]
+        mock_stream.unsubscribe_symbols.assert_not_called()
 
     def test_unsubscribe_subscription_error(self, test_client, mock_stream):
         """Test unsubscribe handles SubscriptionError."""
@@ -213,6 +519,20 @@ class TestUnsubscribeEndpoint:
         assert response.status_code == 500
         assert "Unsubscription failed" in response.json()["detail"]
         assert "Symbol not subscribed" in response.json()["detail"]
+
+    def test_unsubscribe_propagates_authorization_http_exception(self, test_client, mock_stream):
+        """Authorization HTTPException should not be swallowed into a 500."""
+        with (
+            patch("apps.market_data_service.main.stream", mock_stream),
+            patch(
+                "apps.market_data_service.main._authorize_source_override",
+                new=AsyncMock(side_effect=HTTPException(status_code=403, detail="forbidden")),
+            ),
+        ):
+            response = test_client.delete("/api/v1/subscribe/AAPL?source=web_console:user-1:abc")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "forbidden"
 
 
 class TestGetSubscriptionsEndpoint:

@@ -9,18 +9,21 @@ Data Flow: Redis → RealtimeUpdater → OrderEntryContext → PriceChart.set_pr
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from nicegui import ui
 
 from apps.web_console_ng.ui.lightweight_charts import (
     CHART_INIT_JS,
-    LightweightChartsLoader,
+    LIGHTWEIGHT_CHARTS_CDN,
+    LIGHTWEIGHT_CHARTS_LOCAL,
+    LIGHTWEIGHT_CHARTS_SRI,
 )
 from apps.web_console_ng.utils.time import parse_iso_timestamp
 
@@ -34,6 +37,29 @@ logger = logging.getLogger(__name__)
 # Staleness thresholds
 REALTIME_STALE_THRESHOLD_S = 60  # Show warning if no updates for 60s
 REALTIME_FALLBACK_THRESHOLD_S = 180  # Show fallback chart after 3 minutes
+MAX_FUTURE_TICK_SKEW_S = 60  # Drop ticks with timestamps too far in the future
+MAX_PAST_TICK_SKEW_S = 15 * 60  # Drop ticks that are too stale for realtime charting
+
+
+def _ensure_utc_datetime(value: datetime) -> datetime:
+    """Normalize any datetime to an aware UTC datetime."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _parse_interval_seconds(interval: str) -> int:
+    """Convert interval strings like '5m' into seconds."""
+    if len(interval) < 2:
+        raise ValueError(f"Invalid interval format: {interval!r}")
+    value_str, unit = interval[:-1], interval[-1].lower()
+    if not value_str.isdigit():
+        raise ValueError(f"Invalid interval value: {interval!r}")
+    value = int(value_str)
+    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(unit)
+    if multiplier is None:
+        raise ValueError(f"Unsupported interval unit: {interval!r}")
+    return value * multiplier
 
 
 @dataclass
@@ -68,6 +94,23 @@ class PriceChartComponent:
 
     DEFAULT_TIMEFRAME = "1D"  # 1 day of data
     CANDLE_INTERVAL = "5m"  # 5-minute candles
+    CANDLE_INTERVAL_SECONDS = _parse_interval_seconds(CANDLE_INTERVAL)
+    MAX_CHART_CANDLES = 500
+    CHART_TRIM_HIGH_WATER_MARK = 600
+    HISTORICAL_TIMEFRAME_FALLBACKS: tuple[tuple[str, int], ...] = (
+        ("5Min", 240),
+        ("15Min", 240),
+        ("1Hour", 200),
+        ("1Day", 120),
+    )
+    HISTORICAL_TIMEFRAME_SECONDS: dict[str, int] = {
+        "1min": 60,
+        "5min": 300,
+        "15min": 900,
+        "30min": 1800,
+        "1hour": 3600,
+        "1day": 86400,
+    }
 
     def __init__(
         self,
@@ -96,8 +139,26 @@ class PriceChartComponent:
         self._symbol_changed_at: datetime | None = None  # Track when symbol changed for staleness
         self._width: int = 600  # Default, overridden by create()
         self._height: int = 300  # Default, overridden by create()
+        self._fill_parent: bool = False
         self._disposed: bool = False
         self._staleness_timer: ui.timer | None = None
+        self._chart_initialized: bool = False
+        self._ui_client: Any | None = None
+        self._missing_ui_client_warned: bool = False
+        self._chart_init_lock: asyncio.Lock | None = None
+        self._price_update_lock: asyncio.Lock | None = None
+        self._price_update_task: asyncio.Task[None] | None = None
+        self._pending_price_update: tuple[float, datetime, str | None] | None = None
+        self._live_bucket_interval_seconds: int = self.CANDLE_INTERVAL_SECONDS
+        self._no_data_overlay_visible: bool = False
+        self._stale_overlay_visible: bool = False
+        self._fallback_overlay_visible: bool = False
+        try:
+            # Bind to originating NiceGUI client so JS calls from background tasks
+            # execute in the correct browser context.
+            self._ui_client = ui.context.client
+        except Exception:
+            self._ui_client = None
 
         # Track pending update tasks for cleanup on dispose (prevent task leaks)
         self._pending_update_tasks: set[asyncio.Task[None]] = set()
@@ -114,46 +175,116 @@ class PriceChartComponent:
         """
         self._timer_tracker = timer_tracker
 
-        # Initialize chart via one-shot timer (tracked)
         async def init_chart() -> None:
             if self._disposed:
                 return
             try:
-                await LightweightChartsLoader.ensure_loaded()
-                await ui.run_javascript(
-                    CHART_INIT_JS.format(
-                        container_id=self._container_id,
-                        chart_id=self._chart_id,
-                        width=self._width,
-                        height=self._height,
-                    ),
-                    timeout=10.0,
-                )
+                await self._ensure_chart_initialized()
             except Exception as exc:
-                logger.warning(f"Failed to initialize chart: {exc}")
+                logger.warning("Failed to initialize chart: %s", exc)
 
-        init_timer = ui.timer(0.1, init_chart, once=True)
+        # Initialize chart via one-shot timer (tracked).
+        # Use a synchronous timer callback that spawns a task to avoid depending
+        # on framework-specific async timer callback behavior.
+        def schedule_chart_init() -> None:
+            if self._disposed:
+                return
+            task = asyncio.create_task(init_chart())
+            self._pending_update_tasks.add(task)
+            task.add_done_callback(lambda t: self._pending_update_tasks.discard(t))
+
+        init_timer = ui.timer(0.1, schedule_chart_init, once=True)
         timer_tracker(init_timer)
 
         # Start realtime staleness monitor (tracked via timer_tracker)
         self._start_realtime_staleness_monitor(timer_tracker)
 
-    def create(self, width: int = 600, height: int = 300) -> ui.html:
+    def create(self, width: int = 600, height: int = 300, *, fill_parent: bool = False) -> ui.html:
         """Create the chart container.
 
         NOTE: Does NOT start timers. Timer for chart initialization is started
         in initialize() to ensure timer_tracker is available.
         """
         # Store dimensions for initialization
-        self._width = width
-        self._height = height
+        if fill_parent:
+            # When filling parent, avoid hard minimums that can overflow responsive layouts.
+            self._width = 1
+            self._height = 1
+        else:
+            self._width = width
+            self._height = height
+        self._fill_parent = fill_parent
+        height_style = "100%" if fill_parent else f"{height}px"
 
         # Container div
         container = ui.html(
-            f'<div id="{self._container_id}" ' f'style="width:100%;height:{height}px;"></div>'
+            f'<div id="{self._container_id}" ' f'style="width:100%;height:{height_style};"></div>'
         )
 
         return container
+
+    async def _run_javascript(
+        self,
+        code: str,
+        *,
+        timeout: float | None = None,
+    ) -> Any:
+        """Run JavaScript in this component's client context."""
+        if self._ui_client is not None:
+            if timeout is not None:
+                return await self._ui_client.run_javascript(code, timeout=timeout)
+            return await self._ui_client.run_javascript(code)
+        if not self._missing_ui_client_warned:
+            logger.warning("PriceChart: No UI client context available for JavaScript execution")
+            self._missing_ui_client_warned = True
+        return None
+
+    def _get_chart_init_lock(self) -> asyncio.Lock:
+        """Lazily create chart-init lock once an event loop is active."""
+        if self._chart_init_lock is None:
+            self._chart_init_lock = asyncio.Lock()
+        return self._chart_init_lock
+
+    def _get_price_update_lock(self) -> asyncio.Lock:
+        """Lazily create update lock once an event loop is active."""
+        if self._price_update_lock is None:
+            self._price_update_lock = asyncio.Lock()
+        return self._price_update_lock
+
+    async def _ensure_chart_initialized(self) -> None:
+        """Initialize chart library and chart instance once for this component."""
+        if self._chart_initialized or self._disposed:
+            return
+
+        async with self._get_chart_init_lock():
+            if self._chart_initialized or self._disposed:
+                return
+            await self._run_javascript(
+                CHART_INIT_JS.format(
+                    container_id=self._container_id,
+                    chart_id=self._chart_id,
+                    width=self._width,
+                    height=self._height,
+                    cdn=LIGHTWEIGHT_CHARTS_CDN,
+                    sri=LIGHTWEIGHT_CHARTS_SRI,
+                    local=LIGHTWEIGHT_CHARTS_LOCAL,
+                ),
+                timeout=10.0,
+            )
+            initialized = await self._run_javascript(
+                f"""
+                (() => {{
+                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                    return !!(chartRef && chartRef.chart && chartRef.candlestickSeries);
+                }})()
+            """
+            )
+            if initialized is True or (
+                isinstance(initialized, str) and initialized.strip().lower() == "true"
+            ):
+                self._chart_initialized = True
+                return
+            raise RuntimeError(f"Chart init did not create chart reference for {self._chart_id}")
 
     # ================= Symbol Management =================
 
@@ -172,6 +303,7 @@ class PriceChartComponent:
         before updating state/UI to prevent stale fetches from overwriting newer data.
         """
         self._current_symbol = symbol
+        self._live_bucket_interval_seconds = self.CANDLE_INTERVAL_SECONDS
 
         # CRITICAL: Reset realtime update timestamp for staleness tracking
         # Without this, staleness badge would show wrong age for new symbol
@@ -183,6 +315,12 @@ class PriceChartComponent:
             await self._clear_chart()
             return
 
+        # Ensure chart exists even when historical bars are unavailable.
+        try:
+            await self._ensure_chart_initialized()
+        except Exception as exc:
+            logger.warning(f"Failed to ensure chart initialized: {exc}")
+
         # Fetch historical data
         candles = await self._fetch_candle_data(symbol)
 
@@ -191,6 +329,12 @@ class PriceChartComponent:
             return  # Stale - symbol changed during fetch
 
         self._candles = candles
+        if candles:
+            await self._hide_no_data_overlay()
+        else:
+            self._markers = []
+            await self._clear_chart_series()
+            await self._show_no_data_overlay(symbol)
 
         # Fetch execution history for markers
         markers = await self._fetch_execution_markers(symbol)
@@ -228,6 +372,8 @@ class PriceChartComponent:
             return  # Silently ignore malformed data (display-only component)
 
         # Check symbol matches current selection
+        if self._current_symbol is None:
+            return
         data_symbol = data.get("symbol")
         if data_symbol and data_symbol != self._current_symbol:
             return  # Ignore data for different symbol
@@ -255,10 +401,30 @@ class PriceChartComponent:
         # FAIL-CLOSED: REQUIRE SERVER TIMESTAMP - do NOT use datetime.now() as fallback.
         # If timestamp is missing/invalid, set to None and keep/show stale overlay.
         raw_timestamp = data.get("timestamp")
+        tick_time: datetime | None = None
         if raw_timestamp:
             try:
-                self._last_realtime_update = parse_iso_timestamp(str(raw_timestamp))
-            except (ValueError, TypeError):
+                parsed = _ensure_utc_datetime(parse_iso_timestamp(str(raw_timestamp)))
+                now = datetime.now(UTC)
+                if parsed > now + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S):
+                    logger.warning(
+                        "PriceChart: future-skewed timestamp %s exceeds %ss threshold",
+                        raw_timestamp,
+                        MAX_FUTURE_TICK_SKEW_S,
+                    )
+                    self._last_realtime_update = None
+                    return
+                if parsed < now - timedelta(seconds=MAX_PAST_TICK_SKEW_S):
+                    logger.warning(
+                        "PriceChart: past-skewed timestamp %s exceeds %ss threshold",
+                        raw_timestamp,
+                        MAX_PAST_TICK_SKEW_S,
+                    )
+                    self._last_realtime_update = None
+                    return
+                self._last_realtime_update = parsed
+                tick_time = parsed
+            except (AttributeError, ValueError, TypeError):
                 # Invalid timestamp format - FAIL-CLOSED: treat as missing
                 logger.debug(f"PriceChart: unparseable timestamp {raw_timestamp!r}, keeping stale")
                 self._last_realtime_update = None  # Will show stale overlay
@@ -268,72 +434,347 @@ class PriceChartComponent:
             self._last_realtime_update = None
 
         # Process the price update
-        # Track task for cleanup on dispose (avoid task leaks)
-        task = asyncio.create_task(self._handle_price_update(price))
-        self._pending_update_tasks.add(task)
-        task.add_done_callback(lambda t: self._pending_update_tasks.discard(t))
-
-    async def _handle_price_update(self, price: float) -> None:
-        """Process incoming price update and update chart."""
-        if self._disposed or not self._candles:
+        if tick_time is None:
+            # FAIL-CLOSED: Do not bucket/update chart without server timestamp
             return
 
-        # Hide stale overlay on valid update
-        if self._last_realtime_update:
-            await self._hide_stale_overlay()
+        symbol_snapshot = self._current_symbol
+        self._schedule_price_update(price, tick_time, symbol_snapshot)
 
-        # Update the last candle's close (simplified real-time update)
-        last_candle = self._candles[-1]
-        updated_candle = {
-            "time": last_candle.time,
-            "open": last_candle.open,
-            "high": max(last_candle.high, price),
-            "low": min(last_candle.low, price),
-            "close": price,
-        }
+    def _schedule_price_update(
+        self,
+        price: float,
+        tick_time: datetime,
+        symbol: str | None,
+    ) -> None:
+        """Schedule/coalesce realtime updates to avoid unbounded per-tick tasks."""
+        if self._disposed:
+            return
 
-        # Update internal state
-        self._candles[-1] = CandleData(
-            time=last_candle.time,
-            open=last_candle.open,
-            high=max(last_candle.high, price),
-            low=min(last_candle.low, price),
-            close=price,
-            volume=last_candle.volume,
-        )
+        next_update = (price, tick_time, symbol)
+        if self._price_update_task and not self._price_update_task.done():
+            # Keep only the latest pending update while one is in-flight.
+            self._pending_price_update = next_update
+            return
 
-        try:
-            await ui.run_javascript(
-                f"""
-                const chartRef = window.__charts && window.__charts['{self._chart_id}'];
-                if (chartRef) {{
-                    chartRef.candlestickSeries.update({json.dumps(updated_candle)});
-                }}
-            """
-            )
-        except Exception as exc:
-            logger.debug(f"Failed to update chart: {exc}")
+        async def process_updates(initial_update: tuple[float, datetime, str | None]) -> None:
+            update: tuple[float, datetime, str | None] | None = initial_update
+            while update is not None and not self._disposed:
+                current_price, current_tick_time, current_symbol = update
+                await self._handle_price_update(
+                    current_price,
+                    current_tick_time,
+                    current_symbol,
+                )
+                update = self._pending_price_update
+                self._pending_price_update = None
+
+        task = asyncio.create_task(process_updates(next_update))
+        self._price_update_task = task
+        self._pending_update_tasks.add(task)
+
+        def _on_done(completed: asyncio.Task[None]) -> None:
+            self._pending_update_tasks.discard(completed)
+            self._price_update_task = None
+            if self._disposed:
+                self._pending_price_update = None
+                return
+            if self._pending_price_update is not None:
+                pending = self._pending_price_update
+                self._pending_price_update = None
+                self._schedule_price_update(*pending)
+
+        task.add_done_callback(_on_done)
+
+    async def _handle_price_update(
+        self,
+        price: float,
+        tick_time: datetime,
+        symbol: str | None = None,
+    ) -> None:
+        """Process incoming price update and update chart."""
+        async with self._get_price_update_lock():
+            if self._disposed:
+                return
+            if symbol is not None and symbol != self._current_symbol:
+                return
+
+            # Ensure chart exists even when historical bars are unavailable.
+            if not self._chart_initialized:
+                try:
+                    await self._ensure_chart_initialized()
+                except Exception as exc:
+                    logger.debug(f"Failed to initialize chart on tick update: {exc}")
+                    return
+            if self._disposed or (symbol is not None and symbol != self._current_symbol):
+                return
+
+            await self._hide_no_data_overlay()
+
+            # Hide stale overlay on valid update
+            if self._last_realtime_update and (
+                self._stale_overlay_visible or self._fallback_overlay_visible
+            ):
+                await self._hide_stale_overlay()
+            if self._disposed or (symbol is not None and symbol != self._current_symbol):
+                return
+
+            tick_time = _ensure_utc_datetime(tick_time)
+            live_bucket_interval_seconds = max(1, self._live_bucket_interval_seconds)
+            bucket_start = (
+                int(tick_time.timestamp()) // live_bucket_interval_seconds
+            ) * live_bucket_interval_seconds
+
+            if not self._candles:
+                seeded_candle = CandleData(
+                    time=bucket_start,
+                    open=price,
+                    high=price,
+                    low=price,
+                    close=price,
+                    volume=None,
+                )
+                self._candles = [seeded_candle]
+                try:
+                    await self._run_javascript(
+                        f"""
+                        const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                        if (chartRef) {{
+                            chartRef.candlestickSeries.setData([{json.dumps({
+                                "time": seeded_candle.time,
+                                "open": seeded_candle.open,
+                                "high": seeded_candle.high,
+                                "low": seeded_candle.low,
+                                "close": seeded_candle.close,
+                            })}]);
+                        }}
+                    """
+                    )
+                except Exception as exc:
+                    logger.debug(f"Failed to seed chart from live tick: {exc}")
+                return
+
+            # Update existing candle or start a new bucket candle
+            last_candle = self._candles[-1]
+            if bucket_start < last_candle.time:
+                # Ignore delayed/out-of-order ticks from older buckets.
+                return
+            if bucket_start > last_candle.time:
+                updated_candle = {
+                    "time": bucket_start,
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                }
+                self._candles.append(
+                    CandleData(
+                        time=int(updated_candle["time"]),
+                        open=updated_candle["open"],
+                        high=updated_candle["high"],
+                        low=updated_candle["low"],
+                        close=updated_candle["close"],
+                        volume=None,
+                    )
+                )
+            else:
+                updated_candle = {
+                    "time": last_candle.time,
+                    "open": last_candle.open,
+                    "high": max(last_candle.high, price),
+                    "low": min(last_candle.low, price),
+                    "close": price,
+                }
+                self._candles[-1] = CandleData(
+                    time=int(updated_candle["time"]),
+                    open=updated_candle["open"],
+                    high=updated_candle["high"],
+                    low=updated_candle["low"],
+                    close=updated_candle["close"],
+                    # Live quote ticks do not carry per-tick volume; preserve known bucket volume.
+                    volume=last_candle.volume,
+                )
+
+            trimmed_history = False
+            # Keep bounded history in UI-only memory.
+            if len(self._candles) > self.CHART_TRIM_HIGH_WATER_MARK:
+                self._candles = self._candles[-self.MAX_CHART_CANDLES :]
+                trimmed_history = True
+
+            try:
+                if trimmed_history:
+                    candles_payload = [
+                        (
+                            {
+                                "time": candle.time,
+                                "open": candle.open,
+                                "high": candle.high,
+                                "low": candle.low,
+                                "close": candle.close,
+                            }
+                            | ({"volume": candle.volume} if candle.volume is not None else {})
+                        )
+                        for candle in self._candles
+                    ]
+                    await self._run_javascript(
+                        f"""
+                        const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                        if (chartRef) {{
+                            chartRef.candlestickSeries.setData({json.dumps(candles_payload)});
+                        }}
+                    """
+                    )
+                else:
+                    await self._run_javascript(
+                        f"""
+                        const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                        if (chartRef) {{
+                            chartRef.candlestickSeries.update({json.dumps(updated_candle)});
+                        }}
+                    """
+                    )
+            except Exception as exc:
+                logger.debug(f"Failed to update chart: {exc}")
 
     # ================= Data Fetching =================
 
-    async def _fetch_candle_data(self, symbol: str) -> list[CandleData]:
-        """Fetch historical candle data.
-
-        NOTE: This is a stub implementation. Full implementation requires
-        adding fetch_historical_bars() to AsyncTradingClient and exposing
-        an endpoint that proxies to Alpaca bars API.
-
-        Returns empty list if API not available, triggering fallback UI.
-        """
-        if self._disposed:
+    def _parse_historical_bars(self, raw_bars: Any) -> list[CandleData]:
+        """Normalize historical bars payloads into sorted candle data."""
+        if not isinstance(raw_bars, list):
             return []
 
-        # TODO: Implement when fetch_historical_bars is available
-        # For now, return empty to trigger fallback UI
-        logger.debug(f"Historical bars API not implemented, showing fallback for {symbol}")
+        parsed: list[CandleData] = []
+        for raw_bar in raw_bars:
+            if not isinstance(raw_bar, dict):
+                continue
 
-        # Show fallback UI since we can't fetch data
-        await self._show_fallback_chart(symbol)
+            timestamp_raw = raw_bar.get("timestamp") or raw_bar.get("t")
+            if timestamp_raw is None:
+                continue
+
+            try:
+                if isinstance(timestamp_raw, int | float):
+                    timestamp = datetime.fromtimestamp(float(timestamp_raw), tz=UTC)
+                else:
+                    timestamp = parse_iso_timestamp(str(timestamp_raw))
+                open_px = float(raw_bar["open"])
+                high_px = float(raw_bar["high"])
+                low_px = float(raw_bar["low"])
+                close_px = float(raw_bar["close"])
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            if (
+                not math.isfinite(open_px)
+                or not math.isfinite(high_px)
+                or not math.isfinite(low_px)
+                or not math.isfinite(close_px)
+                or min(open_px, high_px, low_px, close_px) <= 0
+            ):
+                continue
+
+            volume_raw = raw_bar.get("volume")
+            try:
+                volume = int(volume_raw) if volume_raw is not None else None
+            except (TypeError, ValueError):
+                volume = None
+
+            parsed.append(
+                CandleData(
+                    time=int(timestamp.timestamp()),
+                    open=open_px,
+                    high=high_px,
+                    low=low_px,
+                    close=close_px,
+                    volume=volume,
+                )
+            )
+
+        parsed.sort(key=lambda candle: candle.time)
+        if len(parsed) > self.MAX_CHART_CANDLES:
+            parsed = parsed[-self.MAX_CHART_CANDLES :]
+        return parsed
+
+    async def _fetch_candle_data(self, symbol: str) -> list[CandleData]:
+        """Fetch historical candle data for the selected symbol."""
+        if self._disposed:
+            return []
+        self._live_bucket_interval_seconds = self.CANDLE_INTERVAL_SECONDS
+
+        fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
+        if fetch_historical_bars is None:
+            logger.debug(f"Historical bars client API unavailable for {symbol}")
+            return []
+        if not self._user_id:
+            logger.debug("Historical bars fetch skipped: user_id unavailable")
+            return []
+
+        supports_auth_kwargs = True
+        try:
+            signature = inspect.signature(fetch_historical_bars)
+            parameters = signature.parameters
+            has_var_keyword = any(
+                param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+            )
+            supports_auth_kwargs = has_var_keyword or all(
+                key in parameters for key in ("user_id", "role", "strategies")
+            )
+        except (TypeError, ValueError):
+            # Builtins/decorated callables may not expose a reliable signature.
+            supports_auth_kwargs = True
+
+        for timeframe, limit in self.HISTORICAL_TIMEFRAME_FALLBACKS:
+            request_kwargs: dict[str, Any] = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "limit": limit,
+            }
+            authenticated_request_kwargs: dict[str, Any] = {
+                **request_kwargs,
+                "user_id": self._user_id,
+                "role": self._role,
+                "strategies": self._strategies,
+            }
+
+            try:
+                primary_kwargs = (
+                    authenticated_request_kwargs if supports_auth_kwargs else request_kwargs
+                )
+                response = await fetch_historical_bars(**primary_kwargs)
+            except TypeError:
+                # Signature introspection may be wrong for decorated/wrapped callables.
+                fallback_kwargs = (
+                    request_kwargs if supports_auth_kwargs else authenticated_request_kwargs
+                )
+                try:
+                    response = await fetch_historical_bars(**fallback_kwargs)
+                    supports_auth_kwargs = not supports_auth_kwargs
+                except Exception as fallback_exc:
+                    logger.debug(
+                        "Historical bars fetch failed for %s (%s): %s",
+                        symbol,
+                        timeframe,
+                        fallback_exc,
+                    )
+                    continue
+            except Exception as exc:
+                logger.debug(
+                    "Historical bars fetch failed for %s (%s): %s",
+                    symbol,
+                    timeframe,
+                    exc,
+                )
+                continue
+
+            candles = self._parse_historical_bars(response.get("bars", []))
+            if candles:
+                self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
+                    timeframe.strip().lower(),
+                    self.CANDLE_INTERVAL_SECONDS,
+                )
+                return candles
+
+        logger.debug("Historical bars unavailable for %s across fallback timeframes", symbol)
         return []
 
     async def _fetch_execution_markers(self, symbol: str) -> list[ExecutionMarker]:
@@ -398,6 +839,8 @@ class PriceChartComponent:
         if self._disposed or not self._candles:
             return
 
+        await self._hide_no_data_overlay()
+
         # Format candle data for JS
         candle_data = [
             {
@@ -423,7 +866,7 @@ class PriceChartComponent:
         ]
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
@@ -442,9 +885,17 @@ class PriceChartComponent:
 
         self._candles = []
         self._markers = []
+        await self._hide_no_data_overlay()
+
+        await self._clear_chart_series()
+
+    async def _clear_chart_series(self) -> None:
+        """Clear chart series and marker data without mutating overlay state."""
+        if self._disposed:
+            return
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
@@ -470,7 +921,7 @@ class PriceChartComponent:
         line_data = [{"time": d["time"], "value": d["vwap"]} for d in vwap_data]
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
@@ -504,7 +955,7 @@ class PriceChartComponent:
         line_data = [{"time": d["time"], "value": d["twap"]} for d in twap_data]
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const chartRef = window.__charts && window.__charts['{self._chart_id}'];
                 if (chartRef) {{
@@ -620,7 +1071,7 @@ class PriceChartComponent:
             return
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const container = document.getElementById('{self._container_id}');
                 if (!container) return;
@@ -635,16 +1086,82 @@ class PriceChartComponent:
                 overlay.style.display = 'block';
             """
             )
+            self._stale_overlay_visible = True
+            self._fallback_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to show stale overlay: {exc}")
 
-    async def _hide_stale_overlay(self) -> None:
-        """Hide stale data warning overlay."""
+    async def _show_no_data_overlay(self, symbol: str) -> None:
+        """Show neutral overlay while waiting for first live candle."""
         if self._disposed:
             return
 
+        js_safe_symbol = json.dumps(symbol)
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
+                f"""
+                const container = document.getElementById('{self._container_id}');
+                if (!container) return;
+                let overlay = container.querySelector('.no-data-overlay');
+                if (!overlay) {{
+                    overlay = document.createElement('div');
+                    overlay.className = 'no-data-overlay';
+                    overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:120;background:linear-gradient(180deg, rgba(15,23,42,0.08), rgba(15,23,42,0.35));';
+
+                    const card = document.createElement('div');
+                    card.style.cssText = 'padding:10px 14px;border:1px solid rgba(71,85,105,0.65);border-radius:8px;background:rgba(15,23,42,0.82);box-shadow:0 8px 24px rgba(2,6,23,0.35);text-align:center;';
+
+                    const title = document.createElement('div');
+                    title.style.cssText = 'font-size:12px;font-weight:600;color:#e2e8f0;letter-spacing:0.01em;';
+                    title.textContent = 'Awaiting live market data';
+
+                    const subtitle = document.createElement('div');
+                    subtitle.className = 'no-data-overlay-subtitle';
+                    subtitle.style.cssText = 'margin-top:4px;font-size:11px;color:#94a3b8;';
+                    subtitle.textContent = 'Selected symbol: ' + {js_safe_symbol};
+
+                    card.appendChild(title);
+                    card.appendChild(subtitle);
+                    overlay.appendChild(card);
+                    container.appendChild(overlay);
+                }}
+                const subtitle = overlay.querySelector('.no-data-overlay-subtitle');
+                if (subtitle) {{
+                    subtitle.textContent = 'Selected symbol: ' + {js_safe_symbol};
+                }}
+                overlay.style.display = 'flex';
+            """
+            )
+            self._no_data_overlay_visible = True
+        except Exception as exc:
+            logger.debug(f"Failed to show no-data overlay: {exc}")
+
+    async def _hide_no_data_overlay(self) -> None:
+        """Hide no-data overlay after candles become available."""
+        if self._disposed or not self._no_data_overlay_visible:
+            return
+
+        try:
+            await self._run_javascript(
+                f"""
+                const container = document.getElementById('{self._container_id}');
+                const overlay = container?.querySelector('.no-data-overlay');
+                if (overlay) overlay.style.display = 'none';
+            """
+            )
+            self._no_data_overlay_visible = False
+        except Exception as exc:
+            logger.debug(f"Failed to hide no-data overlay: {exc}")
+
+    async def _hide_stale_overlay(self) -> None:
+        """Hide stale data warning overlay."""
+        if self._disposed or (
+            not self._stale_overlay_visible and not self._fallback_overlay_visible
+        ):
+            return
+
+        try:
+            await self._run_javascript(
                 f"""
                 const container = document.getElementById('{self._container_id}');
                 const overlay = container?.querySelector('.stale-overlay');
@@ -653,6 +1170,8 @@ class PriceChartComponent:
                 if (fallback) fallback.style.display = 'none';
             """
             )
+            self._stale_overlay_visible = False
+            self._fallback_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to hide stale overlay: {exc}")
 
@@ -665,7 +1184,7 @@ class PriceChartComponent:
             return
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const container = document.getElementById('{self._container_id}');
                 if (!container) return;
@@ -706,6 +1225,8 @@ class PriceChartComponent:
                 overlay.style.display = 'flex';
             """
             )
+            self._fallback_overlay_visible = True
+            self._stale_overlay_visible = False
         except Exception as exc:
             logger.debug(f"Failed to show fallback overlay: {exc}")
 
@@ -721,7 +1242,7 @@ class PriceChartComponent:
         js_safe_symbol = json.dumps(symbol)
 
         try:
-            await ui.run_javascript(
+            await self._run_javascript(
                 f"""
                 const container = document.getElementById('{self._container_id}');
                 const symbolForDisplay = {js_safe_symbol};
@@ -802,17 +1323,22 @@ class PriceChartComponent:
                 except asyncio.CancelledError:
                     pass
         self._pending_update_tasks.clear()
+        self._price_update_task = None
+        self._pending_price_update = None
 
         # Clear chart by removing from DOM if needed
         if self._container_id:
             try:
-                await ui.run_javascript(
+                await self._run_javascript(
                     f"""
-                    const container = document.getElementById('{self._container_id}');
-                    if (container) {{ container.innerHTML = ''; }}
-                    if (window.__charts && window.__charts['{self._chart_id}']) {{
+                    const chartRef = window.__charts && window.__charts['{self._chart_id}'];
+                    if (chartRef) {{
+                        if (chartRef.resizeObserver) chartRef.resizeObserver.disconnect();
+                        if (chartRef.chart) chartRef.chart.remove();
                         delete window.__charts['{self._chart_id}'];
                     }}
+                    const container = document.getElementById('{self._container_id}');
+                    if (container) {{ container.innerHTML = ''; }}
                 """
                 )
             except Exception:
@@ -822,6 +1348,8 @@ class PriceChartComponent:
         self._current_symbol = None
         self._candles = []
         self._markers = []
+        self._no_data_overlay_visible = False
+        self._chart_initialized = False
 
 
 __all__ = [

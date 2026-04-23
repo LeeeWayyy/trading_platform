@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.market_data_service.api.dependencies import build_market_data_authenticator
 from apps.market_data_service.config import settings
-from apps.market_data_service.schemas import ADVResponse
+from apps.market_data_service.schemas import ADVResponse, BarPoint, BarsResponse
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisClient
@@ -65,6 +65,7 @@ def _get_provider() -> MarketDataProvider:
         _provider = MarketDataProvider(
             api_key=settings.alpaca_api_key,
             secret_key=settings.alpaca_secret_key,
+            data_feed=settings.alpaca_data_feed,
         )
     return _provider
 
@@ -232,4 +233,45 @@ async def get_adv(
         source=adv_data.source,
         cached=False,
         cached_at=cached_at,
+    )
+
+
+@router.get("/api/v1/market-data/{symbol}/bars", response_model=BarsResponse)
+async def get_historical_bars(
+    symbol: str,
+    timeframe: str = "5Min",
+    limit: int = 240,
+    _auth: AuthContext = Depends(market_data_auth),
+    _rl: int = Depends(market_data_rl),
+) -> BarsResponse:
+    """Get historical OHLCV bars for a symbol."""
+    normalized_symbol = symbol.upper()
+    if limit < 1 or limit > 500:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="limit must be between 1 and 500",
+        )
+
+    provider = _get_provider()
+    try:
+        bars = await provider.get_bars(
+            normalized_symbol,
+            timeframe=timeframe,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except MarketDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Historical bars unavailable: {exc}",
+        ) from exc
+
+    return BarsResponse(
+        symbol=normalized_symbol,
+        timeframe=timeframe,
+        bars=[BarPoint.model_validate(bar) for bar in bars],
     )

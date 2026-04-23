@@ -650,14 +650,15 @@ class ModelRegistry:
             return False
 
         except (FileNotFoundError, OSError) as e:
-            logger.error(
+            log_fn = logger.warning if isinstance(e, FileNotFoundError) else logger.error
+            log_fn(
                 "Failed to reload model due to file error",
                 extra={
                     "strategy": strategy,
                     "error": str(e),
                     "error_type": type(e).__name__,
                 },
-                exc_info=True,
+                exc_info=not isinstance(e, FileNotFoundError),
             )
 
             # Graceful degradation: keep current model if one is loaded

@@ -27,6 +27,10 @@ def _import_config_module(monkeypatch, **env):
         "ALPACA_API_KEY",
         "ALPACA_SECRET_KEY",
         "ALPACA_BASE_URL",
+        "ALPACA_DATA_FEED",
+        "INTERNAL_TOKEN_SECRET",
+        "WEB_CONSOLE_SERVICE_ID",
+        "WEB_CONSOLE_SOURCE_PREFIX",
         "REDIS_HOST",
         "REDIS_PORT",
         "REDIS_DB",
@@ -72,6 +76,8 @@ class TestSettingsDefaults:
 
         # Alpaca defaults
         assert settings.alpaca_base_url == "https://paper-api.alpaca.markets"
+        assert settings.alpaca_data_feed == "iex"
+        assert settings.internal_token_secret == ""
 
         # Redis defaults
         assert settings.redis_host == "localhost"
@@ -221,6 +227,106 @@ class TestEnvironmentOverrides:
         )
 
         assert config.settings.alpaca_base_url == "https://api.alpaca.markets"
+
+    def test_alpaca_data_feed_override(self, monkeypatch):
+        """Test Alpaca data feed override and normalization."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            ALPACA_DATA_FEED="SIP",
+        )
+
+        assert config.settings.alpaca_data_feed == "sip"
+
+    def test_alpaca_data_feed_boats_override(self, monkeypatch):
+        """Test Alpaca BOATS feed is accepted and normalized."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            ALPACA_DATA_FEED="BOATS",
+        )
+
+        assert config.settings.alpaca_data_feed == "boats"
+
+    def test_alpaca_data_feed_invalid_value_fails_validation(self, monkeypatch):
+        """Test invalid Alpaca data feed values are rejected."""
+        with pytest.raises(ValidationError):
+            _import_config_module(
+                monkeypatch,
+                ALPACA_API_KEY="key",
+                ALPACA_SECRET_KEY="secret",
+                ALPACA_DATA_FEED="invalid-feed",
+            )
+
+    def test_internal_token_secret_override(self, monkeypatch):
+        """Test internal token secret can be loaded via settings."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET="x" * 64,
+        )
+
+        assert config.settings.internal_token_secret == "x" * 64
+
+    def test_current_internal_token_secret_falls_back_to_settings_value(self, monkeypatch):
+        """When live env is absent, fallback should use settings-loaded secret."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET="x" * 64,
+        )
+        monkeypatch.delenv("INTERNAL_TOKEN_SECRET", raising=False)
+
+        assert config.settings.current_internal_token_secret() == "x" * 64
+
+    def test_current_internal_token_secret_prefers_live_env_override(self, monkeypatch):
+        """When live env exists, it should override settings-cached secret."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET="x" * 64,
+        )
+        monkeypatch.setenv("INTERNAL_TOKEN_SECRET", "y" * 64)
+
+        assert config.settings.current_internal_token_secret() == "y" * 64
+
+    def test_service_internal_token_secret_normalizes_service_key(self, monkeypatch):
+        """Service secret helper should normalize key casing/punctuation."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            INTERNAL_TOKEN_SECRET_WEB_CONSOLE_NG="s" * 64,
+        )
+
+        assert config.settings.service_internal_token_secret("web-console.ng") == "s" * 64
+
+    def test_service_internal_token_secret_empty_key_returns_empty(self, monkeypatch):
+        """Empty service key should not map to a synthetic env var."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+        )
+
+        assert config.settings.service_internal_token_secret("") == ""
+
+    def test_source_override_prefix_by_service_uses_configured_values(self, monkeypatch):
+        """Source-override owner mapping should be configurable via settings."""
+        config = _import_config_module(
+            monkeypatch,
+            ALPACA_API_KEY="key",
+            ALPACA_SECRET_KEY="secret",
+            WEB_CONSOLE_SERVICE_ID="ui_gateway",
+            WEB_CONSOLE_SOURCE_PREFIX="web_console",
+        )
+
+        assert config.settings.source_override_prefix_by_service() == {"ui_gateway": "web_console"}
 
     def test_redis_config_overrides(self, monkeypatch):
         """Test Redis configuration overrides."""

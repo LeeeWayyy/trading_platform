@@ -308,8 +308,15 @@ class WatchlistComponent:
         self._items[symbol] = WatchlistItem(symbol=symbol)
         self._symbol_order.append(symbol)
 
-        # Request subscription
-        await self._request_subscribe(symbol)
+        # Request subscription and roll back on failure to avoid a broken row.
+        try:
+            await self._request_subscribe(symbol)
+        except Exception as exc:
+            logger.warning(f"Failed to subscribe watchlist symbol {symbol}: {exc}")
+            self._symbol_order.remove(symbol)
+            del self._items[symbol]
+            ui.notify(f"Unable to subscribe {symbol}", type="negative")
+            return
 
         # Re-render
         self._render_items()

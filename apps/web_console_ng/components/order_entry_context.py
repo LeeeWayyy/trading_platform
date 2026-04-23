@@ -24,6 +24,7 @@ Data Flow:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -32,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
+from apps.web_console_ng import config
 from apps.web_console_ng.utils.time import (
     parse_iso_timestamp,
     validate_and_normalize_symbol,
@@ -88,9 +90,14 @@ class OrderEntryContext:
     OWNER_CIRCUIT_BREAKER = "circuit_breaker"
     OWNER_CONNECTION = "connection"
     OWNER_LEVEL2 = "level2"
+    PRICE_CHANNEL_PREFIX = "price.updated."
+    MARKET_DATA_SOURCE_PREFIX = config.MARKET_DATA_SOURCE_PREFIX
 
     # Risk limits refresh interval (240s = 4 minutes, well under 5 minute staleness)
     RISK_LIMITS_REFRESH_INTERVAL_S = 240.0
+    MARKET_DATA_SYNC_RETRY_DELAY_S = 1.0
+    MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S = 0.1
+    MARKET_DATA_RELEASE_FLUSH_TIMEOUT_S = 1.0
 
     def __init__(
         self,
@@ -102,6 +109,7 @@ class OrderEntryContext:
         user_id: str,
         role: str,
         strategies: list[str],
+        client_id: str | None = None,
     ) -> None:
         """Initialize OrderEntryContext.
 
@@ -114,6 +122,8 @@ class OrderEntryContext:
             user_id: User ID for API calls and subscriptions.
             role: User role for authorization.
             strategies: Strategies for position filtering.
+            client_id: Stable browser client ID used to build recoverable
+                market-data source ownership tags.
 
         Raises:
             ValueError: If user_id is empty or whitespace-only.
@@ -130,6 +140,7 @@ class OrderEntryContext:
         self._user_id = user_id.strip()
         self._role = role
         self._strategies = strategies
+        self._market_data_source = self._build_market_data_source(self._user_id, client_id)
 
         # Subscription tracking
         self._subscriptions: list[str] = []
@@ -188,10 +199,30 @@ class OrderEntryContext:
 
         # Risk limits refresh task tracking
         self._risk_refresh_task: asyncio.Task[None] | None = None
+        self._market_data_sync_task: asyncio.Task[None] | None = None
+        self._market_data_retry_task: asyncio.Task[None] | None = None
+        self._market_data_sync_pending: bool = False
+        self._market_data_sync_backoff_required: bool = False
+        self._last_synced_market_data_symbols: tuple[str, ...] | None = None
+        self._pending_market_data_unsubscribes: set[str] = set()
+        self._market_data_release_tasks: set[asyncio.Task[None]] = set()
+        self._initializing: bool = True
 
         from apps.web_console_ng.core.level2_websocket import Level2WebSocketService
 
         self._level2_service = Level2WebSocketService.get()
+
+    @classmethod
+    def _build_market_data_source(cls, user_id: str, client_id: str | None) -> str:
+        """Build bounded, recoverable source tag for market-data subscription ownership."""
+        user_hash = hashlib.sha256(user_id.strip().encode("utf-8")).hexdigest()[:12]
+        normalized_client_id = (client_id or "").strip()
+        client_hash = (
+            hashlib.sha256(normalized_client_id.encode("utf-8")).hexdigest()[:12]
+            if normalized_client_id
+            else "global"
+        )
+        return f"{cls.MARKET_DATA_SOURCE_PREFIX}:{user_hash}:{client_hash}"
 
     # =========================================================================
     # Component Setters
@@ -232,6 +263,26 @@ class OrderEntryContext:
     ) -> None:
         """Set optional callback for connection state changes."""
         self._connection_state_callback = callback
+
+    def _apply_connection_state(self, state: str, is_read_only: bool) -> None:
+        """Apply normalized connection state to ticket, callback, and cached safety state."""
+        normalized = str(state or "UNKNOWN").upper()
+        self._last_connection_state = normalized
+        self._cached_connection_state = normalized
+
+        if self._order_ticket:
+            self._order_ticket.set_connection_state(normalized, is_read_only)
+
+        if self._connection_state_callback:
+            try:
+                self._connection_state_callback(normalized, is_read_only)
+            except Exception as callback_exc:
+                logger.warning(
+                    f"Connection callback failed for state {normalized}: {callback_exc}"
+                )
+
+        # Sync to T7 components
+        self._sync_one_click_cached_state()
 
     def dispatch_strategy_model_context(
         self,
@@ -334,7 +385,9 @@ class OrderEntryContext:
         )
         return self._market_context.create()
 
-    def create_price_chart(self, width: int = 600, height: int = 300) -> Any:
+    def create_price_chart(
+        self, width: int = 600, height: int = 300, *, fill_parent: bool = False
+    ) -> Any:
         """Create and configure the PriceChart component.
 
         Creates the component, stores reference, and returns the UI element
@@ -355,7 +408,7 @@ class OrderEntryContext:
             role=self._role,
             strategies=self._strategies,
         )
-        return self._price_chart.create(width=width, height=height)
+        return self._price_chart.create(width=width, height=height, fill_parent=fill_parent)
 
     def create_dom_ladder(self, *, levels: int = 10) -> Any:
         """Create and configure the DOM ladder component."""
@@ -411,6 +464,7 @@ class OrderEntryContext:
         """
         if self._disposed:
             raise RuntimeError("Cannot initialize disposed OrderEntryContext")
+        self._initializing = True
 
         try:
             # Initialize child components with timer tracker for lifecycle management
@@ -432,8 +486,20 @@ class OrderEntryContext:
             # CRITICAL: Fetch initial state for safety mechanisms (fail-closed)
             await self._fetch_initial_safety_state()
 
+            # Bootstrap connection state when no connection channel update has arrived yet.
+            # connection:state is optional in some environments, so rely on monitor state
+            # to avoid a permanent UNKNOWN/read-only ticket on startup.
+            if self._cached_connection_state is None:
+                initial_read_only = self._connection_monitor.is_read_only()
+                initial_state = "CONNECTED" if not initial_read_only else "DISCONNECTED"
+                self._apply_connection_state(initial_state, initial_read_only)
+
             # Load initial risk limits for order validation
             await self._load_initial_risk_limits()
+
+            # Auto-select the first watchlist symbol so ticket/chart context is initialized.
+            # This avoids an empty ticket symbol field until the first manual click.
+            await self._ensure_initial_symbol_selection()
 
             # Start periodic refresh timer to prevent staleness
             # Risk limits go stale after 5 min; refresh every 4 min to stay safe
@@ -443,7 +509,14 @@ class OrderEntryContext:
             )
             self._track_timer(risk_refresh_timer)
 
+            # Request backend streaming for all currently owned price channels.
+            # Schedule only after full initialization succeeds so init failures
+            # cannot orphan per-session market-data sources.
+            self._initializing = False
+            self._schedule_market_data_sync()
+
         except Exception as exc:
+            self._initializing = False
             # FAIL-CLOSED: Explicitly disable order ticket on init failure
             logger.error(f"OrderEntryContext initialization failed: {exc}")
 
@@ -477,6 +550,45 @@ class OrderEntryContext:
                     True, "Initialization failed - please refresh"
                 )
             raise
+
+    async def _ensure_initial_symbol_selection(self) -> None:
+        """Select the first watchlist symbol when no symbol is currently selected."""
+        if self._selected_symbol is not None or self._watchlist is None:
+            return
+
+        restored_symbol: str | None = None
+        if self._order_ticket is not None:
+            get_current_symbol = getattr(self._order_ticket, "get_current_symbol", None)
+            if callable(get_current_symbol):
+                try:
+                    candidate = get_current_symbol()
+                    if isinstance(candidate, str) and candidate.strip():
+                        restored_symbol = candidate.strip().upper()
+                except Exception as exc:
+                    logger.debug(f"Unable to read restored ticket symbol for auto-select: {exc}")
+
+        if restored_symbol:
+            try:
+                await self.on_symbol_selected(restored_symbol)
+                if self._selected_symbol == restored_symbol:
+                    return
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to restore initial symbol selection {restored_symbol}: {exc}"
+                )
+
+        try:
+            symbols = self._watchlist.get_symbols()
+        except Exception as exc:
+            logger.debug(f"Unable to read watchlist symbols for auto-select: {exc}")
+            return
+        if not symbols:
+            return
+        default_symbol = symbols[0]
+        try:
+            await self.on_symbol_selected(default_symbol)
+        except Exception as exc:
+            logger.warning(f"Failed to auto-select initial symbol {default_symbol}: {exc}")
 
     # =========================================================================
     # Safety State Management
@@ -921,19 +1033,8 @@ class OrderEntryContext:
             state = str(data.get("state", "")).upper()
         except Exception as exc:
             logger.warning(f"Invalid connection payload: {exc}, treating as read-only")
-            self._last_connection_state = "UNKNOWN"
-            # CRITICAL: Update cached state for T7 components (FAIL-CLOSED safety)
-            # Without this, OneClickHandler/SafetyGate would use stale state
-            self._cached_connection_state = "UNKNOWN"
-            if self._order_ticket:
-                self._order_ticket.set_connection_state("UNKNOWN", True)
-            if self._connection_state_callback:
-                try:
-                    self._connection_state_callback("UNKNOWN", True)
-                except Exception as callback_exc:
-                    logger.warning(f"Connection callback failed for UNKNOWN state: {callback_exc}")
             # Sync to T7 components so risk-increasing actions fail closed
-            self._sync_one_click_cached_state()
+            self._apply_connection_state("UNKNOWN", True)
             return
 
         # Track previous state for reconnect detection
@@ -954,8 +1055,6 @@ class OrderEntryContext:
         else:
             is_read_only = state not in READ_WRITE_CONNECTION_STATES
 
-        self._last_connection_state = state
-
         # RECONNECT HANDLING: Re-fetch safety state and re-subscribe channels
         # Resubscribe when transitioning TO CONNECTED from uncertain/disconnected states
         # DEGRADED->CONNECTED doesn't need resubscribe since pubsub connection was never lost
@@ -971,19 +1070,7 @@ class OrderEntryContext:
             await self._resubscribe_all_channels()
             await self._retry_failed_subscriptions()
 
-        # Update cached state for T7 components
-        self._cached_connection_state = state
-
-        if self._order_ticket:
-            self._order_ticket.set_connection_state(state, is_read_only)
-        if self._connection_state_callback:
-            try:
-                self._connection_state_callback(state, is_read_only)
-            except Exception as callback_exc:
-                logger.warning(f"Connection callback failed for state {state}: {callback_exc}")
-
-        # Sync to T7 components
-        self._sync_one_click_cached_state()
+        self._apply_connection_state(state, is_read_only)
 
     async def _subscribe_to_positions_channel(self) -> None:
         """Subscribe to position updates - OrderEntryContext owns this."""
@@ -1173,6 +1260,201 @@ class OrderEntryContext:
             qty_unit=qty_unit,
             qty_unit_size=qty_unit_size,
         )
+
+    @classmethod
+    def _extract_price_channel_symbol(cls, channel: str) -> str | None:
+        """Return symbol for price channels, else None."""
+        if not channel.startswith(cls.PRICE_CHANNEL_PREFIX):
+            return None
+        symbol = channel[len(cls.PRICE_CHANNEL_PREFIX) :].strip().upper()
+        return symbol or None
+
+    def _collect_owned_price_symbols(self) -> list[str]:
+        """Collect currently owned price-channel symbols in deterministic order."""
+        symbols: set[str] = set()
+        for channel in list(self._channel_owners):
+            if channel in self._pending_subscribes:
+                continue
+            symbol = self._extract_price_channel_symbol(channel)
+            if symbol:
+                symbols.add(symbol)
+        return sorted(symbols)
+
+    async def _release_stale_market_data_symbol_with_retry(self, symbol: str) -> bool:
+        """Release stale market-data symbol with bounded retry and explicit failure signal."""
+        for attempt in range(2):
+            try:
+                await self._release_market_data_streaming(symbol)
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "market_data_stale_release_attempt_failed for %s (attempt %s/2): %s",
+                    symbol,
+                    attempt + 1,
+                    exc,
+                )
+                if attempt == 0:
+                    await asyncio.sleep(self.MARKET_DATA_SYNC_RETRY_DELAY_S)
+        return False
+
+    async def _sync_market_data_streaming(self) -> None:
+        """Best-effort sync of backend streaming set with currently owned symbols."""
+        subscribe = getattr(self._client, "subscribe_market_data_symbols", None)
+        if subscribe is None:
+            return
+
+        symbols = tuple(self._collect_owned_price_symbols())
+        desired_symbols = set(symbols)
+        previous_symbols = set(self._last_synced_market_data_symbols or ())
+        self._pending_market_data_unsubscribes.difference_update(desired_symbols)
+        stale_symbols = sorted(
+            (previous_symbols - desired_symbols) | self._pending_market_data_unsubscribes
+        )
+
+        if symbols == self._last_synced_market_data_symbols and not stale_symbols:
+            return
+
+        for stale_symbol in stale_symbols:
+            if not await self._release_stale_market_data_symbol_with_retry(stale_symbol):
+                self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = True
+
+        if not symbols:
+            unresolved_unsubscribes = bool(self._pending_market_data_unsubscribes)
+            self._last_synced_market_data_symbols = () if not unresolved_unsubscribes else None
+            if unresolved_unsubscribes:
+                self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = True
+            else:
+                self._market_data_sync_backoff_required = False
+            return
+
+        try:
+            await subscribe(
+                list(symbols),
+                user_id=self._user_id,
+                role=self._role,
+                strategies=self._strategies,
+                source=self._market_data_source,
+            )
+            latest_symbols = tuple(self._collect_owned_price_symbols())
+            if latest_symbols != symbols:
+                # Channel ownership changed during the await; queue stale removals and
+                # run one follow-up sync with a fresh ownership snapshot.
+                self._pending_market_data_unsubscribes.update(
+                    set(symbols) - set(latest_symbols)
+                )
+                self._last_synced_market_data_symbols = None
+                self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = False
+                return
+            self._last_synced_market_data_symbols = symbols
+            if self._pending_market_data_unsubscribes:
+                self._market_data_sync_pending = True
+                self._market_data_sync_backoff_required = True
+            else:
+                self._market_data_sync_backoff_required = False
+        except Exception as exc:
+            logger.warning(
+                "Failed to sync market-data subscriptions for %s symbols: %s",
+                len(symbols),
+                exc,
+            )
+            self._last_synced_market_data_symbols = None
+            self._market_data_sync_pending = True
+            self._market_data_sync_backoff_required = True
+            raise
+
+    def _schedule_market_data_sync(self) -> None:
+        """Schedule asynchronous market-data streaming sync (timer-safe)."""
+        if self._disposed:
+            return
+        if self._market_data_sync_task and not self._market_data_sync_task.done():
+            self._market_data_sync_pending = True
+            return
+
+        if self._market_data_retry_task and not self._market_data_retry_task.done():
+            self._market_data_retry_task.cancel()
+            self._market_data_retry_task = None
+
+        self._market_data_sync_pending = False
+        task = asyncio.create_task(self._sync_market_data_streaming())
+        self._market_data_sync_task = task
+
+        def _on_done(completed: asyncio.Task[None]) -> None:
+            self._market_data_sync_task = None
+            if completed.cancelled():
+                return
+            exc = completed.exception()
+            if exc:
+                logger.warning("market_data_sync_task_failed: %s", exc)
+            if self._disposed:
+                self._market_data_sync_pending = False
+                return
+            if self._market_data_sync_pending:
+                self._market_data_sync_pending = False
+                if self._market_data_sync_backoff_required:
+                    if self._market_data_retry_task is None or self._market_data_retry_task.done():
+                        self._market_data_retry_task = asyncio.create_task(
+                            self._retry_market_data_sync_after_backoff()
+                        )
+                else:
+                    self._schedule_market_data_sync()
+
+        task.add_done_callback(_on_done)
+
+    async def _retry_market_data_sync_after_backoff(self) -> None:
+        """Retry market-data sync after brief delay to avoid hot retry loops."""
+        try:
+            await asyncio.sleep(self.MARKET_DATA_SYNC_RETRY_DELAY_S)
+        finally:
+            self._market_data_retry_task = None
+        if self._disposed:
+            return
+        self._schedule_market_data_sync()
+
+    async def _release_market_data_streaming(self, symbol: str) -> None:
+        """Best-effort request to market-data-service to stop streaming symbol updates."""
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            return
+        unsubscribe = getattr(self._client, "unsubscribe_market_data_symbol", None)
+        if unsubscribe is None or not callable(unsubscribe):
+            return
+        self._pending_market_data_unsubscribes.add(normalized_symbol)
+        last_error: Exception | None = None
+
+        for attempt in range(2):
+            try:
+                await unsubscribe(
+                    normalized_symbol,
+                    user_id=self._user_id,
+                    role=self._role,
+                    strategies=self._strategies,
+                    source=self._market_data_source,
+                )
+                self._pending_market_data_unsubscribes.discard(normalized_symbol)
+                # Force next sync to recompute if channel ownership changed meanwhile.
+                self._last_synced_market_data_symbols = None
+                if not self._pending_market_data_unsubscribes:
+                    self._market_data_sync_backoff_required = False
+                return
+            except Exception as exc:
+                last_error = exc
+                self._market_data_sync_backoff_required = True
+                if attempt == 0:
+                    await asyncio.sleep(self.MARKET_DATA_UNSUBSCRIBE_RETRY_DELAY_S)
+
+        logger.warning(
+            "Failed to request market-data unsubscribe for %s after retry: %s",
+            normalized_symbol,
+            last_error,
+        )
+        # Keep symbol queued for future sync retry.
+        self._last_synced_market_data_symbols = None
+        self._market_data_sync_pending = True
+        if last_error is not None:
+            raise last_error
 
     async def _on_price_update(self, data: dict[str, Any]) -> None:
         """Handle price update and dispatch to components."""
@@ -1504,6 +1786,14 @@ class OrderEntryContext:
                         await self._realtime.unsubscribe(channel)
                     except Exception as exc:
                         logger.warning(f"Failed to unsubscribe orphan {channel}: {exc}")
+                else:
+                    price_symbol = self._extract_price_channel_symbol(channel)
+                    if price_symbol is not None:
+                        if self._initializing:
+                            # Defer backend stream sync until initialization completes.
+                            self._last_synced_market_data_symbols = None
+                        else:
+                            self._schedule_market_data_sync()
 
                 if pending_future and not pending_future.done():
                     pending_future.set_result(None)
@@ -1557,6 +1847,29 @@ class OrderEntryContext:
                 await self._realtime.unsubscribe(channel)
             except Exception as exc:
                 logger.warning(f"Error releasing channel {channel}: {exc}")
+            price_symbol = self._extract_price_channel_symbol(channel)
+            if price_symbol is not None:
+                self._schedule_market_data_release(price_symbol)
+
+    def _schedule_market_data_release(self, symbol: str) -> None:
+        """Request upstream unsubscribe in background so UI interactions never block."""
+        if self._disposed:
+            return
+        task = asyncio.create_task(self._release_market_data_streaming(symbol))
+        self._market_data_release_tasks.add(task)
+
+        def _on_done(completed: asyncio.Task[None]) -> None:
+            self._market_data_release_tasks.discard(completed)
+            if completed.cancelled():
+                return
+            exc = completed.exception()
+            if exc:
+                logger.warning("market_data_release_task_failed(%s): %s", symbol, exc)
+            if self._disposed:
+                return
+            self._schedule_market_data_sync()
+
+        task.add_done_callback(_on_done)
 
     async def _resubscribe_all_channels(self) -> None:
         """Re-subscribe all owned channels after reconnect."""
@@ -1595,6 +1908,11 @@ class OrderEntryContext:
                     if channel in self._channel_owners:
                         owners_snapshot = self._channel_owners[channel].copy()
                         self._failed_subscriptions[channel] = (owners_snapshot, callback)
+
+        # Force a full backend resubscribe on reconnect even when local symbol
+        # ownership is unchanged because upstream stream state may have been lost.
+        self._last_synced_market_data_symbols = None
+        self._schedule_market_data_sync()
 
     async def _retry_failed_subscriptions(self) -> None:
         """Retry subscriptions that previously failed."""
@@ -1653,6 +1971,15 @@ class OrderEntryContext:
         """Get the currently selected symbol."""
         return self._selected_symbol
 
+    def get_watchlist_symbols(self) -> list[str]:
+        """Get watchlist symbols in display order."""
+        if self._watchlist is None:
+            return []
+        try:
+            return self._watchlist.get_symbols()
+        except Exception:
+            return []
+
     def register_symbol_change_callback(self, callback: Callable[[str | None], None]) -> None:
         """Register a synchronous callback invoked whenever selected symbol changes."""
         if callback not in self._symbol_change_callbacks:
@@ -1670,10 +1997,69 @@ class OrderEntryContext:
     # Cleanup
     # =========================================================================
 
-    async def dispose(self) -> None:
-        """Clean up all subscriptions and timers on page unload."""
+    async def _flush_market_data_release_tasks(self) -> None:
+        """Await pending background release tasks before final cleanup."""
+        pending_tasks = tuple(task for task in self._market_data_release_tasks if not task.done())
+        if not pending_tasks:
+            self._market_data_release_tasks.clear()
+            return
+
+        done, pending = await asyncio.wait(
+            pending_tasks,
+            timeout=self.MARKET_DATA_RELEASE_FLUSH_TIMEOUT_S,
+        )
+        for completed in done:
+            if completed.cancelled():
+                continue
+            exc = completed.exception()
+            if exc is not None:
+                logger.warning("market_data_release_task_failed_during_dispose: %s", exc)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        self._market_data_release_tasks.clear()
+
+    async def adopt_deferred_market_data_releases(self, symbols: list[str]) -> None:
+        """Adopt deferred source-release symbols from a superseded context."""
         if self._disposed:
             return
+
+        normalized_symbols = {
+            symbol.strip().upper() for symbol in symbols if isinstance(symbol, str) and symbol.strip()
+        }
+        if not normalized_symbols:
+            return
+
+        async with self._subscription_lock:
+            owned_symbols = {
+                symbol.strip().upper()
+                for symbol in self._collect_owned_price_symbols()
+                if isinstance(symbol, str) and symbol.strip()
+            }
+            stale_symbols = sorted(symbol for symbol in normalized_symbols if symbol not in owned_symbols)
+            if not stale_symbols:
+                return
+
+            self._pending_market_data_unsubscribes.update(stale_symbols)
+            self._last_synced_market_data_symbols = None
+            self._market_data_sync_pending = True
+        self._schedule_market_data_sync()
+        logger.info("adopted_deferred_market_data_releases: %s", stale_symbols)
+
+    async def dispose(self, *, release_market_data_symbols: bool = True) -> set[str]:
+        """Clean up all subscriptions and timers on page unload.
+
+        Args:
+            release_market_data_symbols: When False, skip market-data source release
+                requests during cleanup. Used during reconnect handoff where a newer
+                context already owns the same session-stable source tag.
+
+        Returns:
+            Deferred market-data symbols that still need source release.
+        """
+        if self._disposed:
+            return set()
         self._disposed = True
 
         # Cancel all timers
@@ -1685,11 +2071,22 @@ class OrderEntryContext:
         if self._risk_refresh_task and not self._risk_refresh_task.done():
             self._risk_refresh_task.cancel()
         self._risk_refresh_task = None
+        if self._market_data_sync_task and not self._market_data_sync_task.done():
+            self._market_data_sync_task.cancel()
+        self._market_data_sync_task = None
+        if self._market_data_retry_task and not self._market_data_retry_task.done():
+            self._market_data_retry_task.cancel()
+        self._market_data_retry_task = None
+        self._market_data_sync_pending = False
+        self._market_data_sync_backoff_required = False
         self._symbol_change_callbacks.clear()
 
         # Unsubscribe from all channels
         async with self._subscription_lock:
             channels_to_unsubscribe = list(self._subscriptions)
+            market_data_symbols_to_release = sorted(
+                set(self._collect_owned_price_symbols()) | self._pending_market_data_unsubscribes
+            )
 
             for _, future in self._pending_subscribes.items():
                 if future and not future.done():
@@ -1706,6 +2103,29 @@ class OrderEntryContext:
                 await self._realtime.unsubscribe(channel)
             except Exception as exc:
                 logger.warning(f"Error unsubscribing from {channel}: {exc}")
+        deferred_release_symbols: set[str] = set()
+        if release_market_data_symbols:
+            release_results = await asyncio.gather(
+                *(
+                    self._release_market_data_streaming(symbol)
+                    for symbol in market_data_symbols_to_release
+                ),
+                return_exceptions=True,
+            )
+            for symbol, result in zip(
+                market_data_symbols_to_release, release_results, strict=False
+            ):
+                if isinstance(result, Exception):
+                    logger.warning("Error releasing market-data source for %s: %s", symbol, result)
+            await self._flush_market_data_release_tasks()
+        else:
+            deferred_release_symbols = set(market_data_symbols_to_release)
+            for task in tuple(self._market_data_release_tasks):
+                task.cancel()
+            if self._market_data_release_tasks:
+                await asyncio.gather(*self._market_data_release_tasks, return_exceptions=True)
+            self._market_data_release_tasks.clear()
+            self._pending_market_data_unsubscribes.clear()
 
         if self._current_l2_symbol:
             await self._level2_service.unsubscribe(self._user_id, self._current_l2_symbol)
@@ -1723,6 +2143,9 @@ class OrderEntryContext:
             self._dom_ladder.dispose()
 
         logger.info(f"OrderEntryContext disposed for user {self._user_id}")
+        if release_market_data_symbols:
+            return set()
+        return deferred_release_symbols
 
 
 __all__ = ["OrderEntryContext"]

@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from apps.web_console_ng.components.price_chart import (
+    MAX_FUTURE_TICK_SKEW_S,
+    MAX_PAST_TICK_SKEW_S,
     REALTIME_STALE_THRESHOLD_S,
     CandleData,
     ExecutionMarker,
     PriceChartComponent,
+    _ensure_utc_datetime,
 )
 
 
@@ -82,6 +86,28 @@ class TestExecutionMarker:
         assert marker.quantity == 50
 
 
+class TestPriceChartTimeNormalization:
+    """Tests for internal datetime normalization helpers."""
+
+    def test_ensure_utc_datetime_assumes_naive_utc(self) -> None:
+        """Naive datetimes are treated as UTC for candle bucketing."""
+        naive = datetime(2026, 4, 22, 13, 5, 0)
+        normalized = _ensure_utc_datetime(naive)
+
+        assert normalized.tzinfo == UTC
+        assert normalized.hour == 13
+        assert normalized.minute == 5
+
+    def test_ensure_utc_datetime_converts_aware_offsets(self) -> None:
+        """Offset-aware datetimes are converted to equivalent UTC instants."""
+        offset_dt = datetime.fromisoformat("2026-04-22T13:05:00+02:00")
+        normalized = _ensure_utc_datetime(offset_dt)
+
+        assert normalized.tzinfo == UTC
+        assert normalized.hour == 11
+        assert normalized.minute == 5
+
+
 class TestPriceChartInit:
     """Tests for PriceChartComponent initialization."""
 
@@ -96,6 +122,11 @@ class TestPriceChartInit:
         assert comp._markers == []
         assert comp._disposed is False
         assert comp._last_realtime_update is None
+        assert comp._chart_init_lock is None
+        assert comp._price_update_lock is None
+        assert comp._price_update_task is None
+        assert comp._pending_price_update is None
+        assert comp._live_bucket_interval_seconds == comp.CANDLE_INTERVAL_SECONDS
 
     def test_unique_ids_generated(self) -> None:
         """Each component gets unique chart and container IDs."""
@@ -230,24 +261,26 @@ class TestPriceChartPriceData:
     ) -> None:
         """set_price_data updates timestamp on valid data."""
         component._current_symbol = "AAPL"
+        now = datetime.now(UTC)
 
-        with patch("asyncio.create_task"):
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
                     "price": 150.0,
-                    "timestamp": "2024-01-01T12:00:00Z",
+                    "timestamp": now.isoformat(),
                 }
             )
 
         assert component._last_realtime_update is not None
-        assert component._last_realtime_update.year == 2024
+        assert abs((component._last_realtime_update - now).total_seconds()) < 1
+        schedule_update.assert_called_once()
 
     def test_set_price_data_handles_missing_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when missing (FAIL-CLOSED)."""
         component._current_symbol = "AAPL"
 
-        with patch("asyncio.create_task"):
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -258,12 +291,13 @@ class TestPriceChartPriceData:
 
         # FAIL-CLOSED: timestamp None when missing
         assert component._last_realtime_update is None
+        schedule_update.assert_not_called()
 
     def test_set_price_data_handles_invalid_timestamp(self, component: PriceChartComponent) -> None:
         """set_price_data sets timestamp to None when invalid (FAIL-CLOSED)."""
         component._current_symbol = "AAPL"
 
-        with patch("asyncio.create_task"):
+        with patch.object(component, "_schedule_price_update") as schedule_update:
             component.set_price_data(
                 {
                     "symbol": "AAPL",
@@ -274,6 +308,69 @@ class TestPriceChartPriceData:
 
         # FAIL-CLOSED: timestamp None when invalid
         assert component._last_realtime_update is None
+        schedule_update.assert_not_called()
+
+    def test_set_price_data_rejects_future_skew_timestamp(
+        self, component: PriceChartComponent
+    ) -> None:
+        """set_price_data drops future-skewed ticks to avoid chart freeze."""
+        component._current_symbol = "AAPL"
+        future_ts = datetime.now(UTC) + timedelta(seconds=MAX_FUTURE_TICK_SKEW_S + 5)
+
+        with patch.object(component, "_schedule_price_update") as schedule_update:
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": future_ts.isoformat(),
+                }
+            )
+
+        assert component._last_realtime_update is None
+        schedule_update.assert_not_called()
+
+    def test_set_price_data_rejects_past_skew_timestamp(self, component: PriceChartComponent) -> None:
+        """set_price_data drops stale delayed ticks outside allowed past skew."""
+        component._current_symbol = "AAPL"
+        stale_ts = datetime.now(UTC) - timedelta(seconds=MAX_PAST_TICK_SKEW_S + 5)
+
+        with patch.object(component, "_schedule_price_update") as schedule_update:
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": stale_ts.isoformat(),
+                }
+            )
+
+        assert component._last_realtime_update is None
+        schedule_update.assert_not_called()
+
+    def test_set_price_data_normalizes_naive_timestamps_to_utc(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Naive parsed timestamps should be normalized to UTC before skew checks."""
+        component._current_symbol = "AAPL"
+        naive_now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+
+        with (
+            patch(
+                "apps.web_console_ng.components.price_chart.parse_iso_timestamp",
+                return_value=naive_now,
+            ),
+            patch.object(component, "_schedule_price_update") as schedule_update,
+        ):
+            component.set_price_data(
+                {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": "2026-01-01T12:00:00",
+                }
+            )
+
+        assert component._last_realtime_update is not None
+        assert component._last_realtime_update.tzinfo == UTC
+        schedule_update.assert_called_once()
 
     def test_set_price_data_ignored_when_disposed(self, component: PriceChartComponent) -> None:
         """set_price_data does nothing when disposed."""
@@ -289,6 +386,56 @@ class TestPriceChartPriceData:
         )
 
         assert component._last_realtime_update is None
+
+    @pytest.mark.asyncio()
+    async def test_set_price_data_coalesces_updates_while_inflight(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Only latest pending tick is kept while one update task is running."""
+        component._current_symbol = "AAPL"
+        started = asyncio.Event()
+        release = asyncio.Event()
+        handled_prices: list[float] = []
+
+        async def fake_handle(price: float, tick_time: datetime, symbol: str | None = None) -> None:
+            handled_prices.append(price)
+            if len(handled_prices) == 1:
+                started.set()
+                await release.wait()
+
+        component._handle_price_update = fake_handle  # type: ignore[method-assign]
+        now = datetime.now(UTC)
+
+        component.set_price_data(
+            {"symbol": "AAPL", "price": 100.0, "timestamp": now.isoformat()}
+        )
+        await started.wait()
+
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": 101.0,
+                "timestamp": (now + timedelta(seconds=1)).isoformat(),
+            }
+        )
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "price": 102.0,
+                "timestamp": (now + timedelta(seconds=2)).isoformat(),
+            }
+        )
+
+        assert component._pending_price_update is not None
+        assert component._pending_price_update[0] == 102.0
+
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        if component._price_update_task is not None:
+            await component._price_update_task
+
+        assert handled_prices == [100.0, 102.0]
 
 
 class TestPriceChartStaleness:
@@ -458,6 +605,45 @@ class TestPriceChartSymbolChange:
         assert (datetime.now(UTC) - component._symbol_changed_at).total_seconds() < 1
 
     @pytest.mark.asyncio()
+    async def test_symbol_change_without_candles_shows_no_data_overlay(
+        self, component: PriceChartComponent
+    ) -> None:
+        """No historical candles should show waiting overlay."""
+        with (
+            patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
+            patch.object(component, "_fetch_candle_data", return_value=[]),
+            patch.object(component, "_fetch_execution_markers", return_value=[]),
+            patch.object(component, "_update_chart_data", new_callable=AsyncMock),
+            patch.object(component, "_clear_chart_series", new_callable=AsyncMock) as mock_clear_series,
+            patch.object(component, "_show_no_data_overlay", new_callable=AsyncMock) as mock_show,
+            patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
+        ):
+            await component.on_symbol_changed("AAPL")
+
+        mock_clear_series.assert_awaited_once()
+        mock_show.assert_awaited_once_with("AAPL")
+        mock_hide.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_symbol_change_with_candles_hides_no_data_overlay(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Historical candles should hide waiting overlay."""
+        candles = [CandleData(time=1, open=100, high=100, low=100, close=100, volume=1)]
+        with (
+            patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
+            patch.object(component, "_fetch_candle_data", return_value=candles),
+            patch.object(component, "_fetch_execution_markers", return_value=[]),
+            patch.object(component, "_update_chart_data", new_callable=AsyncMock),
+            patch.object(component, "_show_no_data_overlay", new_callable=AsyncMock) as mock_show,
+            patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
+        ):
+            await component.on_symbol_changed("AAPL")
+
+        mock_hide.assert_awaited_once()
+        mock_show.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_symbol_change_to_none_clears_symbol_changed_at(
         self, component: PriceChartComponent
     ) -> None:
@@ -482,6 +668,121 @@ class TestPriceChartSymbolChange:
 
         assert component._current_symbol is None
         mock_clear.assert_called_once()
+
+
+class TestPriceChartHistoricalBars:
+    """Tests for historical bar fetch integration."""
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_uses_authenticated_client_signature(self) -> None:
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(
+            return_value={
+                "bars": [
+                    {
+                        "timestamp": "2026-04-20T13:30:00Z",
+                        "open": 180.1,
+                        "high": 181.0,
+                        "low": 179.9,
+                        "close": 180.6,
+                        "volume": 1200,
+                    },
+                    {
+                        "timestamp": "2026-04-20T13:35:00Z",
+                        "open": 180.6,
+                        "high": 181.2,
+                        "low": 180.4,
+                        "close": 181.1,
+                        "volume": 900,
+                    },
+                ]
+            }
+        )
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("AAPL")
+
+        assert len(candles) == 2
+        assert candles[0].open == 180.1
+        assert candles[1].close == 181.1
+        assert component._live_bucket_interval_seconds == 300
+        client.fetch_historical_bars.assert_awaited_once_with(
+            symbol="AAPL",
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            timeframe="5Min",
+            limit=240,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_falls_back_to_legacy_signature(self) -> None:
+        class LegacyClient:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, int]] = []
+
+            async def fetch_historical_bars(
+                self, *, symbol: str, timeframe: str, limit: int
+            ) -> dict[str, list[dict[str, object]]]:
+                self.calls.append((symbol, timeframe, limit))
+                return {"bars": []}
+
+        component = PriceChartComponent(
+            trading_client=LegacyClient(),  # type: ignore[arg-type]
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("MSFT")
+
+        assert candles == []
+        assert component._client.calls == [  # type: ignore[attr-defined]
+            ("MSFT", "5Min", 240),
+            ("MSFT", "15Min", 240),
+            ("MSFT", "1Hour", 200),
+            ("MSFT", "1Day", 120),
+        ]
+        assert component._live_bucket_interval_seconds == component.CANDLE_INTERVAL_SECONDS
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_tracks_fallback_interval_for_live_bucketing(self) -> None:
+        """Fallback historical interval should drive subsequent realtime bucket sizing."""
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(
+            side_effect=[
+                {"bars": []},  # 5Min unavailable
+                {
+                    "bars": [
+                        {
+                            "timestamp": "2026-04-20T13:30:00Z",
+                            "open": 180.1,
+                            "high": 181.0,
+                            "low": 179.9,
+                            "close": 180.6,
+                            "volume": 1200,
+                        },
+                    ]
+                },
+            ]
+        )
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("AAPL")
+
+        assert len(candles) == 1
+        assert component._live_bucket_interval_seconds == 900
+        assert client.fetch_historical_bars.await_count == 2
 
 
 class TestPriceChartExecutionMarkers:
@@ -532,6 +833,178 @@ class TestPriceChartExecutionMarkers:
         assert client.calls == [100]
 
 
+class TestPriceChartRealtimeUpdates:
+    """Tests for live candle updates."""
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_hides_no_data_overlay(self) -> None:
+        """First live tick should hide no-data overlay and seed first candle."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(101.25, datetime.now(UTC))
+
+        component._hide_no_data_overlay.assert_awaited_once()
+        assert len(component._candles) == 1
+        assert component._candles[0].close == 101.25
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_ignores_out_of_order_tick(self) -> None:
+        """Out-of-order ticks should not mutate the latest candle."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(time=1200, open=100.0, high=101.0, low=99.5, close=100.5, volume=None),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        before = component._candles.copy()
+        await component._handle_price_update(99.0, datetime.fromtimestamp(900, UTC))
+
+        assert component._candles == before
+        component._run_javascript.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_trim_syncs_chart_data(self) -> None:
+        """When Python history is trimmed, JS chart should be reset with setData."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(
+                time=300 * i,
+                open=100.0 + i,
+                high=101.0 + i,
+                low=99.0 + i,
+                close=100.5 + i,
+                volume=1000 + i,
+            )
+            for i in range(component.CHART_TRIM_HIGH_WATER_MARK)
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        last_time = component._candles[-1].time
+        await component._handle_price_update(900.0, datetime.fromtimestamp(last_time + 300, UTC))
+
+        assert len(component._candles) == component.MAX_CHART_CANDLES
+        assert component._candles[-1].close == 900.0
+        component._run_javascript.assert_awaited()
+        js_payload = component._run_javascript.await_args.args[0]
+        assert "setData(" in js_payload
+        assert "\"volume\"" in js_payload
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_new_bucket_uses_tick_as_open(self) -> None:
+        """New candles should use the first tick in the bucket as open/high/low/close."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(time=1200, open=100.0, high=101.0, low=99.0, close=100.5, volume=None),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(108.0, datetime.fromtimestamp(1500, UTC))
+
+        assert len(component._candles) == 2
+        newest = component._candles[-1]
+        assert newest.open == 108.0
+        assert newest.high == 108.0
+        assert newest.low == 108.0
+        assert newest.close == 108.0
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_same_bucket_preserves_known_volume(self) -> None:
+        """Live same-bucket updates should preserve previously known bucket volume."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._candles = [
+            CandleData(time=1500, open=100.0, high=101.0, low=99.0, close=100.5, volume=25000),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(102.0, datetime.fromtimestamp(1510, UTC))
+
+        assert component._candles[-1].time == 1500
+        assert component._candles[-1].close == 102.0
+        assert component._candles[-1].volume == 25000
+
+    @pytest.mark.asyncio()
+    async def test_handle_price_update_uses_selected_live_bucket_interval(self) -> None:
+        """Realtime bucket math should follow the historical fallback interval in use."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._chart_initialized = True
+        component._live_bucket_interval_seconds = 900
+        component._candles = [
+            CandleData(time=1800, open=100.0, high=101.0, low=99.0, close=100.5, volume=None),
+        ]
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+        component._hide_no_data_overlay = AsyncMock()  # type: ignore[method-assign]
+        component._hide_stale_overlay = AsyncMock()  # type: ignore[method-assign]
+
+        await component._handle_price_update(102.0, datetime.fromtimestamp(2400, UTC))
+
+        assert len(component._candles) == 1
+        assert component._candles[-1].time == 1800
+        assert component._candles[-1].close == 102.0
+
+
+class TestPriceChartOverlays:
+    """Tests for chart overlays."""
+
+    @pytest.mark.asyncio()
+    async def test_show_no_data_overlay_updates_symbol_text(self) -> None:
+        """Existing overlay subtitle should be refreshed when symbol changes."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._show_no_data_overlay("AAPL")
+
+        js_payload = component._run_javascript.await_args.args[0]
+        assert ".no-data-overlay-subtitle" in js_payload
+        assert "Selected symbol:" in js_payload
+        assert component._no_data_overlay_visible is True
+
+    @pytest.mark.asyncio()
+    async def test_hide_no_data_overlay_skips_when_already_hidden(self) -> None:
+        """Hide should not trigger JS when overlay is already hidden."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._hide_no_data_overlay()
+
+        component._run_javascript.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_hide_stale_overlay_skips_when_not_visible(self) -> None:
+        """Hide stale overlay should no-op when nothing is visible."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._hide_stale_overlay()
+
+        component._run_javascript.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_show_stale_overlay_sets_visibility_flag(self) -> None:
+        """Stale overlay flag is tracked for high-frequency update optimization."""
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component._show_stale_overlay(72)
+
+        assert component._stale_overlay_visible is True
+        assert component._fallback_overlay_visible is False
+
+
 class TestPriceChartDispose:
     """Tests for dispose/cleanup."""
 
@@ -574,3 +1047,17 @@ class TestPriceChartDispose:
         await component.dispose()
 
         mock_timer.cancel.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_dispose_cleans_up_chart_and_resize_observer(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Dispose should remove chart instance and disconnect resize observer."""
+        component._run_javascript = AsyncMock()  # type: ignore[method-assign]
+
+        await component.dispose()
+
+        cleanup_js = component._run_javascript.await_args.args[0]
+        assert "chartRef.resizeObserver" in cleanup_js
+        assert "chartRef.resizeObserver.disconnect()" in cleanup_js
+        assert "chartRef.chart.remove()" in cleanup_js

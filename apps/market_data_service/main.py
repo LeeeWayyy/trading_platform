@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -15,15 +16,18 @@ from typing import Any
 
 import httpx
 import redis.exceptions
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
 
+from apps.market_data_service.api.dependencies import build_market_data_authenticator
 from apps.market_data_service.config import settings
 from apps.market_data_service.position_sync import PositionBasedSubscription
 from apps.market_data_service.routes.market_data import router as market_data_router
+from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
 from libs.core.redis_client import EventPublisher, RedisClient
 from libs.data.market_data import AlpacaMarketDataStream, SubscriptionError
+from libs.platform.web_console_auth.permissions import Permission
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +48,7 @@ class SubscribeRequest(BaseModel):
     """Request to subscribe to symbols."""
 
     symbols: list[str]
+    source: str = "manual"
 
 
 class SubscribeResponse(BaseModel):
@@ -77,6 +82,85 @@ class HealthResponse(BaseModel):
     subscribed_symbols: int
     reconnect_attempts: int
     max_reconnect_attempts: int
+
+
+SOURCE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
+
+MARKET_DATA_SUBSCRIPTION_AUTH = api_auth(
+    APIAuthConfig(
+        action="market_data_subscription",
+        require_role=None,
+        require_permission=Permission.VIEW_MARKET_DATA,
+    ),
+    authenticator_getter=build_market_data_authenticator,
+)
+SOURCE_OVERRIDE_PREFIX_BY_SERVICE: dict[str, str] = settings.source_override_prefix_by_service()
+SOURCE_OVERRIDE_SERVICE_BY_PREFIX: dict[str, str] = {
+    source_prefix: service_id
+    for service_id, source_prefix in SOURCE_OVERRIDE_PREFIX_BY_SERVICE.items()
+}
+
+
+def _normalize_subscription_source(raw_source: str | None) -> str:
+    """Normalize and validate caller-provided source ownership tags."""
+    source = (raw_source or "").strip() or "manual"
+    if not SOURCE_TAG_PATTERN.fullmatch(source):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Invalid source. Allowed characters: letters, numbers, ':', '_', '-' "
+                "with max length 64."
+            ),
+        )
+
+    prefix, sep, suffix = source.partition(":")
+    canonical_prefix = prefix.lower()
+    if not sep:
+        return canonical_prefix
+    return f"{canonical_prefix}:{suffix}"
+
+
+async def _authorize_source_override(
+    auth_context: AuthContext,
+    normalized_source: str,
+) -> None:
+    """Require authenticated ownership for non-manual source overrides."""
+    if normalized_source == "manual":
+        return
+
+    source_prefix = normalized_source.split(":", 1)[0]
+    canonical_source_prefix = source_prefix.lower()
+    source_service_id = SOURCE_OVERRIDE_SERVICE_BY_PREFIX.get(canonical_source_prefix)
+    if source_service_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unsigned source override is not allowed for prefix '{canonical_source_prefix}'",
+        )
+
+    shared_internal_token_secret = settings.current_internal_token_secret()
+    service_internal_token_secret = settings.service_internal_token_secret(source_service_id)
+    signed_override_required = bool(shared_internal_token_secret or service_internal_token_secret)
+    if not signed_override_required:
+        return
+
+    if auth_context.auth_type != "internal_token" or auth_context.internal_claims is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Explicit source override requires authenticated internal service token",
+        )
+
+    service_id = auth_context.internal_claims.service_id.strip().lower()
+    service_source_prefix = SOURCE_OVERRIDE_PREFIX_BY_SERVICE.get(service_id)
+    if service_source_prefix is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Source override is not allowed for service '{service_id}'",
+        )
+    if canonical_source_prefix != service_source_prefix:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Source '{normalized_source}' is not owned by service '{service_id}'",
+        )
 
 
 @asynccontextmanager
@@ -308,7 +392,10 @@ async def health_check() -> HealthResponse:
 
 
 @app.post("/api/v1/subscribe", response_model=SubscribeResponse, status_code=201)
-async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
+async def subscribe_symbols(
+    request: SubscribeRequest,
+    auth_context: AuthContext = Depends(MARKET_DATA_SUBSCRIPTION_AUTH),
+) -> SubscribeResponse:
     """
     Subscribe to real-time quotes for symbols.
 
@@ -337,15 +424,23 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
                 detail="No symbols provided",
             )
 
+        normalized_source = _normalize_subscription_source(request.source)
+        await _authorize_source_override(auth_context, normalized_source)
+
         try:
-            await stream.subscribe_symbols(request.symbols)
+            await stream.subscribe_symbols(request.symbols, source=normalized_source)
 
             subscribed = stream.get_subscribed_symbols()
 
             # Update metrics after successful subscription
             subscribed_symbols_current.set(len(subscribed))
 
-            logger.info(f"Subscribed to {len(request.symbols)} symbols: {request.symbols}")
+            logger.info(
+                "Subscribed to %s symbols (%s): %s",
+                len(request.symbols),
+                normalized_source,
+                request.symbols,
+            )
 
             return SubscribeResponse(
                 message=f"Successfully subscribed to {len(request.symbols)} symbols",
@@ -379,7 +474,11 @@ async def subscribe_symbols(request: SubscribeRequest) -> SubscribeResponse:
 
 
 @app.delete("/api/v1/subscribe/{symbol}", response_model=UnsubscribeResponse)
-async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
+async def unsubscribe_symbol(
+    symbol: str,
+    source: str = Query(default="manual"),
+    auth_context: AuthContext = Depends(MARKET_DATA_SUBSCRIPTION_AUTH),
+) -> UnsubscribeResponse:
     """
     Unsubscribe from a symbol.
 
@@ -402,15 +501,18 @@ async def unsubscribe_symbol(symbol: str) -> UnsubscribeResponse:
                 detail="Market data stream not initialized",
             )
 
+        normalized_source = _normalize_subscription_source(source)
+        await _authorize_source_override(auth_context, normalized_source)
+
         try:
-            await stream.unsubscribe_symbols([symbol])
+            await stream.unsubscribe_symbols([symbol], source=normalized_source)
 
             remaining = stream.get_subscribed_symbols()
 
             # Update metrics after successful unsubscription
             subscribed_symbols_current.set(len(remaining))
 
-            logger.info(f"Unsubscribed from {symbol}")
+            logger.info("Unsubscribed from %s (%s)", symbol, normalized_source)
 
             return UnsubscribeResponse(
                 message=f"Successfully unsubscribed from {symbol}",

@@ -29,7 +29,7 @@ class StatusBar:
                 "bg-red-600 text-white",
                 remove="bg-green-600 bg-yellow-500 text-black",
             )
-        elif state == "DISENGAGED":
+        elif state in {"DISENGAGED", "ACTIVE"}:
             self._container.classes(
                 "bg-green-600 text-white",
                 remove="bg-red-600 bg-yellow-500 text-black",
@@ -46,7 +46,7 @@ class StatusBar:
         if self._label:
             if normalized == "ENGAGED":
                 self._label.set_text("TRADING HALTED")
-            elif normalized == "DISENGAGED":
+            elif normalized in {"DISENGAGED", "ACTIVE"}:
                 self._label.set_text("TRADING ACTIVE")
             else:
                 self._label.set_text("TRADING STATUS UNKNOWN")
