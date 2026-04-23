@@ -171,7 +171,7 @@ async def sql_explorer_page() -> None:
         if tables:
             tables_label.text = f"Available tables: {', '.join(tables)}"
             dataset_state_label.text = ""
-            dataset_state_label.classes("text-amber-600", remove="text-gray-500")
+            dataset_state_label.classes("text-gray-500", remove="text-amber-600")
         else:
             tables_label.text = "Available tables: -"
             dataset_state_label.text = (

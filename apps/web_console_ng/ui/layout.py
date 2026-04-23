@@ -331,7 +331,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # directly to canonical dashboard path to avoid redirect hops.
                     return "/" if path == "/trade" else path
 
-                current_nav_path = _nav_target(current_path)
+                current_nav_path = current_path
 
                 for section_label, section_paths in nav_groups:
                     section_items = [

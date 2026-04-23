@@ -18,6 +18,7 @@ PARITY: Mirrors apps/web_console/pages/circuit_breaker.py functionality
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -221,7 +222,11 @@ async def circuit_breaker_page() -> None:
             history_count = _count_trips_today(history_data, now_utc=now)
             backend_count = 0
             backend_value = status_data.get("trip_count_today", 0)
-            if isinstance(backend_value, int | float) and int(backend_value) > 0:
+            if (
+                isinstance(backend_value, int | float)
+                and math.isfinite(backend_value)
+                and int(backend_value) > 0
+            ):
                 backend_count = int(backend_value)
             trip_count = max(history_count, backend_count)
             if trip_count > 0:

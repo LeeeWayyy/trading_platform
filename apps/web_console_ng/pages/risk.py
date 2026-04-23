@@ -263,9 +263,10 @@ async def risk_dashboard(client: Client) -> None:
                             f"Detected {live_position_count_hint} live position(s), "
                             "but model-derived risk metrics are not ready."
                         ).classes("text-sm text-amber-700")
-                        ui.link("Open Strategy Exposure", "/risk/exposure").classes(
-                            "text-sm text-blue-600 hover:underline mt-1"
-                        )
+                        ui.link(
+                            "Open Strategy Exposure",
+                            resolve_rooted_path_from_ui("/risk/exposure", ui_module=ui),
+                        ).classes("text-sm text-blue-600 hover:underline mt-1")
                 else:
                     ui.label("Risk metrics not available").classes("text-gray-500 p-4")
                 return
