@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,16 @@ if TYPE_CHECKING:
     from libs.web_console_services.health_service import HealthMonitorService
 
 logger = logging.getLogger(__name__)
+
+
+def _format_latency_ms(value: Any) -> str:
+    """Render finite latency values consistently; hide NaN/inf as '-'."""
+    if not isinstance(value, int | float):
+        return "-"
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return "-"
+    return f"{numeric:.1f}"
 
 
 def _get_health_service() -> HealthMonitorService:
@@ -339,9 +350,9 @@ async def health_page() -> None:
             rows.append(
                 {
                     "service": service_name,
-                    "p50": f"{p50:.1f}" if p50 else "-",
-                    "p95": f"{p95:.1f}" if p95 else "-",
-                    "p99": f"{p99:.1f}" if p99 else "-",
+                    "p50": _format_latency_ms(p50),
+                    "p95": _format_latency_ms(p95),
+                    "p99": _format_latency_ms(p99),
                 }
             )
 

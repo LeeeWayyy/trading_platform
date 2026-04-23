@@ -150,14 +150,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         client = AsyncTradingClient.get()
 
         # Left drawer (sidebar)
-        drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64")
+        drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64 h-screen overflow-y-auto")
         with drawer:
-            with ui.column().classes("w-full gap-1 p-3"):
+            with ui.column().classes("w-full gap-1 p-3 min-h-screen pb-4"):
                 ui.label("Navigation").classes("text-gray-500 text-xs uppercase tracking-wide mb-2")
 
                 nav_items = [
-                    ("Dashboard", "/", "dashboard", None),
-                    ("Trade", "/trade", "candlestick_chart", None),
+                    ("Trade", "/", "candlestick_chart", None),
                     ("Research Workspace", "/research", "hub", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
@@ -192,7 +191,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_groups: list[tuple[str, list[str]]] = [
                     (
                         "Execute",
-                        ["/", "/trade", "/circuit-breaker"],
+                        ["/", "/circuit-breaker"],
                     ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
@@ -326,6 +325,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                 rendered_paths: set[str] = set()
 
+                current_nav_path = current_path
+
                 for section_label, section_paths in nav_groups:
                     section_items = [
                         nav_lookup[path]
@@ -341,7 +342,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     for label, path, icon, _required_role in section_items:
                         rendered_paths.add(path)
-                        is_active = current_path == path
+                        is_active = current_nav_path == path
                         active_classes = (
                             "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                         )
@@ -360,18 +361,23 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path in rendered_paths or not is_nav_item_visible(path):
                         continue
 
-                    is_active = current_path == path
+                    is_active = current_nav_path == path
                     active_classes = (
                         "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                     )
 
-                    with ui.link(target=path).classes(f"nav-link w-full rounded {active_classes}"):
+                    with ui.link(target=path).classes(
+                        f"nav-link w-full rounded {active_classes}"
+                    ):
                         with ui.row().classes("items-center gap-3 p-2"):
                             ui.icon(icon).classes("text-blue-600" if is_active else "text-gray-600")
                             ui.label(label).classes("text-sm")
 
         # Header
         status_bar = StatusBar()
+
+        def _update_status_bar(state: str | None, cb_state: str | None = None) -> None:
+            status_bar.update_state(state, circuit_state=cb_state)
 
         with ui.header().classes(
             "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"
@@ -751,7 +757,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             "bg-amber-500 text-black",
                             remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
-                    status_bar.update_state(display_state)
+                    _update_status_bar(display_state, cb_state)
 
                     if cb_state == "TRIPPED":
                         circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
@@ -797,7 +803,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "bg-amber-500 text-black",
                         remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                     )
-                    status_bar.update_state("UNKNOWN")
+                    _update_status_bar("UNKNOWN", "UNKNOWN")
                     set_kill_switch_controls("UNKNOWN")
                     circuit_breaker_badge.set_text("CIRCUIT: UNKNOWN")
                     circuit_breaker_badge.classes(

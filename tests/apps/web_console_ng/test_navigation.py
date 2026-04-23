@@ -213,7 +213,9 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:
@@ -322,8 +324,7 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
 def test_navigation_item_structure() -> None:
     items = _extract_nav_items()
     assert items == [
-        ("Dashboard", "/", "dashboard", None),
-        ("Trade", "/trade", "candlestick_chart", None),
+        ("Trade", "/", "candlestick_chart", None),
         ("Research Workspace", "/research", "hub", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
@@ -409,7 +410,9 @@ async def test_exposure_link_hidden_without_permission(
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:
@@ -559,7 +562,9 @@ async def test_universes_link_hidden_without_permission(
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:

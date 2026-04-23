@@ -43,12 +43,37 @@ def _metric_card(
 
 def render_exposure_chart(exposures: list[StrategyExposureDTO]) -> None:
     """Render stacked bar chart with Long (green) and Short (red) per strategy."""
+    ui.plotly(build_exposure_chart_figure(exposures)).classes("w-full")
+
+
+def build_exposure_chart_figure(exposures: list[StrategyExposureDTO]) -> go.Figure:
+    """Build stacked bar chart figure for Long/Short by strategy."""
     if not exposures:
-        return
+        fig = go.Figure()
+        fig.update_layout(
+            title="Long vs Short by Strategy",
+            height=320,
+            margin={"l": 10, "r": 10, "t": 40, "b": 20},
+            xaxis={"visible": False},
+            yaxis={"visible": False},
+            annotations=[
+                {
+                    "text": "No exposure data available",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "showarrow": False,
+                    "font": {"size": 13, "color": "#94a3b8"},
+                }
+            ],
+        )
+        return fig
 
     strategies = [e.strategy for e in exposures]
     long_values = [e.long_notional for e in exposures]
     short_values = [-e.short_notional for e in exposures]  # negative for visual stacking
+    bar_width = [0.45 for _ in exposures]
 
     fig = go.Figure(
         data=[
@@ -57,24 +82,27 @@ def render_exposure_chart(exposures: list[StrategyExposureDTO]) -> None:
                 x=strategies,
                 y=long_values,
                 marker_color="#22c55e",
+                width=bar_width,
             ),
             go.Bar(
                 name="Short",
                 x=strategies,
                 y=short_values,
                 marker_color="#ef4444",
+                width=bar_width,
             ),
         ]
     )
     fig.update_layout(
         title="Long vs Short by Strategy",
         barmode="relative",
-        xaxis_title="Strategy",
+        bargap=0.35,
+        xaxis={"title": "Strategy", "type": "category", "categoryorder": "array", "categoryarray": strategies},
         yaxis_title="Notional ($)",
         height=320,
         margin={"l": 10, "r": 10, "t": 40, "b": 20},
     )
-    ui.plotly(fig).classes("w-full")
+    return fig
 
 
 def render_bias_warning(total: TotalExposureDTO) -> None:
@@ -128,34 +156,11 @@ def render_exposure_unavailable(total: TotalExposureDTO) -> None:
 def render_exposure_grid(
     exposures: list[StrategyExposureDTO],
     total: TotalExposureDTO,
+    *,
+    include_total: bool = True,
 ) -> Any:
     """Render AG Grid with per-strategy exposure breakdown + TOTAL row."""
-    rows = []
-    for e in exposures:
-        rows.append(
-            {
-                "strategy": e.strategy,
-                "net": e.net_notional,
-                "gross": e.gross_notional,
-                "long": e.long_notional,
-                "short": e.short_notional,
-                "net_pct": e.net_pct,
-                "positions": e.position_count,
-            }
-        )
-
-    # TOTAL row
-    rows.append(
-        {
-            "strategy": "TOTAL",
-            "net": total.net_total,
-            "gross": total.gross_total,
-            "long": total.long_total,
-            "short": total.short_total,
-            "net_pct": total.net_pct,
-            "positions": sum(e.position_count for e in exposures),
-        }
-    )
+    rows = build_exposure_rows(exposures, total, include_total=include_total)
 
     dollar_fmt = "params => params.value != null ? (params.value >= 0 ? '+$' : '-$') + Math.abs(params.value).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '-'"
     pct_fmt = "params => params.value != null ? (params.value >= 0 ? '+' : '') + params.value.toFixed(1) + '%' : '-'"
@@ -206,7 +211,8 @@ def render_exposure_grid(
             {
                 "field": "positions",
                 "headerName": "# Pos",
-                "minWidth": 80,
+                "minWidth": 95,
+                "maxWidth": 120,
             },
         ],
         "rowData": rows,
@@ -217,9 +223,64 @@ def render_exposure_grid(
     return ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark")
 
 
+def build_exposure_rows(
+    exposures: list[StrategyExposureDTO],
+    total: TotalExposureDTO,
+    *,
+    include_total: bool = True,
+) -> list[dict[str, Any]]:
+    """Build AG Grid rows with per-strategy breakdown + TOTAL row."""
+    # Do not render synthetic totals before first successful fetch.
+    # Prefer the explicit placeholder marker when present, while still
+    # handling legacy all-zero payloads that omit it.
+    if not exposures and (
+        total.is_placeholder
+        or (
+            total.strategy_count <= 0
+            and total.long_total == 0.0
+            and total.short_total == 0.0
+            and total.gross_total == 0.0
+            and total.net_total == 0.0
+            and total.net_pct == 0.0
+        )
+    ):
+        return []
+
+    rows = []
+    for e in exposures:
+        rows.append(
+            {
+                "strategy": e.strategy,
+                "net": e.net_notional,
+                "gross": e.gross_notional,
+                "long": e.long_notional,
+                "short": e.short_notional,
+                "net_pct": e.net_pct,
+                "positions": e.position_count,
+            }
+        )
+
+    if include_total:
+        # TOTAL row
+        rows.append(
+            {
+                "strategy": "TOTAL",
+                "net": total.net_total,
+                "gross": total.gross_total,
+                "long": total.long_total,
+                "short": total.short_total,
+                "net_pct": total.net_pct,
+                "positions": sum(e.position_count for e in exposures),
+            }
+        )
+    return rows
+
+
 __all__ = [
     "render_exposure_summary_cards",
     "render_exposure_chart",
+    "build_exposure_chart_figure",
+    "build_exposure_rows",
     "render_bias_warning",
     "render_data_quality_warning",
     "render_exposure_unavailable",

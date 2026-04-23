@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 import pytest
 
@@ -110,8 +111,10 @@ async def test_market_price_cache_strategy_isolation(monkeypatch: pytest.MonkeyP
 
 def test_dashboard_has_trade_alias_route() -> None:
     """Dashboard page keeps '/' canonical and exposes '/trade' alias."""
-    source = inspect.getsource(dashboard_module.dashboard)
-    assert '@ui.page("/trade")' in source
+    dashboard_source = inspect.getsource(dashboard_module.dashboard)
+    alias_source = inspect.getsource(dashboard_module.dashboard_trade_alias)
+    assert '@ui.page("/")' in dashboard_source
+    assert '@ui.page("/trade")' in alias_source
 
 
 def test_dashboard_session_expiry_redirects_to_login() -> None:
@@ -123,3 +126,27 @@ def test_dashboard_handoff_defers_market_data_release_until_replacement_context(
     source = inspect.getsource(dashboard_module.dashboard)
     assert "is_handoff = active_generation_id != order_context_generation_id" in source
     assert 'client.storage["deferred_market_data_release_symbols"]' in source
+
+
+def test_trade_alias_redirect_target_preserves_safe_query_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dummy_ui = SimpleNamespace(
+        context=SimpleNamespace(
+            client=SimpleNamespace(
+                request=SimpleNamespace(
+                    scope={
+                        "query_string": b"symbol=AAPL&qty=5&side=buy&foo=ignored",
+                    }
+                )
+            )
+        )
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "resolve_rooted_path_from_ui",
+        lambda _path, *, ui_module: "/console",
+    )
+
+    target = dashboard_module._build_trade_alias_redirect_target(ui_module=dummy_ui)
+    assert target == "/console?symbol=AAPL&qty=5&side=buy"

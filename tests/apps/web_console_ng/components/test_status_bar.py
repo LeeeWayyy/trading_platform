@@ -84,3 +84,10 @@ def test_status_bar_unknown(dummy_ui: None) -> None:
     bar.update_state("UNKNOWN")
     assert bar._label is not None
     assert "UNKNOWN" in bar._label.text
+
+
+def test_status_bar_engaged_overrides_quiet_period(dummy_ui: None) -> None:
+    bar = StatusBar()
+    bar.update_state("ENGAGED", circuit_state="QUIET_PERIOD")
+    assert bar._label is not None
+    assert bar._label.text == "TRADING HALTED"

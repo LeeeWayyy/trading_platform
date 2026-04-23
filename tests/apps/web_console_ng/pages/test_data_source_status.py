@@ -189,7 +189,7 @@ async def test_timer_cleanup_registered_with_owner_key(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio()
-async def test_preview_data_badge_rendered(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_preview_data_badge_removed(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_ui = FakeUI()
     lifecycle = DummyLifecycle()
 
@@ -203,7 +203,8 @@ async def test_preview_data_badge_rendered(monkeypatch: pytest.MonkeyPatch) -> N
     page = _unwrap_page()
     await page()
 
-    assert "Preview Data" in fake_ui.labels
+    assert "Data Source Status" in fake_ui.labels
+    assert "Preview Data" not in fake_ui.labels
 
 
 @pytest.mark.asyncio()

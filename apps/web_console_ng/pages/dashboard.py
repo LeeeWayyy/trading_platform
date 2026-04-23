@@ -12,13 +12,14 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from urllib.parse import parse_qsl, urlencode
 
 import httpx
 from nicegui import Client, app, events, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
-from apps.web_console_ng.auth.redirects import with_root_path
+from apps.web_console_ng.auth.redirects import TRADE_REDIRECT_QUERY_KEYS, with_root_path
 from apps.web_console_ng.components.data_health_widget import render_data_health
 from apps.web_console_ng.components.execution_context import (
     build_execution_context_snapshot,
@@ -87,6 +88,7 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.time import validate_and_normalize_symbol
 from libs.core.common.db import acquire_connection
 from libs.data.data_pipeline.health_monitor import get_health_monitor
@@ -659,7 +661,6 @@ class MarketPriceCache:
 
 
 @ui.page("/")
-@ui.page("/trade")
 @requires_auth
 @main_layout
 async def dashboard(client: Client) -> None:
@@ -1502,13 +1503,13 @@ async def dashboard(client: Client) -> None:
             return
 
         pnl_card.update(_coerce_float(pnl_data.get("total_unrealized_pl", 0)))
-        positions_card.update(_coerce_int(pnl_data.get("total_positions", 0)))
         realized_card.update(_coerce_float(pnl_data.get("realized_pl_today", 0)))
         buying_power = account_info.get("buying_power")
         if buying_power is None:
             buying_power = pnl_data.get("buying_power", 0)
         bp_card.update(_coerce_float(buying_power))
         positions_snapshot = list(positions.get("positions", []))
+        positions_card.update(len(positions_snapshot))
         orders_snapshot = list(orders.get("orders", []))
         await sparkline_service.record_positions(user_id, positions_snapshot)
 
@@ -2022,7 +2023,7 @@ async def dashboard(client: Client) -> None:
         _evaluate_workspace_mask()
         if "total_unrealized_pl" in data:
             pnl_card.update(_coerce_float(data["total_unrealized_pl"]))
-        if "total_positions" in data:
+        if "total_positions" in data and "positions" not in data:
             positions_card.update(_coerce_int(data["total_positions"]))
         if "realized_pl_today" in data:
             realized_card.update(_coerce_float(data["realized_pl_today"]))
@@ -2030,6 +2031,7 @@ async def dashboard(client: Client) -> None:
             bp_card.update(_coerce_float(data["buying_power"]))
         if "positions" in data:
             positions_snapshot = list(data["positions"])
+            positions_card.update(len(positions_snapshot))
             await sparkline_service.record_positions(user_id, positions_snapshot)
             _update_filter_options()
             if tabbed_panel is not None:
@@ -2929,4 +2931,46 @@ async def dashboard(client: Client) -> None:
         )
 
 
-__all__ = ["dashboard", "MarketPriceCache"]
+@ui.page("/trade")
+@requires_auth
+async def dashboard_trade_alias() -> None:
+    """Legacy alias route for canonical trade workspace."""
+    ui.navigate.to(_build_trade_alias_redirect_target(ui_module=ui))
+
+
+def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
+    """Build canonical trade redirect target while preserving safe query params."""
+    target = resolve_rooted_path_from_ui("/", ui_module=ui_module)
+    try:
+        request = ui_module.context.client.request
+    except (AttributeError, RuntimeError) as exc:
+        logger.debug(
+            "trade_alias_request_unavailable",
+            extra={"error_type": type(exc).__name__, "error": str(exc)},
+        )
+        return target
+
+    scope = getattr(request, "scope", None)
+    if not isinstance(scope, dict):
+        return target
+
+    raw_query = scope.get("query_string", b"")
+    if isinstance(raw_query, bytes):
+        try:
+            raw_query_str = raw_query.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            logger.warning(
+                "trade_alias_query_decode_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+            return target
+    else:
+        raw_query_str = str(raw_query)
+    query_items = parse_qsl(raw_query_str, keep_blank_values=False)
+    safe_items = [(key, value) for key, value in query_items if key in TRADE_REDIRECT_QUERY_KEYS]
+    if not safe_items:
+        return target
+    return f"{target}?{urlencode(safe_items, doseq=True)}"
+
+
+__all__ = ["dashboard", "dashboard_trade_alias", "MarketPriceCache"]

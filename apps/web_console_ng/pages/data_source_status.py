@@ -122,9 +122,6 @@ async def data_source_status_page() -> None:
     can_refresh = has_permission(user, Permission.TRIGGER_DATA_SYNC)
 
     ui.label("Data Source Status").classes("text-2xl font-bold mb-2")
-    ui.label("Preview Data").classes(
-        "inline-block px-3 py-1 rounded bg-amber-100 text-amber-700 text-xs font-semibold mb-3"
-    )
 
     summary_container = ui.column().classes("w-full")
     plot_container = ui.column().classes("w-full")
@@ -147,7 +144,7 @@ async def data_source_status_page() -> None:
             {
                 "field": "status",
                 "headerName": "Status",
-                "cellClass": "params => params.value === 'ok' ? 'text-green-600 font-bold' : params.value === 'stale' ? 'text-amber-600 font-bold' : params.value === 'error' ? 'text-red-600 font-bold' : 'text-gray-400 font-bold'",
+                ":cellClass": "params => params.value === 'ok' ? 'text-green-600 font-bold' : params.value === 'stale' ? 'text-amber-600 font-bold' : params.value === 'error' ? 'text-red-600 font-bold' : 'text-gray-400 font-bold'",
                 "minWidth": 110,
             },
             {"field": "last_update", "headerName": "Last Update", "minWidth": 120},
@@ -155,13 +152,13 @@ async def data_source_status_page() -> None:
                 "field": "age_display",
                 "headerName": "Age",
                 "minWidth": 95,
-                "cellClass": "params => params.data && params.data.status === 'stale' ? 'text-amber-600' : params.data && params.data.status === 'error' ? 'text-red-600' : ''",
+                ":cellClass": "params => params.data && params.data.status === 'stale' ? 'text-amber-600' : params.data && params.data.status === 'error' ? 'text-red-600' : ''",
             },
             {
                 "field": "row_count",
                 "headerName": "Row Count",
                 "minWidth": 130,
-                "valueFormatter": "params => params.value != null ? Number(params.value).toLocaleString() : '-'",
+                ":valueFormatter": "params => params.value != null ? Number(params.value).toLocaleString() : '-'",
             },
             {"field": "error_rate", "headerName": "Error Rate", "minWidth": 110},
             {

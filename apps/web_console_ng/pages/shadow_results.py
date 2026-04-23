@@ -13,6 +13,7 @@ from nicegui import ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
 from apps.web_console_ng.utils.session import get_or_create_client_id
 from apps.web_console_ng.utils.time import format_relative_time
@@ -157,7 +158,6 @@ def _format_metric(value: Any, precision: int = 4) -> str:
     return "-"
 
 
-@ui.page("/shadow-results")
 @ui.page("/data/shadow")
 @requires_auth
 @main_layout
@@ -176,13 +176,11 @@ async def shadow_results_page() -> None:
     service = ShadowResultsService()
 
     ui.label("Shadow Mode Results").classes("text-2xl font-bold mb-2")
-    ui.label("Preview Data").classes(
-        "inline-block px-3 py-1 rounded bg-amber-100 text-amber-700 text-xs font-semibold mb-3"
-    )
 
     summary_container = ui.column().classes("w-full")
     trend_container = ui.column().classes("w-full")
     detail_container = ui.column().classes("w-full")
+    status_container = ui.column().classes("w-full")
 
     grid_options = apply_compact_grid_options(
         {
@@ -198,7 +196,7 @@ async def shadow_results_page() -> None:
                     "field": "status",
                     "headerName": "Status",
                     "minWidth": 100,
-                    "cellClass": "params => params.value === 'passed' ? 'text-green-600 font-bold' : 'text-red-600 font-bold'",
+                    ":cellClass": "params => params.value === 'passed' ? 'text-green-600 font-bold' : 'text-red-600 font-bold'",
                 },
                 {"field": "correlation", "headerName": "Correlation", "minWidth": 120},
                 {"field": "divergence", "headerName": "Divergence", "minWidth": 120},
@@ -219,6 +217,7 @@ async def shadow_results_page() -> None:
     grid = ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark")
 
     _refreshing = False
+    _had_success = False
 
     async def render_selected_detail() -> None:
         selected = await grid.get_selected_rows()
@@ -257,21 +256,24 @@ async def shadow_results_page() -> None:
                     ).classes("text-sm")
 
     async def refresh_shadow_results() -> None:
-        nonlocal _refreshing
+        nonlocal _refreshing, _had_success
         if _refreshing:
             return
         _refreshing = True
         try:
             results = await service.get_recent_results(user)
             trend = await service.get_trend(user)
+            _had_success = True
 
+            status_container.clear()
             if not results:
-                ui.notify(
-                    "No shadow validations recorded. "
-                    "Shadow validation runs automatically during model hot-swap when "
-                    "SHADOW_VALIDATION_ENABLED=true.",
-                    type="info",
-                )
+                with status_container:
+                    with ui.card().classes("w-full p-3 bg-slate-800 border border-slate-600"):
+                        ui.label(
+                            "No shadow validations recorded yet. "
+                            "Runs are produced during model hot-swap when "
+                            "SHADOW_VALIDATION_ENABLED=true."
+                        ).classes("text-xs text-slate-300")
 
             _render_summary_cards(results, summary_container)
             _plot_trend(trend, trend_container)
@@ -288,7 +290,20 @@ async def shadow_results_page() -> None:
                     "user_id": get_user_id(user),
                 },
             )
-            ui.notify("Shadow results unavailable", type="warning")
+            if not _had_success:
+                status_container.clear()
+                with status_container:
+                    with ui.card().classes("w-full p-3 bg-amber-50 border border-amber-300"):
+                        ui.label("Shadow results unavailable").classes(
+                            "text-xs text-amber-700"
+                        )
+            else:
+                status_container.clear()
+                with status_container:
+                    with ui.card().classes("w-full p-3 bg-amber-50 border border-amber-300"):
+                        ui.label(
+                            "Shadow results refresh failed; showing last successful snapshot."
+                        ).classes("text-xs text-amber-700")
         finally:
             _refreshing = False
 
@@ -315,3 +330,10 @@ __all__ = [
     "_CLEANUP_OWNER_KEY",
     "shadow_results_page",
 ]
+
+
+@ui.page("/shadow-results")
+@requires_auth
+async def shadow_results_alias_page() -> None:
+    """Legacy alias route for shadow results."""
+    ui.navigate.to(resolve_rooted_path_from_ui("/data/shadow", ui_module=ui))

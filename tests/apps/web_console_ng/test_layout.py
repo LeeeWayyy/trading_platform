@@ -199,7 +199,9 @@ async def _run_layout(
         def __init__(self) -> None:
             pass
 
-        def update_state(self, state: str) -> None:
+        def update_state(
+            self, state: str | None, *, circuit_state: str | None = None
+        ) -> None:
             pass
 
     class _DummyHeaderMetrics:

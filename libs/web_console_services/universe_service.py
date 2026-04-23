@@ -71,6 +71,11 @@ _MOCK_FACTOR_EXPOSURE: dict[str, float] = {
     "Volatility": -0.1,
 }
 
+_BUILT_IN_SYMBOL_HINTS: dict[str, int] = {
+    "SP500": 500,
+    "R1000": 1000,
+}
+
 
 def safe_user_id(user: Any) -> str:
     """Extract user ID for logging (never raises).
@@ -212,10 +217,16 @@ class UniverseService:
             symbol_count: int | None = None
             base: str | None = None
             approx = False
+            last_updated: str | None = u.created_at.strftime("%Y-%m-%d") if u.created_at else None
 
             if u.universe_type == "built_in":
                 base = "CRSP"
                 symbol_count = count_map.get(u.id)
+                if symbol_count is None:
+                    symbol_count = _BUILT_IN_SYMBOL_HINTS.get(u.id)
+                    approx = symbol_count is not None
+                if last_updated is None and as_of_date is not None:
+                    last_updated = as_of_date.isoformat()
             else:
                 base = u.base_universe_id or "Manual List"
                 if u.manual_symbols is not None:
@@ -237,9 +248,7 @@ class UniverseService:
                     universe_type=u.universe_type,
                     symbol_count=symbol_count,
                     count_is_approximate=approx,
-                    last_updated=(
-                        u.created_at.strftime("%Y-%m-%d") if u.created_at else None
-                    ),
+                    last_updated=last_updated,
                     base=base,
                 )
             )
