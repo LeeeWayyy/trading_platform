@@ -110,8 +110,10 @@ async def test_market_price_cache_strategy_isolation(monkeypatch: pytest.MonkeyP
 
 def test_dashboard_has_trade_alias_route() -> None:
     """Dashboard page keeps '/' canonical and exposes '/trade' alias."""
-    source = inspect.getsource(dashboard_module.dashboard)
-    assert '@ui.page("/trade")' in source
+    dashboard_source = inspect.getsource(dashboard_module.dashboard)
+    alias_source = inspect.getsource(dashboard_module.dashboard_trade_alias)
+    assert '@ui.page("/")' in dashboard_source
+    assert '@ui.page("/trade")' in alias_source
 
 
 def test_dashboard_session_expiry_redirects_to_login() -> None:

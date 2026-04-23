@@ -48,7 +48,11 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(raw)
-    except ValueError:
+    except ValueError as exc:
+        logger.warning(
+            "circuit_breaker_invalid_timestamp",
+            extra={"value": raw, "error": str(exc)},
+        )
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)

@@ -331,6 +331,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # directly to canonical dashboard path to avoid redirect hops.
                     return "/" if path == "/trade" else path
 
+                def _nav_active_path(path: str) -> str:
+                    # Keep only one active entry for canonical dashboard route.
+                    return path
+
                 current_nav_path = current_path
 
                 for section_label, section_paths in nav_groups:
@@ -348,7 +352,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     for label, path, icon, _required_role in section_items:
                         rendered_paths.add(path)
-                        is_active = current_nav_path == _nav_target(path)
+                        is_active = current_nav_path == _nav_active_path(path)
                         active_classes = (
                             "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                         )
@@ -367,7 +371,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path in rendered_paths or not is_nav_item_visible(path):
                         continue
 
-                    is_active = current_nav_path == _nav_target(path)
+                    is_active = current_nav_path == _nav_active_path(path)
                     active_classes = (
                         "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                     )

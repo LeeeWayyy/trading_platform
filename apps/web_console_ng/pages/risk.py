@@ -173,7 +173,7 @@ async def risk_dashboard(client: Client) -> None:
                     ValueError,
                     TypeError,
                 ) as exc:
-                    logger.debug(
+                    logger.warning(
                         "risk_live_position_hint_failed",
                         extra={"user_id": user_id, "error_type": type(exc).__name__},
                         exc_info=True,
