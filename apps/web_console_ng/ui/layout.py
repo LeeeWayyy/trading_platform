@@ -156,8 +156,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 ui.label("Navigation").classes("text-gray-500 text-xs uppercase tracking-wide mb-2")
 
                 nav_items = [
-                    ("Dashboard", "/", "dashboard", None),
-                    ("Trade", "/trade", "candlestick_chart", None),
+                    ("Trade", "/", "candlestick_chart", None),
                     ("Research Workspace", "/research", "hub", None),
                     ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
@@ -192,7 +191,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_groups: list[tuple[str, list[str]]] = [
                     (
                         "Execute",
-                        ["/", "/trade", "/circuit-breaker"],
+                        ["/", "/circuit-breaker"],
                     ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
@@ -326,17 +325,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                 rendered_paths: set[str] = set()
 
-                def _nav_target(path: str) -> str:
-                    # Keep /trade alias route for compatibility, but navigate
-                    # directly to canonical dashboard path to avoid redirect hops.
-                    return "/" if path == "/trade" else path
-
-                def _is_nav_item_active(path: str) -> bool:
-                    # Keep a single active nav item for the canonical trade workspace.
-                    if current_nav_path in {"/", "/trade"}:
-                        return path == "/trade"
-                    return current_nav_path == path
-
                 current_nav_path = current_path
 
                 for section_label, section_paths in nav_groups:
@@ -354,12 +342,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     for label, path, icon, _required_role in section_items:
                         rendered_paths.add(path)
-                        is_active = _is_nav_item_active(path)
+                        is_active = current_nav_path == path
                         active_classes = (
                             "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                         )
 
-                        with ui.link(target=_nav_target(path)).classes(
+                        with ui.link(target=path).classes(
                             f"nav-link w-full rounded {active_classes}"
                         ):
                             with ui.row().classes("items-center gap-3 p-2"):
@@ -373,12 +361,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     if path in rendered_paths or not is_nav_item_visible(path):
                         continue
 
-                    is_active = _is_nav_item_active(path)
+                    is_active = current_nav_path == path
                     active_classes = (
                         "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                     )
 
-                    with ui.link(target=_nav_target(path)).classes(
+                    with ui.link(target=path).classes(
                         f"nav-link w-full rounded {active_classes}"
                     ):
                         with ui.row().classes("items-center gap-3 p-2"):

@@ -324,8 +324,7 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
 def test_navigation_item_structure() -> None:
     items = _extract_nav_items()
     assert items == [
-        ("Dashboard", "/", "dashboard", None),
-        ("Trade", "/trade", "candlestick_chart", None),
+        ("Trade", "/", "candlestick_chart", None),
         ("Research Workspace", "/research", "hub", None),
         ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),

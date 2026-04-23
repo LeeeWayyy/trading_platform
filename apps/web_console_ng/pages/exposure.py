@@ -77,7 +77,7 @@ async def exposure_page() -> None:
     _timer_ref: list[ui.timer | None] = [None]
 
     async def refresh_exposure() -> None:
-        nonlocal _refreshing, _error_count, _had_success, exposure_grid, exposure_chart
+        nonlocal _refreshing, _error_count, _had_success
         if _refreshing:
             return
         _refreshing = True
@@ -143,14 +143,12 @@ async def exposure_page() -> None:
                 badge_container,
                 summary_container,
                 warning_container,
-                grid_container,
-                chart_container,
             ):
                 container.clear()
-            with grid_container:
-                exposure_grid = render_exposure_grid([], empty_total, include_total=False)
-            with chart_container:
-                exposure_chart = ui.plotly(build_exposure_chart_figure([])).classes("w-full")
+            exposure_grid.options["rowData"] = []
+            exposure_grid.update()
+            exposure_chart.figure = build_exposure_chart_figure([])
+            exposure_chart.update()
             with warning_container:
                 ui.label("Access revoked — exposure data cleared.").classes(
                     "text-red-500 text-center"
