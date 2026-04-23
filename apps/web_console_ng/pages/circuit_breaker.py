@@ -45,8 +45,6 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     raw = str(value).strip()
     if not raw:
         return None
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
     try:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
@@ -216,14 +214,16 @@ async def circuit_breaker_page() -> None:
             else:
                 ui.label(f"Status: {state}").classes("text-2xl font-bold text-gray-600")
 
-            # Trip count today (prefer local history-derived count).
-            trip_count = _count_trips_today(history_data, now_utc=datetime.now(UTC))
-            if trip_count == 0:
-                backend_count = status_data.get("trip_count_today", 0)
-                if isinstance(backend_count, int | float) and int(backend_count) > 0:
-                    tripped_at = _parse_utc_datetime(status_data.get("tripped_at"))
-                    if tripped_at is not None and tripped_at.date() == datetime.now(UTC).date():
-                        trip_count = int(backend_count)
+            # Trip count today from both sources:
+            # - history payload can be truncated
+            # - backend counter can still be valid when breaker is OPEN.
+            now = datetime.now(UTC)
+            history_count = _count_trips_today(history_data, now_utc=now)
+            backend_count = 0
+            backend_value = status_data.get("trip_count_today", 0)
+            if isinstance(backend_value, int | float) and int(backend_value) > 0:
+                backend_count = int(backend_value)
+            trip_count = max(history_count, backend_count)
             if trip_count > 0:
                 with ui.row().classes("mt-2"):
                     ui.label("Trips Today:").classes("font-medium")

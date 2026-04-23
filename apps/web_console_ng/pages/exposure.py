@@ -144,6 +144,10 @@ async def exposure_page() -> None:
                 warning_container,
             ):
                 container.clear()
+            exposure_grid.options["rowData"] = []
+            exposure_grid.update()
+            exposure_chart.figure = build_exposure_chart_figure([])
+            exposure_chart.update()
             with warning_container:
                 ui.label("Access revoked — exposure data cleared.").classes(
                     "text-red-500 text-center"

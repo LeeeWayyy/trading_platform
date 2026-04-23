@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -37,7 +37,10 @@ _CLEANUP_OWNER_KEY = "feature_browser_cache"
 _CACHE_KEY = "feature_cache"
 
 
-def _notify(message: str, *, type: str = "info") -> None:
+NotifyType = Literal["positive", "negative", "warning", "info", "ongoing"]
+
+
+def _notify(message: str, *, type: NotifyType = "info") -> None:
     """Consistent top-right notifications for feature browser."""
     ui.notify(message, type=type, position="top-right")
 

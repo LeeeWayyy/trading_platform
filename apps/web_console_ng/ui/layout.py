@@ -326,6 +326,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                 rendered_paths: set[str] = set()
 
+                def _nav_target(path: str) -> str:
+                    # Keep /trade alias route for compatibility, but navigate
+                    # directly to canonical dashboard path to avoid redirect hops.
+                    return "/" if path == "/trade" else path
+
                 for section_label, section_paths in nav_groups:
                     section_items = [
                         nav_lookup[path]
@@ -346,7 +351,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                         )
 
-                        with ui.link(target=path).classes(
+                        with ui.link(target=_nav_target(path)).classes(
                             f"nav-link w-full rounded {active_classes}"
                         ):
                             with ui.row().classes("items-center gap-3 p-2"):
@@ -365,7 +370,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                     )
 
-                    with ui.link(target=path).classes(f"nav-link w-full rounded {active_classes}"):
+                    with ui.link(target=_nav_target(path)).classes(
+                        f"nav-link w-full rounded {active_classes}"
+                    ):
                         with ui.row().classes("items-center gap-3 p-2"):
                             ui.icon(icon).classes("text-blue-600" if is_active else "text-gray-600")
                             ui.label(label).classes("text-sm")
