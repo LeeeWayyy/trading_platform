@@ -12,13 +12,14 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from urllib.parse import parse_qsl, urlencode
 
 import httpx
 from nicegui import Client, app, events, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
-from apps.web_console_ng.auth.redirects import with_root_path
+from apps.web_console_ng.auth.redirects import TRADE_REDIRECT_QUERY_KEYS, with_root_path
 from apps.web_console_ng.components.data_health_widget import render_data_health
 from apps.web_console_ng.components.execution_context import (
     build_execution_context_snapshot,
@@ -2934,7 +2935,30 @@ async def dashboard(client: Client) -> None:
 @requires_auth
 async def dashboard_trade_alias() -> None:
     """Legacy alias route for canonical trade workspace."""
-    ui.navigate.to(resolve_rooted_path_from_ui("/", ui_module=ui))
+    ui.navigate.to(_build_trade_alias_redirect_target(ui_module=ui))
+
+
+def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
+    """Build canonical trade redirect target while preserving safe query params."""
+    target = resolve_rooted_path_from_ui("/", ui_module=ui_module)
+    try:
+        request = ui_module.context.client.request
+    except Exception:
+        return target
+
+    scope = getattr(request, "scope", None)
+    if not isinstance(scope, dict):
+        return target
+
+    raw_query = scope.get("query_string", b"")
+    query_items = parse_qsl(
+        raw_query.decode("utf-8") if isinstance(raw_query, bytes) else str(raw_query),
+        keep_blank_values=False,
+    )
+    safe_items = [(key, value) for key, value in query_items if key in TRADE_REDIRECT_QUERY_KEYS]
+    if not safe_items:
+        return target
+    return f"{target}?{urlencode(safe_items, doseq=True)}"
 
 
 __all__ = ["dashboard", "dashboard_trade_alias", "MarketPriceCache"]

@@ -50,6 +50,11 @@ class StatusBar:
                 self._label.set_text("TRADING HALTED (CIRCUIT)")
             self._set_state_classes("ENGAGED")
             return
+        if normalized == "ENGAGED":
+            if self._label:
+                self._label.set_text("TRADING HALTED")
+            self._set_state_classes("ENGAGED")
+            return
         if cb_normalized == "QUIET_PERIOD":
             if self._label:
                 self._label.set_text("TRADING PAUSED (QUIET)")
@@ -57,9 +62,7 @@ class StatusBar:
             return
 
         if self._label:
-            if normalized == "ENGAGED":
-                self._label.set_text("TRADING HALTED")
-            elif normalized in {"DISENGAGED", "ACTIVE"}:
+            if normalized in {"DISENGAGED", "ACTIVE"}:
                 self._label.set_text("TRADING ACTIVE")
             else:
                 self._label.set_text("TRADING STATUS UNKNOWN")
