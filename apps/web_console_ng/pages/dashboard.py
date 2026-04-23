@@ -2943,7 +2943,11 @@ def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
     target = resolve_rooted_path_from_ui("/", ui_module=ui_module)
     try:
         request = ui_module.context.client.request
-    except Exception:
+    except (AttributeError, RuntimeError, KeyError, TypeError) as exc:
+        logger.debug(
+            "trade_alias_request_unavailable",
+            extra={"error_type": type(exc).__name__, "error": str(exc)},
+        )
         return target
 
     scope = getattr(request, "scope", None)
