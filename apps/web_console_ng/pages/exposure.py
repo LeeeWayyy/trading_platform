@@ -67,7 +67,7 @@ async def exposure_page() -> None:
         strategy_count=0,
     )
     with grid_container:
-        exposure_grid = render_exposure_grid([], empty_total)
+        exposure_grid = render_exposure_grid([], empty_total, include_total=False)
     with chart_container:
         exposure_chart = ui.plotly(build_exposure_chart_figure([])).classes("w-full")
 

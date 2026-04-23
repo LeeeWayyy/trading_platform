@@ -178,7 +178,7 @@ async def risk_dashboard(client: Client) -> None:
                         extra={"user_id": user_id, "error_type": type(exc).__name__},
                         exc_info=True,
                     )
-                    raise
+                    live_position_count_hint = None
             error_state = None  # Clear error on success
             prev_error_state = None
         except PermissionError as e:

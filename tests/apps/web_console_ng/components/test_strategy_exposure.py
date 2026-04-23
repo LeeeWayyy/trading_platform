@@ -58,3 +58,33 @@ def test_build_exposure_rows_includes_total_with_strategy_data() -> None:
     assert rows[-1]["strategy"] == "TOTAL"
     assert rows[-1]["positions"] == 5
     assert rows[-1]["net"] == 1300.0
+
+
+def test_build_exposure_rows_can_skip_total_row() -> None:
+    """Allow callers to suppress TOTAL row for initial empty-state rendering."""
+    total = TotalExposureDTO(
+        long_total=1200.0,
+        short_total=100.0,
+        gross_total=1300.0,
+        net_total=1100.0,
+        net_pct=84.6,
+        strategy_count=1,
+    )
+    rows = build_exposure_rows(
+        [
+            StrategyExposureDTO(
+                strategy="alpha_a",
+                long_notional=1200.0,
+                short_notional=100.0,
+                gross_notional=1300.0,
+                net_notional=1100.0,
+                net_pct=84.6,
+                position_count=4,
+            )
+        ],
+        total,
+        include_total=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["strategy"] == "alpha_a"

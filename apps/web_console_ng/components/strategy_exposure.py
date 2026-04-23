@@ -156,9 +156,11 @@ def render_exposure_unavailable(total: TotalExposureDTO) -> None:
 def render_exposure_grid(
     exposures: list[StrategyExposureDTO],
     total: TotalExposureDTO,
+    *,
+    include_total: bool = True,
 ) -> Any:
     """Render AG Grid with per-strategy exposure breakdown + TOTAL row."""
-    rows = build_exposure_rows(exposures, total)
+    rows = build_exposure_rows(exposures, total, include_total=include_total)
 
     dollar_fmt = "params => params.value != null ? (params.value >= 0 ? '+$' : '-$') + Math.abs(params.value).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '-'"
     pct_fmt = "params => params.value != null ? (params.value >= 0 ? '+' : '') + params.value.toFixed(1) + '%' : '-'"
@@ -224,6 +226,8 @@ def render_exposure_grid(
 def build_exposure_rows(
     exposures: list[StrategyExposureDTO],
     total: TotalExposureDTO,
+    *,
+    include_total: bool = True,
 ) -> list[dict[str, Any]]:
     """Build AG Grid rows with per-strategy breakdown + TOTAL row."""
     # Avoid synthetic "$0 TOTAL" row before first successful fetch.
@@ -252,18 +256,19 @@ def build_exposure_rows(
             }
         )
 
-    # TOTAL row
-    rows.append(
-        {
-            "strategy": "TOTAL",
-            "net": total.net_total,
-            "gross": total.gross_total,
-            "long": total.long_total,
-            "short": total.short_total,
-            "net_pct": total.net_pct,
-            "positions": sum(e.position_count for e in exposures),
-        }
-    )
+    if include_total:
+        # TOTAL row
+        rows.append(
+            {
+                "strategy": "TOTAL",
+                "net": total.net_total,
+                "gross": total.gross_total,
+                "long": total.long_total,
+                "short": total.short_total,
+                "net_pct": total.net_pct,
+                "positions": sum(e.position_count for e in exposures),
+            }
+        )
     return rows
 
 
