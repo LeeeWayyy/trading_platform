@@ -271,6 +271,10 @@ async def sql_explorer_page() -> None:
         available_tables = available_tables_by_dataset.get(dataset, set())
         if not available_tables:
             status_label.text = "No local data files found for selected dataset"
+            logger.info(
+                "sql_explorer_dataset_missing_local_data",
+                extra={"dataset": dataset, "user_id": user.get("user_id")},
+            )
             ui.notify(
                 "No local parquet files found for selected dataset. "
                 "Sync data before querying.",

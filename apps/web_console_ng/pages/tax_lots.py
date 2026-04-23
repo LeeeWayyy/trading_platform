@@ -84,6 +84,7 @@ async def tax_lots_page() -> None:
 
     # State
     show_all_users = False
+    price_status = "unavailable"
 
     async def _load_lots() -> list[Any]:
         if show_all_users and is_admin:
@@ -406,6 +407,12 @@ async def _fetch_current_prices_with_status(
             continue
         mid_value = item.get("mid")
         if mid_value is None:
+            continue
+        if not isinstance(mid_value, (int, float, Decimal, str)):
+            logger.warning(
+                "market_prices_invalid_mid_type",
+                extra={"symbol": sym, "mid_type": type(mid_value).__name__},
+            )
             continue
         try:
             prices[sym] = Decimal(str(mid_value))
