@@ -13,6 +13,7 @@ from nicegui import ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 from libs.platform.web_console_auth.rate_limiter import RateLimiter
@@ -388,4 +389,4 @@ __all__ = ["sql_explorer_page"]
 @requires_auth
 async def sql_explorer_alias_page() -> None:
     """Legacy alias route for SQL Explorer."""
-    ui.navigate.to("/data/sql-explorer")
+    ui.navigate.to(resolve_rooted_path_from_ui("/data/sql-explorer", ui_module=ui))

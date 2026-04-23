@@ -87,6 +87,7 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.time import validate_and_normalize_symbol
 from libs.core.common.db import acquire_connection
 from libs.data.data_pipeline.health_monitor import get_health_monitor
@@ -659,16 +660,10 @@ class MarketPriceCache:
 
 
 @ui.page("/")
-@ui.page("/trade")
 @requires_auth
 @main_layout
 async def dashboard(client: Client) -> None:
     """Main trading dashboard with real-time updates."""
-    request = getattr(client, "request", None)
-    if request is not None and str(request.scope.get("path", "")) == "/trade":
-        ui.navigate.to("/")
-        return
-
     trading_client = AsyncTradingClient.get()
     user = get_current_user()
     user_id = str(user.get("user_id") or user.get("username") or "").strip()
@@ -2935,4 +2930,11 @@ async def dashboard(client: Client) -> None:
         )
 
 
-__all__ = ["dashboard", "MarketPriceCache"]
+@ui.page("/trade")
+@requires_auth
+async def dashboard_trade_alias() -> None:
+    """Legacy alias route for canonical trade workspace."""
+    ui.navigate.to(resolve_rooted_path_from_ui("/", ui_module=ui))
+
+
+__all__ = ["dashboard", "dashboard_trade_alias", "MarketPriceCache"]

@@ -790,4 +790,4 @@ __all__ = ["scheduled_reports_page"]
 @requires_auth
 async def scheduled_reports_alias_page() -> None:
     """Legacy alias route for scheduled reports."""
-    ui.navigate.to("/reports")
+    ui.navigate.to(resolve_rooted_path_from_ui("/reports", ui_module=ui))

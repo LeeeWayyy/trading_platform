@@ -17,6 +17,7 @@ import asyncio
 import logging
 from typing import Any
 
+import httpx
 from nicegui import Client, ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -165,8 +166,18 @@ async def risk_dashboard(client: Client) -> None:
                     positions_rows = positions_payload.get("positions", [])
                     if isinstance(positions_rows, list):
                         live_position_count_hint = len(positions_rows)
-                except Exception:
-                    logger.debug("risk_live_position_hint_failed", exc_info=True)
+                except (
+                    TimeoutError,
+                    httpx.HTTPError,
+                    RuntimeError,
+                    ValueError,
+                    TypeError,
+                ) as exc:
+                    logger.debug(
+                        "risk_live_position_hint_failed",
+                        extra={"user_id": user_id, "error_type": type(exc).__name__},
+                        exc_info=True,
+                    )
             error_state = None  # Clear error on success
             prev_error_state = None
         except PermissionError as e:

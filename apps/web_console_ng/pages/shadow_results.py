@@ -13,6 +13,7 @@ from nicegui import ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.ui.layout import main_layout
+from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
 from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
 from apps.web_console_ng.utils.session import get_or_create_client_id
 from apps.web_console_ng.utils.time import format_relative_time
@@ -335,4 +336,4 @@ __all__ = [
 @requires_auth
 async def shadow_results_alias_page() -> None:
     """Legacy alias route for shadow results."""
-    ui.navigate.to("/data/shadow")
+    ui.navigate.to(resolve_rooted_path_from_ui("/data/shadow", ui_module=ui))
