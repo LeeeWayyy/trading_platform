@@ -2,6 +2,9 @@
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Docker Desktop local proxy endpoint that is reachable from build containers on macOS.
+# Some environments enforce egress via this proxy (iptables services1 rules).
+DOCKER_DESKTOP_PROXY ?= http://192.168.65.7:3128
 
 # Usage: $(call ci_step_header,Step X/Y,Description)
 define ci_step_header
@@ -50,7 +53,21 @@ up-dev: ## Start all dev services (rebuild first to avoid stale images)
 	@PYTHON=$$( [ -x .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3 ); \
 	$$PYTHON scripts/ops/ensure_web_console_jwt_keys.py
 	$(MAKE) ensure-requirements
-	docker compose --profile dev --profile workers up -d --build
+	@set -e; \
+	BUILD_CMD="docker compose --profile dev --profile workers build"; \
+	UP_CMD="docker compose --profile dev --profile workers up -d"; \
+	if [ -n "$(DOCKER_DESKTOP_PROXY)" ]; then \
+		PROXY_ENV="http_proxy=$(DOCKER_DESKTOP_PROXY) https_proxy=$(DOCKER_DESKTOP_PROXY) HTTP_PROXY=$(DOCKER_DESKTOP_PROXY) HTTPS_PROXY=$(DOCKER_DESKTOP_PROXY)"; \
+		echo "Building dev services using proxy: $(DOCKER_DESKTOP_PROXY)"; \
+		BUILD_ARGS="--build-arg http_proxy=$(DOCKER_DESKTOP_PROXY) --build-arg https_proxy=$(DOCKER_DESKTOP_PROXY) --build-arg HTTP_PROXY=$(DOCKER_DESKTOP_PROXY) --build-arg HTTPS_PROXY=$(DOCKER_DESKTOP_PROXY)"; \
+		if ! eval "$$PROXY_ENV $$BUILD_CMD $$BUILD_ARGS"; then \
+			echo "Proxy build failed, retrying direct build..."; \
+			$$BUILD_CMD; \
+		fi; \
+	else \
+		$$BUILD_CMD; \
+	fi; \
+	$$UP_CMD
 	@echo "Waiting for services to be healthy..."
 	@sleep 10
 	@docker compose --profile dev ps

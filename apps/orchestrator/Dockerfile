@@ -15,7 +15,7 @@ FROM python:3.11-slim as builder
 ARG BUILD_MODE=local
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update -o Acquire::Retries=6 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::ForceIPv4=true && apt-get install -y \
     gcc \
     g++ \
     make \
@@ -48,7 +48,7 @@ RUN python -m venv /opt/venv && \
 FROM python:3.11-slim
 
 # Install runtime dependencies only (no build tools)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update -o Acquire::Retries=6 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::ForceIPv4=true && apt-get install -y \
     libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
