@@ -13,7 +13,7 @@ from nicegui import ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
+from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 from libs.platform.web_console_auth.rate_limiter import RateLimiter
@@ -199,62 +199,67 @@ async def sql_explorer_page() -> None:
     )
     grid = ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark mt-3")
 
-    with ui.right_drawer(value=False).classes("w-96 bg-surface-1 p-3") as history_drawer:
-        ui.label("Query History").classes("text-lg font-bold mb-2")
-        history_container = ui.column().classes("w-full gap-2")
+    with ui.dialog() as history_dialog:
+        with ui.card().classes("w-[48rem] max-w-[96vw] max-h-[80vh] bg-surface-1 p-3"):
+            with ui.row().classes("w-full items-center justify-between mb-2"):
+                ui.label("Query History").classes("text-lg font-bold")
+                ui.button(icon="close", on_click=history_dialog.close).props("flat dense")
 
-        def _render_history() -> None:
-            history_container.clear()
-            with history_container:
-                if not history:
-                    ui.label("No query history yet").classes("text-gray-500 text-sm")
-                    return
-                for item in history:
-                    with ui.card().classes("w-full p-2"):
-                        ui.label(item["fingerprint"]).classes("text-xs font-mono")
-                        ui.label(
-                            f"{item['dataset']} | {item['status']} | {item['rows']} rows"
-                        ).classes("text-xs text-gray-400")
-                        def _replay_query(
-                            original: str = item.get("original_sql", ""),
-                            fp: str = item["fingerprint"],
-                        ) -> None:
-                            query_editor.value = original or fp
-                            if not original and "?" in fp:
-                                ui.notify(
-                                    "Query template loaded — replace ? placeholders with actual values",
-                                    type="info",
-                                )
+            history_container = ui.column().classes("w-full gap-2 overflow-y-auto max-h-[60vh]")
 
-                        ui.button("Use in editor", on_click=_replay_query).props(
-                            "flat dense"
-                        )
+            def _render_history() -> None:
+                history_container.clear()
+                with history_container:
+                    if not history:
+                        ui.label("No query history yet").classes("text-gray-500 text-sm")
+                        return
+                    for item in history:
+                        with ui.card().classes("w-full p-2"):
+                            ui.label(item["fingerprint"]).classes("text-xs font-mono")
+                            ui.label(
+                                f"{item['dataset']} | {item['status']} | {item['rows']} rows"
+                            ).classes("text-xs text-gray-400")
 
-        def _add_history(
-            fingerprint: str, dataset: str, status: str, rows: int, *, original_sql: str = "",
-        ) -> None:
-            history.insert(
-                0,
-                {
-                    "fingerprint": fingerprint,
-                    "original_sql": original_sql,
-                    "dataset": dataset,
-                    "status": status,
-                    "rows": rows,
-                },
-            )
-            if len(history) > 20:
-                del history[20:]
-            _render_history()
+                            def _replay_query(
+                                original: str = item.get("original_sql", ""),
+                                fp: str = item["fingerprint"],
+                            ) -> None:
+                                query_editor.value = original or fp
+                                if not original and "?" in fp:
+                                    ui.notify(
+                                        "Query template loaded — replace ? placeholders with actual values",
+                                        type="info",
+                                    )
+                                history_dialog.close()
 
-        with ui.row().classes("gap-2 mt-2"):
-            def _clear_history() -> None:
-                history.clear()
+                            ui.button("Use in editor", on_click=_replay_query).props("flat dense")
+
+            def _add_history(
+                fingerprint: str, dataset: str, status: str, rows: int, *, original_sql: str = "",
+            ) -> None:
+                history.insert(
+                    0,
+                    {
+                        "fingerprint": fingerprint,
+                        "original_sql": original_sql,
+                        "dataset": dataset,
+                        "status": status,
+                        "rows": rows,
+                    },
+                )
+                if len(history) > 20:
+                    del history[20:]
                 _render_history()
 
-            ui.button("Clear History", on_click=_clear_history).props("flat")
+            with ui.row().classes("gap-2 mt-2"):
 
-        _render_history()
+                def _clear_history() -> None:
+                    history.clear()
+                    _render_history()
+
+                ui.button("Clear History", on_click=_clear_history).props("flat")
+
+            _render_history()
 
     async def run_query() -> None:
         nonlocal query_running, last_result_dataset
@@ -383,7 +388,7 @@ async def sql_explorer_page() -> None:
         ui.button("Run", on_click=run_query, color="primary")
         if has_permission(user, Permission.EXPORT_DATA):
             ui.button("Export CSV", on_click=export_csv)
-        ui.button("History", on_click=history_drawer.toggle).props("flat")
+        ui.button("History", on_click=history_dialog.open).props("flat")
 
 
 __all__ = ["sql_explorer_page"]
@@ -393,4 +398,8 @@ __all__ = ["sql_explorer_page"]
 @requires_auth
 async def sql_explorer_alias_page() -> None:
     """Legacy alias route for SQL Explorer."""
-    ui.navigate.to(resolve_rooted_path_from_ui("/data/sql-explorer", ui_module=ui))
+    render_client_redirect(
+        resolve_rooted_path_from_ui("/data/sql-explorer", ui_module=ui),
+        ui_module=ui,
+        message="Redirecting to SQL Explorer...",
+    )

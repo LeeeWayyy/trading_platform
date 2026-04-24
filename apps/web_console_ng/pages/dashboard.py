@@ -88,7 +88,7 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
+from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.time import validate_and_normalize_symbol
 from libs.core.common.db import acquire_connection
 from libs.data.data_pipeline.health_monitor import get_health_monitor
@@ -2941,7 +2941,11 @@ async def dashboard(client: Client) -> None:
 @requires_auth
 async def dashboard_trade_alias() -> None:
     """Legacy alias route for canonical trade workspace."""
-    ui.navigate.to(_build_trade_alias_redirect_target(ui_module=ui))
+    render_client_redirect(
+        _build_trade_alias_redirect_target(ui_module=ui),
+        ui_module=ui,
+        message="Redirecting to Trade workspace...",
+    )
 
 
 def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:

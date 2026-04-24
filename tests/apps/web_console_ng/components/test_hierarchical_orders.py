@@ -55,6 +55,7 @@ def test_transform_to_hierarchy_builds_tree() -> None:
     child = rows[1]
     assert child["hierarchy_path"] == ["parent-1", "child-1"]
     assert child["is_child"] is True
+    assert child["parent_client_order_id"] == "parent-1"
 
 
 def test_transform_to_hierarchy_orphan_child_flattened() -> None:
@@ -75,6 +76,33 @@ def test_transform_to_hierarchy_orphan_child_flattened() -> None:
     orphan = rows[0]
     assert orphan["hierarchy_path"] == ["child-1"]
     assert orphan["is_orphan"] is True
+    assert orphan["parent_client_order_id"] == "missing-parent"
+
+
+def test_transform_to_hierarchy_overrides_mismatched_parent_client_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    orders = [
+        {"client_order_id": "parent-1", "symbol": "AAPL", "qty": 10},
+        {
+            "client_order_id": "child-1",
+            "parent_order_id": "parent-1",
+            "parent_client_order_id": "unexpected-parent",
+            "slice_num": 1,
+            "symbol": "AAPL",
+            "qty": 5,
+        },
+    ]
+
+    with caplog.at_level("DEBUG"):
+        rows = module.transform_to_hierarchy(orders)
+
+    child = rows[1]
+    assert child["parent_client_order_id"] == "parent-1"
+    assert any(
+        record.message == "hierarchy_parent_id_mismatch"
+        for record in caplog.records
+    )
 
 
 def test_compute_parent_aggregates_uses_children_when_parent_qty_zero() -> None:

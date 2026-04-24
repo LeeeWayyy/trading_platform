@@ -191,15 +191,27 @@ def create_orders_table() -> ui.aggrid:
 
 
 def create_hierarchical_orders_table(expanded_parent_ids: list[str] | None = None) -> ui.aggrid:
-    """Create AG Grid for hierarchical TWAP orders."""
+    """Create AG Grid for parent/child TWAP orders (community-grid compatible)."""
     column_defs = [
+        {
+            "field": "symbol",
+            "headerName": "Symbol",
+            "width": 180,
+            ":cellRenderer": "window.hierarchicalSymbolRenderer",
+            ":cellStyle": (
+                "params => {"
+                " const row = params.data || {};"
+                " const path = Array.isArray(row.hierarchy_path) ? row.hierarchy_path : [];"
+                " const isParent = Boolean(row.is_parent) || (!row.is_child && path.length === 1 && Number(row.child_count || 0) > 0);"
+                " return isParent ? {fontWeight: 600} : {};"
+                "}"
+            ),
+        },
         {
             "field": "side",
             "headerName": "Side",
             "width": 80,
-            "cellStyle": {
-                "function": "params.value === 'buy' ? {color: 'var(--profit)'} : {color: 'var(--loss)'}"
-            },
+            ":cellStyle": "params => params.value === 'buy' ? {color: 'var(--profit)'} : {color: 'var(--loss)'}",
         },
         {"field": "qty", "headerName": "Qty", "width": 80},
         {
@@ -238,35 +250,48 @@ def create_hierarchical_orders_table(expanded_parent_ids: list[str] | None = Non
             "columnDefs": column_defs,
             "rowData": [],
             "domLayout": "autoHeight",
-            "treeData": True,
-            ":getDataPath": "params => params.data.hierarchy_path",
-            "groupDefaultExpanded": 1,
-            "autoGroupColumnDef": {
-                "headerName": "Symbol",
-                "cellRendererParams": {"suppressCount": True},
-                ":valueGetter": "params => params.data ? params.data.symbol : ''",
-                "width": 130,
-            },
             ":getRowId": "params => params.data.client_order_id",
+            ":isExternalFilterPresent": (
+                "() => window.HierarchicalOrdersGrid"
+                " && window.HierarchicalOrdersGrid.hasCollapsedParents('hierarchical_orders_grid')"
+            ),
+            ":doesExternalFilterPass": (
+                "node => {"
+                " if (!node || !node.data || !window.HierarchicalOrdersGrid) return true;"
+                " return window.HierarchicalOrdersGrid.isRowVisible(node.data, 'hierarchical_orders_grid');"
+                "}"
+            ),
             "asyncTransactionWaitMillis": 50,
             "suppressAnimationFrame": False,
             "animateRows": True,
             ":onGridReady": (
-                "params => { window._hierarchicalOrdersGridApi = params.api;"
+                "params => {"
+                " window._hierarchicalOrdersGridApi = params.api;"
+                " if (window.HierarchicalOrdersGrid) {"
+                "  window.HierarchicalOrdersGrid.register(params.api, 'hierarchical_orders_grid');"
+                "  window.HierarchicalOrdersGrid.restoreExpansion("
+                "   params.api, window._hierarchicalOrdersExpanded || [], 'hierarchical_orders_grid'"
+                "  );"
+                " }"
                 " if (window.GridThrottle) window.GridThrottle.registerAsyncGrid('hierarchical_orders_grid');"
-                " if (window.HierarchicalOrdersGrid) window.HierarchicalOrdersGrid.register(params.api, 'hierarchical_orders_grid');"
-                " if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersExpanded)"
-                " window.HierarchicalOrdersGrid.restoreExpansion(params.api, window._hierarchicalOrdersExpanded); }"
+                "}"
             ),
             ":onAsyncTransactionsFlushed": (
-                "params => { if (window.GridThrottle)"
-                " window.GridThrottle.recordTransactionResult(params.api, 'hierarchical_orders_grid', params.results); }"
+                "params => {"
+                " if (window.HierarchicalOrdersGrid) {"
+                "  window.HierarchicalOrdersGrid.refreshVisibility(params.api, 'hierarchical_orders_grid');"
+                " }"
+                " if (window.GridThrottle)"
+                "  window.GridThrottle.recordTransactionResult(params.api, 'hierarchical_orders_grid', params.results);"
+                "}"
             ),
             ":onRowDataUpdated": (
-                "params => { if (window.GridThrottle)"
-                " window.GridThrottle.recordUpdate(params.api, 'hierarchical_orders_grid');"
-                " if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersExpanded)"
-                " window.HierarchicalOrdersGrid.restoreExpansion(params.api, window._hierarchicalOrdersExpanded); }"
+                "params => {"
+                " if (window.HierarchicalOrdersGrid) {"
+                "  window.HierarchicalOrdersGrid.refreshVisibility(params.api, 'hierarchical_orders_grid');"
+                " }"
+                " if (window.GridThrottle) window.GridThrottle.recordUpdate(params.api, 'hierarchical_orders_grid');"
+                "}"
             ),
         }
     )
@@ -278,7 +303,9 @@ def create_hierarchical_orders_table(expanded_parent_ids: list[str] | None = Non
         ui.run_javascript(
             f"window._hierarchicalOrdersExpanded = {expanded_payload};"
             "if (window.HierarchicalOrdersGrid && window._hierarchicalOrdersGridApi)"
-            " window.HierarchicalOrdersGrid.restoreExpansion(window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded);"
+            " window.HierarchicalOrdersGrid.restoreExpansion("
+            "window._hierarchicalOrdersGridApi, window._hierarchicalOrdersExpanded, 'hierarchical_orders_grid'"
+            ");"
         )
 
     monitor = GridPerformanceMonitor("hierarchical_orders_grid")
@@ -453,7 +480,7 @@ async def update_hierarchical_orders_table(
     client_id: str | None = None,
     all_orders: list[dict[str, Any]] | None = None,
 ) -> tuple[set[str], set[str]]:
-    """Update hierarchical orders grid using tree data rows.
+    """Update parent/child orders grid using hierarchy-transformed rows.
 
     Returns:
         (current_order_ids, current_parent_ids)

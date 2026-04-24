@@ -1,4 +1,4 @@
-.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -143,6 +143,12 @@ perf: ## Run performance tests (requires RUN_PERF_TESTS=1)
 
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
+
+ui-crawl: ## Run broad Playwright UI crawler (manual E2E diagnostic)
+	PYTHONPATH=. poetry run python tests/e2e/ui_crawl.py
+
+ui-deep: ## Run focused Playwright deep page inspector
+	PYTHONPATH=. poetry run python tests/e2e/ui_deep.py
 
 install-hooks: ## Install git hooks (pre-commit quality checks)
 	@echo "Installing git hooks..."

@@ -20,7 +20,7 @@ from apps.web_console_ng.components.strategy_exposure import (
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
+from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.session import get_or_create_client_id
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 from libs.web_console_services.exposure_service import ExposureService
@@ -227,4 +227,8 @@ __all__ = ["exposure_page"]
 @requires_auth
 async def exposure_alias_page() -> None:
     """Legacy alias route; keep deep links working with canonical path."""
-    ui.navigate.to(resolve_rooted_path_from_ui("/risk/exposure", ui_module=ui))
+    render_client_redirect(
+        resolve_rooted_path_from_ui("/risk/exposure", ui_module=ui),
+        ui_module=ui,
+        message="Redirecting to Strategy Exposure...",
+    )
