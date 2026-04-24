@@ -1167,11 +1167,13 @@ async def dashboard(client: Client) -> None:
     bulk_action_in_progress = False
     cancel_dialog_open = False
     flatten_dialog_open = False
+    bulk_action_handlers_ready = False
 
     def _set_bulk_action_buttons_enabled(enabled: bool) -> None:
         if cancel_symbol_orders_btn is not None:
             cancel_enabled = (
                 enabled
+                and bulk_action_handlers_ready
                 and can_cancel_all_orders(user_role=user_role)
                 and not workspace_connection_read_only
                 and not cancel_dialog_open
@@ -1183,6 +1185,7 @@ async def dashboard(client: Client) -> None:
         if flatten_all_positions_btn is not None:
             flatten_enabled = (
                 enabled
+                and bulk_action_handlers_ready
                 and can_flatten_all_positions(user_role=user_role)
                 and not workspace_connection_read_only
                 and not flatten_dialog_open
@@ -2016,6 +2019,9 @@ async def dashboard(client: Client) -> None:
                 cancel_btn = ui.button("Cancel", on_click=dialog.close)
 
         dialog.open()
+
+    bulk_action_handlers_ready = True
+    _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
 
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols, positions_snapshot

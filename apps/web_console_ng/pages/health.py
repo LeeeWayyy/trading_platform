@@ -195,9 +195,6 @@ async def health_page() -> None:
                     extra={"error": str(e), "operation": "fetch_health_data"},
                 )
 
-    # Initial fetch
-    await fetch_health_data()
-
     # Page title
     ui.label("System Health Monitor").classes("text-2xl font-bold mb-4")
 
@@ -365,19 +362,61 @@ async def health_page() -> None:
 
     # Auto-refresh
     async def auto_refresh() -> None:
-        await fetch_health_data()
-        service_grid.refresh()
-        connectivity_section.refresh()
-        latency_section.refresh()
+        try:
+            await fetch_health_data()
+            service_grid.refresh()
+            connectivity_section.refresh()
+            latency_section.refresh()
+        except Exception as exc:
+            logger.warning(
+                "health_auto_refresh_failed",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
+
+    def _cancel_timer_handle(timer_handle: Any) -> None:
+        cancel_fn = getattr(timer_handle, "cancel", None)
+        if callable(cancel_fn):
+            cancel_fn()
+            return
+        deactivate_fn = getattr(timer_handle, "deactivate", None)
+        if callable(deactivate_fn):
+            deactivate_fn()
 
     # ⚠️ Rev 19: Timer lifecycle cleanup (see Note #29)
     timer = ui.timer(config.AUTO_REFRESH_INTERVAL, auto_refresh)
+    initial_refresh_timer: Any | None = None
+    # Defer first fetch until after page mount to avoid NiceGUI response timeout
+    try:
+        initial_refresh_timer = ui.timer(0.1, auto_refresh, once=True)
+    except TypeError:
+        # Compatibility path for timer APIs without "once": self-cancel after first run.
+        initial_refresh_started = False
+
+        async def _compat_initial_refresh() -> None:
+            nonlocal initial_refresh_started
+            if initial_refresh_started:
+                return
+            initial_refresh_started = True
+            await auto_refresh()
+            if initial_refresh_timer is not None:
+                _cancel_timer_handle(initial_refresh_timer)
+
+        initial_refresh_timer = ui.timer(0.1, _compat_initial_refresh)
 
     # Register cleanup on client disconnect to prevent timer leaks
     client_id = ui.context.client.storage.get("client_id")
     if client_id:
         lifecycle_mgr = ClientLifecycleManager.get()
-        await lifecycle_mgr.register_cleanup_callback(client_id, lambda: timer.cancel())
+
+        def _cleanup_timers() -> None:
+            _cancel_timer_handle(timer)
+            if initial_refresh_timer is not None:
+                _cancel_timer_handle(initial_refresh_timer)
+
+        await lifecycle_mgr.register_cleanup_callback(
+            client_id,
+            _cleanup_timers,
+        )
 
 
 __all__ = ["health_page"]
