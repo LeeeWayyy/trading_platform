@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -175,6 +177,42 @@ async def test_fetch_current_prices_empty_lots() -> None:
         [], {"user_id": "u1", "role": "admin"}
     )
     assert result == {}
+
+
+@pytest.mark.asyncio()
+async def test_render_summary_metrics_handles_acquired_at_and_prorated_decimal(
+    dummy_ui: _DummyUI, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Summary metrics should handle int quantities and acquired_at datetime safely."""
+    monkeypatch.setattr(tax_lots_module, "ui", dummy_ui)
+    now = datetime.now(UTC)
+    lots = [
+        SimpleNamespace(
+            symbol="AAPL",
+            cost_basis=Decimal("1000"),
+            quantity=10,
+            remaining_quantity=5,
+            acquired_at=now - timedelta(days=30),
+        ),
+        SimpleNamespace(
+            symbol="MSFT",
+            cost_basis=Decimal("2000"),
+            quantity=20,
+            remaining_quantity=20,
+            acquired_at=now - timedelta(days=500),
+        ),
+    ]
+    prices = {"AAPL": Decimal("120"), "MSFT": Decimal("95")}
+    await tax_lots_module._render_summary_metrics(
+        lots=lots,
+        current_prices=prices,
+        wash_sale_lot_ids=set(),
+        db_pool=None,
+    )
+
+    label_texts = [str(el.kwargs.get("text", "")) for el in dummy_ui.labels]
+    assert "1 / 1" in label_texts
+    assert "$2,500.00" in label_texts
 
 
 def test_cost_basis_methods_defined() -> None:

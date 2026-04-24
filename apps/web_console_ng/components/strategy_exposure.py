@@ -166,61 +166,82 @@ def render_exposure_grid(
     pct_fmt = "params => params.value != null ? (params.value >= 0 ? '+' : '') + params.value.toFixed(1) + '%' : '-'"
 
     grid_options = {
+        "defaultColDef": {
+            "resizable": True,
+        },
         "columnDefs": [
             {
                 "field": "strategy",
                 "headerName": "Strategy",
                 "pinned": "left",
-                "minWidth": 160,
+                "minWidth": 150,
+                "flex": 1.6,
                 ":cellClass": "params => params.value === 'TOTAL' ? 'font-bold' : ''",
             },
             {
                 "field": "net",
                 "headerName": "Net ($)",
                 ":valueFormatter": dollar_fmt,
-                "minWidth": 130,
+                "minWidth": 110,
+                "flex": 1.0,
                 ":cellClass": "params => params.value >= 0 ? 'text-green-600' : 'text-red-600'",
             },
             {
                 "field": "gross",
                 "headerName": "Gross ($)",
                 ":valueFormatter": "params => params.value != null ? '$' + params.value.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '-'",
-                "minWidth": 130,
+                "minWidth": 110,
+                "flex": 1.0,
             },
             {
                 "field": "long",
                 "headerName": "Long ($)",
                 ":valueFormatter": "params => params.value != null ? '$' + params.value.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '-'",
-                "minWidth": 120,
+                "minWidth": 105,
+                "flex": 1.0,
                 "cellClass": "text-green-600",
             },
             {
                 "field": "short",
                 "headerName": "Short ($)",
                 ":valueFormatter": "params => params.value != null ? '$' + params.value.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '-'",
-                "minWidth": 120,
+                "minWidth": 105,
+                "flex": 1.0,
                 "cellClass": "text-red-600",
             },
             {
                 "field": "net_pct",
                 "headerName": "Net %",
                 ":valueFormatter": pct_fmt,
-                "minWidth": 100,
+                "minWidth": 95,
+                "flex": 0.8,
                 ":cellClass": "params => params.value >= 0 ? 'text-green-600' : 'text-red-600'",
             },
             {
                 "field": "positions",
                 "headerName": "# Pos",
-                "minWidth": 95,
-                "maxWidth": 120,
+                "minWidth": 84,
+                "maxWidth": 110,
+                "flex": 0.6,
             },
         ],
         "rowData": rows,
         "domLayout": "normal",
         "animateRows": True,
+        ":onGridReady": (
+            "params => { "
+            "const fit = () => { "
+            "const viewport = params.api?.gridBodyCtrl?.eBodyViewport; "
+            "const width = viewport && viewport.clientWidth ? viewport.clientWidth : 0; "
+            "if (width > 0) { params.api.sizeColumnsToFit(); } "
+            "}; "
+            "requestAnimationFrame(fit); "
+            "params.api.addEventListener('gridSizeChanged', fit); "
+            "}"
+        ),
     }
 
-    return ui.aggrid(grid_options).classes("w-full ag-theme-alpine-dark")
+    return ui.aggrid(grid_options).classes("w-full min-w-0 ag-theme-alpine-dark")
 
 
 def build_exposure_rows(

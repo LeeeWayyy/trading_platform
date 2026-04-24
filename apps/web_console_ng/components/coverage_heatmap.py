@@ -39,13 +39,8 @@ def render_coverage_controls(
         available_tickers: Authorized ticker symbols for multi-select.
         on_analyze: Callback(symbols, start_date_iso, end_date_iso, resolution).
     """
-    if not available_tickers:
-        ui.label(
-            "No adjusted data found. Run the ETL pipeline first."
-        ).classes("text-gray-500")
-        return
-
     ui.label("Coverage Analysis").classes("font-bold mb-2")
+    has_data = bool(available_tickers)
 
     symbol_select = ui.select(
         label="Symbols (leave empty for all)",
@@ -53,20 +48,28 @@ def render_coverage_controls(
         multiple=True,
         value=[],
     ).classes("w-64")
+    if not has_data:
+        symbol_select.props("disable")
 
     start_input = ui.input(
         label="Start Date (YYYY-MM-DD)",
         value="",
     ).classes("w-48")
+    if not has_data:
+        start_input.props("disable")
 
     end_input = ui.input(
         label="End Date (YYYY-MM-DD)",
         value="",
     ).classes("w-48")
+    if not has_data:
+        end_input.props("disable")
 
     resolution_toggle = ui.toggle(
         ["Daily", "Weekly", "Monthly"], value="Monthly"
     ).classes("mt-2")
+    if not has_data:
+        resolution_toggle.props("disable")
 
     async def _submit() -> None:
         syms = list(symbol_select.value) if symbol_select.value else None
@@ -75,9 +78,14 @@ def render_coverage_controls(
         res_val = str(resolution_toggle.value).lower()
         await on_analyze(syms, start_val, end_val, res_val)
 
-    ui.button(
+    analyze_button = ui.button(
         "Analyze Coverage", on_click=_submit, color="primary"
     ).classes("mt-4")
+    if not has_data:
+        analyze_button.props("disable")
+        ui.label(
+            "No adjusted data found. Run ETL sync, then click Analyze."
+        ).classes("text-gray-500 text-sm mt-2")
 
 
 def render_coverage_heatmap(matrix: CoverageMatrix) -> None:

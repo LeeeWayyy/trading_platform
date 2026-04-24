@@ -17,6 +17,7 @@ from apps.web_console_ng.auth.session_store import (
     SessionValidationError,
     _get_user_id,
     _ip_subnet,
+    _normalize_device_binding_ip,
     _normalize_fernet_key,
     extract_session_id,
     get_session_store,
@@ -805,6 +806,16 @@ def test_ip_subnet_empty_ip() -> None:
     """Test that empty IP returns empty string."""
     result = _ip_subnet("", 24)
     assert result == ""
+
+
+def test_normalize_device_binding_ip_loopback_ipv6() -> None:
+    """IPv6 loopback should normalize to IPv4 loopback."""
+    assert _normalize_device_binding_ip("::1") == "127.0.0.1"
+
+
+def test_normalize_device_binding_ip_preserves_non_loopback() -> None:
+    """Non-loopback IPs should remain unchanged."""
+    assert _normalize_device_binding_ip("192.168.1.10") == "192.168.1.10"
 
 
 def test_get_user_id_valid_session() -> None:

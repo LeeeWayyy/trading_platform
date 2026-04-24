@@ -61,7 +61,10 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         ui.add_head_html('<link rel="stylesheet" href="/static/css/density.css">')
         ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
 
-        degrade_threshold = os.environ.get("GRID_DEGRADE_THRESHOLD", "120")
+        raw_degrade_threshold = os.environ.get("GRID_DEGRADE_THRESHOLD", "120")
+        degrade_threshold = (
+            raw_degrade_threshold if raw_degrade_threshold.isdigit() else "120"
+        )
         debug_mode = os.environ.get("GRID_DEBUG", "false").lower() == "true"
         ui.add_body_html(
             "<script>"
@@ -578,6 +581,21 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 engage_button.enable()
                 disengage_button.enable()
 
+        cached_kill_state = app.storage.user.get("global_kill_switch_state")
+        if isinstance(cached_kill_state, str):
+            normalized_cached_kill = cached_kill_state.strip().upper()
+            if normalized_cached_kill == "ACTIVE":
+                normalized_cached_kill = "DISENGAGED"
+            if normalized_cached_kill:
+                last_kill_switch_state = normalized_cached_kill
+                kill_switch_state = normalized_cached_kill
+
+        cached_circuit_state = app.storage.user.get("global_circuit_state")
+        if isinstance(cached_circuit_state, str):
+            normalized_cached_circuit = cached_circuit_state.strip().upper()
+            if normalized_cached_circuit:
+                last_circuit_state = normalized_cached_circuit
+
         def _render_kill_switch_state(display_state: str, *, stale: bool = False) -> None:
             rendered_state = f"{display_state} (STALE)" if stale else display_state
             if display_state == "ENGAGED":
@@ -640,6 +658,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     "bg-amber-500 text-black",
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
+
+        if last_kill_switch_state is not None:
+            cached_cb = last_circuit_state or "UNKNOWN"
+            _render_kill_switch_state(last_kill_switch_state, stale=True)
+            _render_circuit_breaker_state(cached_cb, stale=True)
+            _update_status_bar(last_kill_switch_state, cached_cb, stale=True)
+            set_kill_switch_controls(last_kill_switch_state)
 
         async def perform_kill_switch_action(action: str, reason: str) -> None:
             nonlocal kill_switch_action_in_progress
@@ -823,6 +848,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
                     last_kill_switch_state = display_state
                     last_circuit_state = cb_state
+                    app.storage.user["global_kill_switch_state"] = display_state
+                    app.storage.user["global_circuit_state"] = cb_state
                     set_kill_switch_controls(display_state)
                     status_success = True
                 except (ValueError, KeyError, TypeError, ConnectionError, httpx.HTTPError) as e:
@@ -845,15 +872,36 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         _render_circuit_breaker_state(cached_cb_state, stale=True)
                         set_kill_switch_controls(cached_state)
                     else:
+                        fallback_cb_state = last_circuit_state or "UNKNOWN"
+                        if fallback_cb_state == "UNKNOWN":
+                            try:
+                                # Use a short fallback timeout to avoid compounding status-loop latency
+                                cb_status = await asyncio.wait_for(
+                                    client.fetch_circuit_breaker_status(
+                                        user_id, role=user_role, strategies=user_strategies
+                                    ),
+                                    timeout=1.5,
+                                )
+                                fallback_cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
+                                last_circuit_state = fallback_cb_state
+                                app.storage.user["global_circuit_state"] = fallback_cb_state
+                            except (
+                                TimeoutError,
+                                httpx.HTTPError,
+                                ValueError,
+                                KeyError,
+                                TypeError,
+                            ):
+                                fallback_cb_state = "UNKNOWN"
                         kill_switch_state = "UNKNOWN"
                         kill_switch_button.set_text("STATUS UNKNOWN")
                         kill_switch_button.classes(
                             "bg-amber-500 text-black",
                             remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                         )
-                        _update_status_bar("UNKNOWN", "UNKNOWN")
+                        _update_status_bar("UNKNOWN", fallback_cb_state)
                         set_kill_switch_controls("UNKNOWN")
-                        _render_circuit_breaker_state("UNKNOWN")
+                        _render_circuit_breaker_state(fallback_cb_state)
 
                 if status_success:
                     connection_monitor.record_success()

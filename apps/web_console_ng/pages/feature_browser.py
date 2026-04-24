@@ -244,7 +244,7 @@ async def feature_browser_page() -> None:
             data_state["message"] = None
             return features_df
         except FileNotFoundError:
-            data_state["message"] = "Feature data not available — run ETL pipeline first."
+            data_state["message"] = "Feature dataset not mounted. Run ETL sync, then reload this page."
             return None
         except RuntimeError as exc:
             if "alpha158 feature dependencies are unavailable" in str(exc):
@@ -252,14 +252,16 @@ async def feature_browser_page() -> None:
                     "feature_dependencies_unavailable",
                     extra={"dependency": "qlib"},
                 )
-                data_state["message"] = "Feature data unavailable: optional qlib dependency missing."
+                data_state["message"] = (
+                    "Live feature preview requires qlib dependencies in the web-console image."
+                )
                 return None
             logger.exception("feature_data_load_failed")
-            data_state["message"] = "Feature data unavailable."
+            data_state["message"] = "Feature preview temporarily unavailable."
             return None
         except Exception:
             logger.exception("feature_data_load_failed")
-            data_state["message"] = "Feature data unavailable."
+            data_state["message"] = "Feature preview temporarily unavailable."
             return None
         finally:
             loading_state["feature_data_loading"] = False
@@ -376,10 +378,18 @@ async def feature_browser_page() -> None:
                 stats_panel.clear()
                 chart_panel.clear()
                 with samples_panel:
-                    ui.label(
-                        data_state["message"]
-                        or "No feature data available. Run the ETL pipeline to generate features."
-                    ).classes("text-gray-500")
+                    with ui.card().classes("w-full p-4 bg-amber-50 border border-amber-300"):
+                        ui.label(
+                            data_state["message"]
+                            or "No feature data available. Run ETL pipeline to generate features."
+                        ).classes("text-amber-700 text-sm")
+                        with ui.row().classes("gap-3 mt-2"):
+                            ui.link("Open Data Coverage", "/data/coverage").classes(
+                                "text-blue-600 hover:underline text-xs"
+                            )
+                            ui.link("Open Data Sources", "/data/sources").classes(
+                                "text-blue-600 hover:underline text-xs"
+                            )
                 return
 
             stats_list = await asyncio.to_thread(

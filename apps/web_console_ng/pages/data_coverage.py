@@ -130,8 +130,6 @@ async def data_coverage_page() -> None:
                 available_tickers=available_tickers,
                 on_analyze=on_analyze,
             )
-            if not has_coverage_data:
-                ui.button("Analyze Coverage", color="primary").props("disable").classes("mt-4")
 
         with ui.column().classes("flex-1"):
             with results_container:

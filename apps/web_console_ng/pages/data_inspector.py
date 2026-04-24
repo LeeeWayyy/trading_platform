@@ -52,8 +52,34 @@ async def data_inspector_page() -> None:
         )
 
     inspector = PITInspector()
-    available_tickers = await asyncio.to_thread(inspector.get_available_tickers)
-    min_date, max_date = await asyncio.to_thread(inspector.get_date_range)
+    try:
+        available_tickers = await asyncio.wait_for(
+            asyncio.to_thread(inspector.get_available_tickers),
+            timeout=4.0,
+        )
+    except TimeoutError:
+        logger.warning("pit_catalog_timeout", extra={"operation": "get_available_tickers"})
+        available_tickers = []
+    except Exception:
+        logger.exception("pit_catalog_fetch_failed")
+        available_tickers = []
+
+    min_date: date | None = None
+    max_date: date | None = None
+    if available_tickers:
+        try:
+            min_date, max_date = await asyncio.wait_for(
+                asyncio.to_thread(inspector.get_date_range),
+                timeout=4.0,
+            )
+        except TimeoutError:
+            logger.warning("pit_date_range_timeout")
+            min_date = None
+            max_date = None
+        except Exception:
+            logger.exception("pit_date_range_failed")
+            min_date = None
+            max_date = None
 
     results_container = ui.column().classes("w-full mt-4")
 
@@ -99,6 +125,11 @@ async def data_inspector_page() -> None:
                 max_date=max_date.isoformat() if max_date else None,
                 on_submit=on_submit,
             )
+            if not available_tickers:
+                ui.label(
+                    "Ticker catalog unavailable or loading timed out. "
+                    "Retry in a moment after data services settle."
+                ).classes("text-xs text-amber-600 mt-2")
 
         # Right: Results
         with ui.column().classes("flex-1"):
