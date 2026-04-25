@@ -257,11 +257,11 @@ async def feature_browser_page() -> None:
                 )
                 return None
             logger.exception("feature_data_load_failed")
-            data_state["message"] = "Feature preview temporarily unavailable."
+            data_state["message"] = "Feature preview is temporarily degraded."
             return None
         except Exception:
             logger.exception("feature_data_load_failed")
-            data_state["message"] = "Feature preview temporarily unavailable."
+            data_state["message"] = "Feature preview is temporarily degraded."
             return None
         finally:
             loading_state["feature_data_loading"] = False
@@ -381,7 +381,7 @@ async def feature_browser_page() -> None:
                     with ui.card().classes("w-full p-4 bg-amber-50 border border-amber-300"):
                         ui.label(
                             data_state["message"]
-                            or "No feature data available. Run ETL pipeline to generate features."
+                            or "Feature preview data is not ready yet. Run ETL pipeline to generate features."
                         ).classes("text-amber-700 text-sm")
                         with ui.row().classes("gap-3 mt-2"):
                             ui.link("Open Data Coverage", "/data/coverage").classes(
@@ -405,7 +405,7 @@ async def feature_browser_page() -> None:
             _render_chart(samples, feature_name)
         except Exception:
             logger.exception("feature_statistics_failed", extra={"feature": feature_name})
-            _notify("Feature statistics unavailable", type="warning")
+            _notify("Feature statistics preview is temporarily degraded", type="warning")
         finally:
             loading_state["detail_loading"] = False
 

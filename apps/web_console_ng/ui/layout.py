@@ -549,6 +549,37 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     "Logout"
                 )
 
+        def _normalize_cached_kill_state(raw_state: Any) -> str | None:
+            if not isinstance(raw_state, str):
+                return None
+            normalized = raw_state.strip().upper()
+            if not normalized:
+                return None
+            if normalized == "ACTIVE":
+                return "DISENGAGED"
+            return normalized
+
+        def _normalize_cached_circuit_state(raw_state: Any) -> str | None:
+            if not isinstance(raw_state, str):
+                return None
+            normalized = raw_state.strip().upper()
+            return normalized or None
+
+        cached_kill_state = _normalize_cached_kill_state(
+            app.storage.user.get("global_kill_switch_state")
+        )
+        cached_circuit_state = _normalize_cached_circuit_state(
+            app.storage.user.get("global_circuit_state")
+        )
+        if cached_kill_state is not None or cached_circuit_state is not None:
+            # Render stale cached state before heavy pages finish building so the
+            # top banner does not start at UNKNOWN on first paint.
+            _update_status_bar(
+                cached_kill_state or "UNKNOWN",
+                cached_circuit_state or "UNKNOWN",
+                stale=True,
+            )
+
         # Main content area
         # Top-level layout elements (e.g. drawers) must be outside header/rows.
         log_drawer.create_drawer()
@@ -581,20 +612,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 engage_button.enable()
                 disengage_button.enable()
 
-        cached_kill_state = app.storage.user.get("global_kill_switch_state")
-        if isinstance(cached_kill_state, str):
-            normalized_cached_kill = cached_kill_state.strip().upper()
-            if normalized_cached_kill == "ACTIVE":
-                normalized_cached_kill = "DISENGAGED"
-            if normalized_cached_kill:
-                last_kill_switch_state = normalized_cached_kill
-                kill_switch_state = normalized_cached_kill
+        if cached_kill_state is not None:
+            last_kill_switch_state = cached_kill_state
+            kill_switch_state = cached_kill_state
 
-        cached_circuit_state = app.storage.user.get("global_circuit_state")
-        if isinstance(cached_circuit_state, str):
-            normalized_cached_circuit = cached_circuit_state.strip().upper()
-            if normalized_cached_circuit:
-                last_circuit_state = normalized_cached_circuit
+        if cached_circuit_state is not None:
+            last_circuit_state = cached_circuit_state
 
         def _render_kill_switch_state(display_state: str, *, stale: bool = False) -> None:
             rendered_state = f"{display_state} (STALE)" if stale else display_state
@@ -659,12 +682,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
 
-        if last_kill_switch_state is not None:
+        if last_kill_switch_state is not None or last_circuit_state is not None:
+            cached_state = last_kill_switch_state or "UNKNOWN"
             cached_cb = last_circuit_state or "UNKNOWN"
-            _render_kill_switch_state(last_kill_switch_state, stale=True)
+            _render_kill_switch_state(cached_state, stale=True)
             _render_circuit_breaker_state(cached_cb, stale=True)
-            _update_status_bar(last_kill_switch_state, cached_cb, stale=True)
-            set_kill_switch_controls(last_kill_switch_state)
+            _update_status_bar(cached_state, cached_cb, stale=True)
+            set_kill_switch_controls(cached_state)
 
         async def perform_kill_switch_action(action: str, reason: str) -> None:
             nonlocal kill_switch_action_in_progress

@@ -164,6 +164,28 @@ def render_exposure_grid(
 
     dollar_fmt = "params => params.value != null ? (params.value >= 0 ? '+$' : '-$') + Math.abs(params.value).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '-'"
     pct_fmt = "params => params.value != null ? (params.value >= 0 ? '+' : '') + params.value.toFixed(1) + '%' : '-'"
+    fit_columns_once_js = (
+        "params => { "
+        "const root = params.api.getGui ? params.api.getGui() : null; "
+        "const width = root && root.clientWidth ? root.clientWidth : 0; "
+        "if (width > 0) { params.api.sizeColumnsToFit(); } "
+        "}"
+    )
+    bind_fit_columns_js = (
+        "params => { "
+        "const fit = () => { "
+        "const root = params.api.getGui ? params.api.getGui() : null; "
+        "const width = root && root.clientWidth ? root.clientWidth : 0; "
+        "if (width > 0) { params.api.sizeColumnsToFit(); } "
+        "}; "
+        "requestAnimationFrame(fit); "
+        "setTimeout(fit, 120); "
+        "if (!params.api.__wcExposureFitBound) { "
+        "params.api.__wcExposureFitBound = true; "
+        "params.api.addEventListener('gridSizeChanged', fit); "
+        "} "
+        "}"
+    )
 
     grid_options = {
         "defaultColDef": {
@@ -220,28 +242,18 @@ def render_exposure_grid(
             {
                 "field": "positions",
                 "headerName": "# Pos",
-                "minWidth": 84,
-                "maxWidth": 110,
-                "flex": 0.6,
+                "minWidth": 96,
+                "flex": 0.8,
             },
         ],
         "rowData": rows,
         "domLayout": "normal",
         "animateRows": True,
-        ":onGridReady": (
-            "params => { "
-            "const fit = () => { "
-            "const viewport = params.api?.gridBodyCtrl?.eBodyViewport; "
-            "const width = viewport && viewport.clientWidth ? viewport.clientWidth : 0; "
-            "if (width > 0) { params.api.sizeColumnsToFit(); } "
-            "}; "
-            "requestAnimationFrame(fit); "
-            "params.api.addEventListener('gridSizeChanged', fit); "
-            "}"
-        ),
+        ":onGridReady": bind_fit_columns_js,
+        ":onFirstDataRendered": fit_columns_once_js,
     }
 
-    return ui.aggrid(grid_options).classes("w-full min-w-0 ag-theme-alpine-dark")
+    return ui.aggrid(grid_options).classes("w-full min-w-0 pr-1 ag-theme-alpine-dark")
 
 
 def build_exposure_rows(

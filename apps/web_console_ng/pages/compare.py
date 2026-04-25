@@ -90,7 +90,7 @@ async def strategy_comparison_page() -> None:
     if len(authorized_strategies) < MIN_STRATEGIES:
         with ui.card().classes("w-full p-6"):
             ui.label("You need access to at least two strategies to compare performance.").classes(
-                "text-amber-600 text-center whitespace-normal break-words max-w-2xl mx-auto"
+                "text-amber-600 text-center whitespace-normal break-words w-full max-w-3xl mx-auto"
             )
         return
 
@@ -209,7 +209,7 @@ async def _render_comparison_tool(
                 loading.delete()
                 ui.label(
                     "You do not have permission to access one or more selected strategies."
-                ).classes("text-red-500 p-4")
+                ).classes("text-red-500 p-4 whitespace-normal break-words w-full")
             except (ConnectionError, OSError) as exc:
                 loading.delete()
                 logger.error(

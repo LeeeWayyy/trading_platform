@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
+from apps.web_console_ng.components import strategy_exposure as strategy_exposure_module
 from apps.web_console_ng.components.strategy_exposure import build_exposure_rows
 from libs.web_console_services.schemas.exposure import StrategyExposureDTO, TotalExposureDTO
 
@@ -88,3 +93,59 @@ def test_build_exposure_rows_can_skip_total_row() -> None:
 
     assert len(rows) == 1
     assert rows[0]["strategy"] == "alpha_a"
+
+
+class _DummyGridElement:
+    def classes(self, _value: str) -> _DummyGridElement:
+        return self
+
+
+class _DummyUI:
+    def __init__(self) -> None:
+        self.grid_options: dict[str, Any] | None = None
+
+    def aggrid(self, options: dict[str, Any]) -> _DummyGridElement:
+        self.grid_options = options
+        return _DummyGridElement()
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_render_exposure_grid_sets_position_width_and_fit_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dummy_ui = _DummyUI()
+    monkeypatch.setattr(strategy_exposure_module, "ui", dummy_ui)
+
+    total = TotalExposureDTO(
+        long_total=1200.0,
+        short_total=100.0,
+        gross_total=1300.0,
+        net_total=1100.0,
+        net_pct=84.6,
+        strategy_count=1,
+    )
+
+    strategy_exposure_module.render_exposure_grid(
+        exposures=[
+            StrategyExposureDTO(
+                strategy="alpha_a",
+                long_notional=1200.0,
+                short_notional=100.0,
+                gross_notional=1300.0,
+                net_notional=1100.0,
+                net_pct=84.6,
+                position_count=4,
+            )
+        ],
+        total=total,
+    )
+
+    assert dummy_ui.grid_options is not None
+    position_col = next(
+        col for col in dummy_ui.grid_options["columnDefs"] if col.get("field") == "positions"
+    )
+    assert position_col["minWidth"] >= 96
+    assert "maxWidth" not in position_col
+    assert "gridSizeChanged" in str(dummy_ui.grid_options[":onGridReady"])
+    assert "__wcExposureFitBound" in str(dummy_ui.grid_options[":onGridReady"])
+    assert "sizeColumnsToFit" in str(dummy_ui.grid_options[":onFirstDataRendered"])

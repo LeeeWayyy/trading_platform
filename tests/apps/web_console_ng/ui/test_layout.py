@@ -116,13 +116,24 @@ class _DummyMarketClock:
 
 
 class _DummyStatusBar:
+    instances: list[_DummyStatusBar] = []
+
     def __init__(self) -> None:
         self.state: str | None = None
+        self.calls: list[dict[str, Any]] = []
+        _DummyStatusBar.instances.append(self)
 
     def update_state(
-        self, state: str | None, *, circuit_state: str | None = None
+        self,
+        state: str | None,
+        *,
+        circuit_state: str | None = None,
+        stale: bool = False,
     ) -> None:
         self.state = state
+        self.calls.append(
+            {"state": state, "circuit_state": circuit_state, "stale": stale}
+        )
 
 
 class _DummyHeaderMetrics:
@@ -290,6 +301,7 @@ async def _run_layout(
     monkeypatch: pytest.MonkeyPatch, *, current_path: str
 ) -> tuple[_DummyUI, _DummyLifecycleManager]:
     dummy_ui = _DummyUI()
+    _DummyStatusBar.instances = []
     # Include both user and client storage (client for per-tab isolation)
     dummy_app = SimpleNamespace(
         storage=SimpleNamespace(
@@ -572,6 +584,7 @@ async def _run_extended_layout(
     monkeypatch: pytest.MonkeyPatch,
     *,
     current_path: str = "/",
+    initial_user_storage: dict[str, Any] | None = None,
     connection_monitor: _DummyConnectionMonitor | None = None,
     latency_monitor: _DummyLatencyMonitor | None = None,
     market_clock_class: type | None = None,
@@ -581,10 +594,12 @@ async def _run_extended_layout(
 ) -> tuple[_ExtendedDummyUI, _DummyLifecycleManager, dict[str, Any]]:
     """Extended layout runner that returns components for testing."""
     dummy_ui = _ExtendedDummyUI()
+    _DummyStatusBar.instances = []
+    user_storage = {} if initial_user_storage is None else dict(initial_user_storage)
     # Include both user and client storage (client for per-tab isolation)
     dummy_app = SimpleNamespace(
         storage=SimpleNamespace(
-            user={},
+            user=user_storage,
             client={},
             request=SimpleNamespace(url=SimpleNamespace(path=current_path)),
         )
@@ -931,6 +946,26 @@ async def test_connection_state_dispatch(monkeypatch: pytest.MonkeyPatch) -> Non
         monkeypatch,
         client=client,
         connection_monitor=conn_monitor,
+    )
+
+
+@pytest.mark.asyncio()
+async def test_layout_bootstraps_status_bar_from_cached_circuit_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Render stale circuit-tripped status even when kill-switch cache is missing."""
+    conn_monitor = _ExtendedDummyConnectionMonitor(should_attempt_value=False)
+
+    await _run_extended_layout(
+        monkeypatch,
+        connection_monitor=conn_monitor,
+        initial_user_storage={"global_circuit_state": "TRIPPED"},
+    )
+
+    status_bar = _DummyStatusBar.instances[-1]
+    assert any(
+        call["circuit_state"] == "TRIPPED" and call["stale"] is True
+        for call in status_bar.calls
     )
 
 
