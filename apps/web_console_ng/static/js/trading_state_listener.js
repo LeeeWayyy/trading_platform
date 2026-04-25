@@ -7,12 +7,59 @@
   if (window.__tpTradingStateListenerAdded) return;
   window.__tpTradingStateListenerAdded = true;
 
+  const updateGlobalStatusBanner = () => {
+    const banner = document.getElementById('global-status-banner');
+    const label = document.getElementById('global-status-banner-label');
+    if (!banner || !label) return;
+
+    const state = ((window._tradingState && window._tradingState.killSwitchState) || 'UNKNOWN')
+      .toUpperCase();
+    const circuit = (
+      (window._tradingState && window._tradingState.circuitBreakerState) || 'UNKNOWN'
+    ).toUpperCase();
+
+    if (circuit === 'TRIPPED') {
+      label.textContent = 'TRADING HALTED (CIRCUIT)';
+      banner.classList.add('bg-red-600', 'text-white');
+      banner.classList.remove('bg-green-600', 'bg-yellow-500', 'text-black');
+      return;
+    }
+
+    if (state === 'ENGAGED') {
+      label.textContent = 'TRADING HALTED';
+      banner.classList.add('bg-red-600', 'text-white');
+      banner.classList.remove('bg-green-600', 'bg-yellow-500', 'text-black');
+      return;
+    }
+
+    if (circuit === 'QUIET_PERIOD') {
+      label.textContent = 'TRADING PAUSED (QUIET)';
+      banner.classList.add('bg-yellow-500', 'text-black');
+      banner.classList.remove('bg-red-600', 'bg-green-600', 'text-white');
+      return;
+    }
+
+    if (state === 'DISENGAGED' || state === 'ACTIVE') {
+      label.textContent = 'TRADING ACTIVE';
+      banner.classList.add('bg-green-600', 'text-white');
+      banner.classList.remove('bg-red-600', 'bg-yellow-500', 'text-black');
+      return;
+    }
+
+    label.textContent = 'TRADING STATUS UNKNOWN';
+    banner.classList.add('bg-yellow-500', 'text-black');
+    banner.classList.remove('bg-red-600', 'bg-green-600', 'text-white');
+  };
+
   window.addEventListener('trading_state_change', (event) => {
     const detail = (event && event.detail) || {};
     const killSwitch = detail.killSwitch;
     const killSwitchState = detail.killSwitchState;
     const circuitBreaker = detail.circuitBreaker;
-    const circuitBreakerState = detail.circuitBreakerState;
+    const circuitBreakerState =
+      typeof detail.circuitBreakerState === 'string'
+        ? detail.circuitBreakerState
+        : detail.circuitState;
     const readOnly = detail.readOnly;
     const connectionState = detail.connectionState;
 
@@ -22,27 +69,27 @@
       if (typeof killSwitchState === 'string') {
         const state = killSwitchState.toUpperCase();
         if (state === 'ENGAGED') {
-          ksEl.textContent = 'KILL SWITCH ENGAGED';
+          ksEl.textContent = 'KILL SWITCH: ENGAGED';
           ksEl.classList.add('bg-red-500', 'text-white');
-          ksEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
+          ksEl.classList.remove('bg-slate-700', 'bg-green-500', 'bg-yellow-500', 'text-black');
         } else if (state === 'DISENGAGED') {
-          ksEl.textContent = 'TRADING ACTIVE';
-          ksEl.classList.add('bg-green-500', 'text-white');
-          ksEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
+          ksEl.textContent = 'KILL SWITCH: DISENGAGED';
+          ksEl.classList.add('bg-slate-700', 'text-slate-100');
+          ksEl.classList.remove('bg-red-500', 'bg-green-500', 'bg-yellow-500', 'text-white', 'text-black');
         } else {
-          ksEl.textContent = `STATE: ${state || 'UNKNOWN'}`;
+          ksEl.textContent = `KILL SWITCH: ${state || 'UNKNOWN'}`;
           ksEl.classList.add('bg-yellow-500', 'text-black');
-          ksEl.classList.remove('bg-red-500', 'bg-green-500', 'text-white');
+          ksEl.classList.remove('bg-red-500', 'bg-green-500', 'bg-slate-700', 'text-white', 'text-slate-100');
         }
       } else if (typeof killSwitch === 'boolean') {
         if (killSwitch) {
-          ksEl.textContent = 'KILL SWITCH ENGAGED';
+          ksEl.textContent = 'KILL SWITCH: ENGAGED';
           ksEl.classList.add('bg-red-500', 'text-white');
-          ksEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
+          ksEl.classList.remove('bg-slate-700', 'bg-green-500', 'bg-yellow-500', 'text-black');
         } else {
-          ksEl.textContent = 'TRADING ACTIVE';
-          ksEl.classList.add('bg-green-500', 'text-white');
-          ksEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
+          ksEl.textContent = 'KILL SWITCH: DISENGAGED';
+          ksEl.classList.add('bg-slate-700', 'text-slate-100');
+          ksEl.classList.remove('bg-red-500', 'bg-green-500', 'bg-yellow-500', 'text-white', 'text-black');
         }
       }
     }
@@ -80,6 +127,18 @@
           cbEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
         }
       }
+    }
+
+    window._tradingState = window._tradingState || {};
+    if (typeof killSwitchState === 'string') {
+      window._tradingState.killSwitchState = killSwitchState;
+    } else if (typeof killSwitch === 'boolean') {
+      window._tradingState.killSwitchState = killSwitch ? 'ENGAGED' : 'DISENGAGED';
+    }
+    if (typeof circuitBreakerState === 'string') {
+      window._tradingState.circuitBreakerState = circuitBreakerState;
+    } else if (typeof circuitBreaker === 'boolean') {
+      window._tradingState.circuitBreakerState = circuitBreaker ? 'TRIPPED' : 'NORMAL';
     }
 
     if (typeof readOnly === 'boolean') {
@@ -126,5 +185,7 @@
         }
       });
     }
+
+    updateGlobalStatusBanner();
   });
 })();

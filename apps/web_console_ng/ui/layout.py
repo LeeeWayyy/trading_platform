@@ -579,6 +579,31 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 cached_circuit_state or "UNKNOWN",
                 stale=True,
             )
+            cached_kill_display = cached_kill_state or "UNKNOWN"
+            cached_cb_display = cached_circuit_state or "UNKNOWN"
+            kill_switch_button.set_text(f"KILL SWITCH: {cached_kill_display} (STALE)")
+            if cached_kill_display == "ENGAGED":
+                kill_switch_button.classes(
+                    "bg-red-700 text-rose-100",
+                    remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
+                )
+            else:
+                kill_switch_button.classes(
+                    "bg-amber-500 text-black",
+                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
+                )
+            if cached_cb_display == "TRIPPED":
+                circuit_breaker_badge.set_text("CIRCUIT TRIPPED (STALE)")
+                circuit_breaker_badge.classes(
+                    "bg-red-700 text-rose-100",
+                    remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
+                )
+            else:
+                circuit_breaker_badge.set_text(f"CIRCUIT: {cached_cb_display} (STALE)")
+                circuit_breaker_badge.classes(
+                    "bg-amber-500 text-black",
+                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
+                )
 
         # Main content area
         # Top-level layout elements (e.g. drawers) must be outside header/rows.
@@ -650,11 +675,18 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         def _render_circuit_breaker_state(cb_state: str, *, stale: bool = False) -> None:
             if stale:
-                circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state} (STALE)")
-                circuit_breaker_badge.classes(
-                    "bg-amber-500 text-black",
-                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                )
+                if cb_state == "TRIPPED":
+                    circuit_breaker_badge.set_text("CIRCUIT TRIPPED (STALE)")
+                    circuit_breaker_badge.classes(
+                        "bg-red-700 text-rose-100",
+                        remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
+                    )
+                else:
+                    circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state} (STALE)")
+                    circuit_breaker_badge.classes(
+                        "bg-amber-500 text-black",
+                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
+                    )
                 return
 
             if cb_state == "TRIPPED":
@@ -829,6 +861,14 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         )
                     if header_metrics.is_stale():
                         header_metrics.mark_stale()
+                    if last_kill_switch_state is not None or last_circuit_state is not None:
+                        dispatch_trading_state(
+                            {
+                                "killSwitchState": last_kill_switch_state or "UNKNOWN",
+                                "circuitState": last_circuit_state or "UNKNOWN",
+                                "statusStale": True,
+                            }
+                        )
                     sync_connection_state()
                     return
 
@@ -869,6 +909,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     _render_kill_switch_state(display_state)
                     _update_status_bar(display_state, cb_state, stale=False)
                     _render_circuit_breaker_state(cb_state)
+                    dispatch_trading_state(
+                        {
+                            "killSwitchState": display_state,
+                            "circuitState": cb_state,
+                            "statusStale": False,
+                        }
+                    )
 
                     last_kill_switch_state = display_state
                     last_circuit_state = cb_state
@@ -894,6 +941,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         _render_kill_switch_state(cached_state, stale=True)
                         _update_status_bar(cached_state, cached_cb_state, stale=True)
                         _render_circuit_breaker_state(cached_cb_state, stale=True)
+                        dispatch_trading_state(
+                            {
+                                "killSwitchState": cached_state,
+                                "circuitState": cached_cb_state,
+                                "statusStale": True,
+                            }
+                        )
                         set_kill_switch_controls(cached_state)
                     else:
                         fallback_cb_state = last_circuit_state or "UNKNOWN"
@@ -926,6 +980,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         _update_status_bar("UNKNOWN", fallback_cb_state)
                         set_kill_switch_controls("UNKNOWN")
                         _render_circuit_breaker_state(fallback_cb_state)
+                        dispatch_trading_state(
+                            {
+                                "killSwitchState": "UNKNOWN",
+                                "circuitState": fallback_cb_state,
+                                "statusStale": fallback_cb_state != "UNKNOWN",
+                            }
+                        )
 
                 if status_success:
                     connection_monitor.record_success()

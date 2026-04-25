@@ -1573,6 +1573,10 @@ async def dashboard(client: Client) -> None:
             return False
         return None
 
+    def _normalize_kill_switch_state(state_raw: Any) -> str:
+        state = str(state_raw or "").upper() or "UNKNOWN"
+        return "DISENGAGED" if state == "ACTIVE" else state
+
     async def check_initial_kill_switch() -> None:
         """Fetch initial kill switch status on page load."""
         nonlocal kill_switch_engaged, workspace_kill_switch_state
@@ -1582,7 +1586,7 @@ async def dashboard(client: Client) -> None:
                 role=user_role,
                 strategies=user_strategies,
             )
-            state = str(ks_status.get("state", "")).upper() or "UNKNOWN"
+            state = _normalize_kill_switch_state(ks_status.get("state", ""))
             workspace_kill_switch_state = state
             kill_switch_engaged = _parse_kill_switch_state(state)
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
@@ -1590,11 +1594,21 @@ async def dashboard(client: Client) -> None:
                 "kill_switch_initial_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
-            # Use None (unknown) on API failure to preserve fail-open path in on_close_position
-            # This allows risk-reducing closes during kill switch service outages
+            cached_state = _normalize_kill_switch_state(
+                app.storage.user.get("global_kill_switch_state")
+            )
+            if cached_state != "UNKNOWN":
+                workspace_kill_switch_state = cached_state
+            else:
+                workspace_kill_switch_state = "UNKNOWN"
+            # Preserve fail-open close behavior during kill-switch service outages.
+            # Cached state is only for UI continuity; submission guards use live checks.
             kill_switch_engaged = None
-            workspace_kill_switch_state = "UNKNOWN"
         _update_workspace_kill_switch_pill()
+        app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
+        dispatch_trading_state_event(
+            client_id, {"killSwitchState": workspace_kill_switch_state}
+        )
 
     await check_initial_kill_switch()
     _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
@@ -1614,8 +1628,13 @@ async def dashboard(client: Client) -> None:
                 "circuit_breaker_initial_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
-            workspace_circuit_breaker_state = "UNKNOWN"
+            cached_state = str(app.storage.user.get("global_circuit_state", "")).upper()
+            workspace_circuit_breaker_state = cached_state or "UNKNOWN"
         _update_workspace_circuit_breaker_pill()
+        app.storage.user["global_circuit_state"] = workspace_circuit_breaker_state
+        dispatch_trading_state_event(
+            client_id, {"circuitBreakerState": workspace_circuit_breaker_state}
+        )
 
     await check_initial_circuit_breaker()
 
@@ -1632,6 +1651,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = state
             kill_switch_engaged = _parse_kill_switch_state(state)
             _update_workspace_kill_switch_pill()
+            app.storage.user["global_kill_switch_state"] = _normalize_kill_switch_state(state)
             if state not in {"DISENGAGED", "ACTIVE"}:
                 return (False, "Cannot flatten: Kill Switch is not DISENGAGED")
             return (True, "")
@@ -1639,6 +1659,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = "UNKNOWN"
             kill_switch_engaged = None
             _update_workspace_kill_switch_pill()
+            app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
             logger.warning(
                 "flatten_all_kill_switch_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
@@ -1648,6 +1669,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = "UNKNOWN"
             kill_switch_engaged = None
             _update_workspace_kill_switch_pill()
+            app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
             logger.exception(
                 "flatten_all_kill_switch_check_unexpected_error",
                 extra={"user_id": user_id, "error": type(exc).__name__},
@@ -2085,11 +2107,12 @@ async def dashboard(client: Client) -> None:
     async def on_kill_switch_update(data: dict[str, Any]) -> None:
         nonlocal kill_switch_engaged, workspace_kill_switch_state
         logger.info("kill_switch_update", extra={"client_id": client_id, "data": data})
-        state = str(data.get("state", "")).upper()
-        workspace_kill_switch_state = state or "UNKNOWN"
+        state = _normalize_kill_switch_state(data.get("state", ""))
+        workspace_kill_switch_state = state
         # Update cached state for instant UI responses; unknown stays None for fail-open closes
         kill_switch_engaged = _parse_kill_switch_state(state)
         _update_workspace_kill_switch_pill()
+        app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
         dispatch_trading_state_event(client_id, {"killSwitchState": state})
         await activity_feed.add_item(
             {
@@ -2107,6 +2130,7 @@ async def dashboard(client: Client) -> None:
         state = str(data.get("state", "")).upper()
         workspace_circuit_breaker_state = state or "UNKNOWN"
         _update_workspace_circuit_breaker_pill()
+        app.storage.user["global_circuit_state"] = workspace_circuit_breaker_state
         dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
         await activity_feed.add_item(
             {
