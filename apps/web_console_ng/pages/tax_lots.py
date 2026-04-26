@@ -564,11 +564,18 @@ async def _render_summary_metrics(
 
     # Pro-rate cost basis for partially sold lots (remaining < quantity)
     if lots:
-        total_cost = sum(_prorated_cost_basis(lot) for lot in lots)
+        total_cost = sum(
+            (_prorated_cost_basis(lot) for lot in lots),
+            Decimal("0"),
+        )
     else:
         total_cost = sum(
-            abs(_to_decimal(pos.get("qty"))) * _to_decimal(pos.get("avg_entry_price"))
-            for pos in position_fallback
+            (
+                abs(_to_decimal(pos.get("qty")))
+                * _to_decimal(pos.get("avg_entry_price"))
+                for pos in position_fallback
+            ),
+            Decimal("0"),
         )
     total_value = Decimal("0")
     priced_cost = Decimal("0")
@@ -582,12 +589,15 @@ async def _render_summary_metrics(
                 priced_cost += _prorated_cost_basis(lot)
 
     if not lots and position_fallback:
-        total_value = sum(
-            _to_decimal(pos.get("market_value"))
-            if _to_decimal(pos.get("market_value")) != Decimal("0")
-            else abs(_to_decimal(pos.get("qty"))) * _to_decimal(pos.get("current_price"))
-            for pos in position_fallback
-        )
+        total_value = Decimal("0")
+        for pos in position_fallback:
+            market_value = _to_decimal(pos.get("market_value"))
+            if market_value != Decimal("0"):
+                total_value += market_value
+            else:
+                total_value += abs(_to_decimal(pos.get("qty"))) * _to_decimal(
+                    pos.get("current_price")
+                )
         priced_cost = total_cost
 
     all_priced = bool(lots) and has_prices and all(
