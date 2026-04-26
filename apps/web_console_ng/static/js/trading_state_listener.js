@@ -11,6 +11,7 @@
     const banner = document.getElementById('global-status-banner');
     const label = document.getElementById('global-status-banner-label');
     if (!banner || !label) return;
+    if (window._tradingState && window._tradingState.statusStale) return;
 
     const state = ((window._tradingState && window._tradingState.killSwitchState) || 'UNKNOWN')
       .toUpperCase();
@@ -62,10 +63,14 @@
         : detail.circuitState;
     const readOnly = detail.readOnly;
     const connectionState = detail.connectionState;
+    const statusStale = detail.statusStale === true;
+
+    window._tradingState = window._tradingState || {};
+    window._tradingState.statusStale = statusStale;
 
     // Update kill switch badge
     const ksEl = document.getElementById('kill-switch-badge');
-    if (ksEl) {
+    if (ksEl && !statusStale) {
       if (typeof killSwitchState === 'string') {
         const state = killSwitchState.toUpperCase();
         if (state === 'ENGAGED') {
@@ -96,7 +101,7 @@
 
     // Update circuit breaker badge
     const cbEl = document.getElementById('circuit-breaker-badge');
-    if (cbEl) {
+    if (cbEl && !statusStale) {
       if (typeof circuitBreakerState === 'string') {
         const state = circuitBreakerState.toUpperCase();
         if (state === 'TRIPPED') {
@@ -129,7 +134,6 @@
       }
     }
 
-    window._tradingState = window._tradingState || {};
     if (typeof killSwitchState === 'string') {
       window._tradingState.killSwitchState = killSwitchState;
     } else if (typeof killSwitch === 'boolean') {

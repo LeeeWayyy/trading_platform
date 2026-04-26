@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -381,6 +382,19 @@ async def test_layout_sets_current_path_and_cleanup(monkeypatch: pytest.MonkeyPa
     assert layout_module.app.storage.user["current_path"] == "/risk"
     assert len(lifecycle_manager.callbacks) == 3
     assert dummy_ui.head_html
+
+
+def test_trading_state_listener_honors_stale_status_events() -> None:
+    listener_path = Path(
+        "apps/web_console_ng/static/js/trading_state_listener.js"
+    )
+    listener = listener_path.read_text(encoding="utf-8")
+
+    assert "const statusStale = detail.statusStale === true;" in listener
+    assert "window._tradingState.statusStale = statusStale;" in listener
+    assert "if (window._tradingState && window._tradingState.statusStale) return;" in listener
+    assert "if (ksEl && !statusStale)" in listener
+    assert "if (cbEl && !statusStale)" in listener
 
 
 class _DummyDialog:
