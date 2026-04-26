@@ -243,6 +243,40 @@ async def test_render_summary_metrics_handles_short_position_gain(
     assert "$+100.00" in label_texts
 
 
+@pytest.mark.asyncio()
+async def test_render_summary_metrics_partial_prices_shows_priced_subset_basis(
+    dummy_ui: _DummyUI, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tax_lots_module, "ui", dummy_ui)
+    now = datetime.now(UTC)
+    lots = [
+        SimpleNamespace(
+            symbol="AAPL",
+            cost_basis=Decimal("1000"),
+            quantity=Decimal("10"),
+            remaining_quantity=Decimal("10"),
+            acquired_at=now - timedelta(days=30),
+        ),
+        SimpleNamespace(
+            symbol="MSFT",
+            cost_basis=Decimal("500"),
+            quantity=Decimal("5"),
+            remaining_quantity=Decimal("5"),
+            acquired_at=now - timedelta(days=30),
+        ),
+    ]
+
+    await tax_lots_module._render_summary_metrics(
+        lots=lots,
+        current_prices={"AAPL": Decimal("110")},
+        wash_sale_lot_ids=set(),
+        db_pool=None,
+    )
+
+    label_texts = [str(el.kwargs.get("text", "")) for el in dummy_ui.labels]
+    assert "Priced subset: $1,000.00" in label_texts
+
+
 def test_cost_basis_methods_defined() -> None:
     """Cost basis methods constant contains expected values."""
     assert "fifo" in tax_lots_module._COST_BASIS_METHODS

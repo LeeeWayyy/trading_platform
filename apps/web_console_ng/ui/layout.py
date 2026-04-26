@@ -393,12 +393,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             *,
             stale: bool = False,
         ) -> None:
-            try:
-                status_bar.update_state(state, circuit_state=cb_state, stale=stale)
-            except TypeError:
-                # Compatibility for older test doubles/signatures that do not
-                # yet accept the stale keyword.
-                status_bar.update_state(state, circuit_state=cb_state)
+            status_bar.update_state(state, circuit_state=cb_state, stale=stale)
 
         with ui.header().classes(
             "bg-slate-900 items-center text-white px-4 h-14 flex-nowrap overflow-x-auto"

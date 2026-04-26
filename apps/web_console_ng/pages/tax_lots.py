@@ -547,7 +547,7 @@ async def _render_summary_metrics(
         quantity = _to_decimal(getattr(lot, "quantity", Decimal("0")))
         remaining = _to_decimal(getattr(lot, "remaining_quantity", Decimal("0")))
         if quantity == Decimal("0"):
-            return cost_basis
+            return Decimal("0")
         return cost_basis * (abs(remaining) / abs(quantity))
 
     def _holding_days(lot: Any, as_of: datetime) -> int:
@@ -621,6 +621,10 @@ async def _render_summary_metrics(
         with ui.card().classes("flex-1 p-3"):
             ui.label("Total Cost Basis").classes("text-gray-500 text-sm")
             ui.label(f"${float(total_cost):,.2f}").classes("text-xl font-bold")
+            if lots and has_prices and not all_priced and priced_cost > 0:
+                ui.label(f"Priced subset: ${float(priced_cost):,.2f}").classes(
+                    "text-xs text-slate-400"
+                )
         with ui.card().classes("flex-1 p-3"):
             ui.label("Unrealized Gain/Loss").classes("text-gray-500 text-sm")
             if not lots and position_fallback:
