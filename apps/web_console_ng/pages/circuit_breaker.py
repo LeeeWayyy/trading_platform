@@ -230,7 +230,18 @@ async def circuit_breaker_page() -> None:
                 backend_value_int = int(backend_value)
                 if backend_value_int > 0:
                     backend_count = backend_value_int
-            trip_count = max(history_count, backend_count)
+
+            # Some backends report all-time "trip_count_today"; only trust that
+            # value when the active trip itself occurred today. Prefer history
+            # payload whenever it has same-day events.
+            status_trip_dt = _parse_utc_datetime(status_data.get("tripped_at"))
+            status_trip_is_today = status_trip_dt is not None and status_trip_dt.date() == now.date()
+            if history_count > 0:
+                trip_count = history_count
+            elif status_trip_is_today:
+                trip_count = max(1, backend_count)
+            else:
+                trip_count = 0
             if trip_count > 0:
                 with ui.row().classes("mt-2"):
                     ui.label("Trips Today:").classes("font-medium")

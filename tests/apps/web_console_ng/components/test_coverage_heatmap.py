@@ -179,7 +179,7 @@ class TestRenderCoverageControls:
             on_analyze=lambda *a: None,
         )
         assert any("No adjusted data" in el.text for el in dummy_ui.labels)
-        assert dummy_ui.buttons == []
+        assert len(dummy_ui.buttons) == 1
 
     def test_creates_form_elements(self, dummy_ui: DummyUI) -> None:
         heatmap_module.render_coverage_controls(

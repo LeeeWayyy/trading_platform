@@ -16,9 +16,11 @@ class StatusBar:
     def _build_ui(self) -> None:
         self._container = ui.element("div").classes(
             "w-full h-6 flex items-center justify-center text-xs font-semibold tracking-wide"
-        )
+        ).props("id=global-status-banner")
         with self._container:
-            self._label = ui.label("TRADING STATUS UNKNOWN").classes("uppercase")
+            self._label = ui.label("TRADING STATUS UNKNOWN").classes("uppercase").props(
+                "id=global-status-banner-label"
+            )
         self._set_state_classes("UNKNOWN")
 
     def _set_state_classes(self, state: str) -> None:
@@ -40,10 +42,39 @@ class StatusBar:
                 remove="bg-red-600 bg-green-600 text-white",
             )
 
-    def update_state(self, state: str | None, *, circuit_state: str | None = None) -> None:
+    def update_state(
+        self,
+        state: str | None,
+        *,
+        circuit_state: str | None = None,
+        stale: bool = False,
+    ) -> None:
         """Update status bar from kill-switch and circuit-breaker state."""
         normalized = (state or "UNKNOWN").upper()
         cb_normalized = (circuit_state or "UNKNOWN").upper()
+
+        if stale:
+            if cb_normalized == "TRIPPED" or normalized == "ENGAGED":
+                if self._label:
+                    self._label.set_text(
+                        "TRADING HALTED (CIRCUIT)"
+                        if cb_normalized == "TRIPPED"
+                        else "TRADING HALTED"
+                    )
+                self._set_state_classes("ENGAGED")
+                return
+            if cb_normalized == "QUIET_PERIOD":
+                if self._label:
+                    self._label.set_text("TRADING PAUSED (QUIET)")
+                self._set_state_classes("UNKNOWN")
+                return
+            if self._label:
+                if normalized in {"DISENGAGED", "ACTIVE"}:
+                    self._label.set_text("TRADING ACTIVE (STALE)")
+                else:
+                    self._label.set_text("TRADING STATUS UNKNOWN")
+            self._set_state_classes("UNKNOWN")
+            return
 
         if cb_normalized == "TRIPPED":
             if self._label:

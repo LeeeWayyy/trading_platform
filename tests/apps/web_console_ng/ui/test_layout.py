@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -116,13 +117,24 @@ class _DummyMarketClock:
 
 
 class _DummyStatusBar:
+    instances: list[_DummyStatusBar] = []
+
     def __init__(self) -> None:
         self.state: str | None = None
+        self.calls: list[dict[str, Any]] = []
+        _DummyStatusBar.instances.append(self)
 
     def update_state(
-        self, state: str | None, *, circuit_state: str | None = None
+        self,
+        state: str | None,
+        *,
+        circuit_state: str | None = None,
+        stale: bool = False,
     ) -> None:
         self.state = state
+        self.calls.append(
+            {"state": state, "circuit_state": circuit_state, "stale": stale}
+        )
 
 
 class _DummyHeaderMetrics:
@@ -290,6 +302,7 @@ async def _run_layout(
     monkeypatch: pytest.MonkeyPatch, *, current_path: str
 ) -> tuple[_DummyUI, _DummyLifecycleManager]:
     dummy_ui = _DummyUI()
+    _DummyStatusBar.instances = []
     # Include both user and client storage (client for per-tab isolation)
     dummy_app = SimpleNamespace(
         storage=SimpleNamespace(
@@ -369,6 +382,24 @@ async def test_layout_sets_current_path_and_cleanup(monkeypatch: pytest.MonkeyPa
     assert layout_module.app.storage.user["current_path"] == "/risk"
     assert len(lifecycle_manager.callbacks) == 3
     assert dummy_ui.head_html
+
+
+def test_trading_state_listener_honors_stale_status_events() -> None:
+    listener_path = Path(
+        "apps/web_console_ng/static/js/trading_state_listener.js"
+    )
+    listener = listener_path.read_text(encoding="utf-8")
+
+    assert "const hasStatusStale = Object.prototype.hasOwnProperty.call(detail, 'statusStale');" in listener
+    assert "const hasFreshTradingState =" in listener
+    assert "if (hasStatusStale) {" in listener
+    assert "window._tradingState.statusStale = detail.statusStale === true;" in listener
+    assert "} else if (hasFreshTradingState) {" in listener
+    assert "window._tradingState.statusStale = false;" in listener
+    assert "const statusStale = window._tradingState.statusStale === true;" in listener
+    assert "if (window._tradingState && window._tradingState.statusStale) return;" in listener
+    assert "if (ksEl && !statusStale)" in listener
+    assert "if (cbEl && !statusStale)" in listener
 
 
 class _DummyDialog:
@@ -572,6 +603,7 @@ async def _run_extended_layout(
     monkeypatch: pytest.MonkeyPatch,
     *,
     current_path: str = "/",
+    initial_user_storage: dict[str, Any] | None = None,
     connection_monitor: _DummyConnectionMonitor | None = None,
     latency_monitor: _DummyLatencyMonitor | None = None,
     market_clock_class: type | None = None,
@@ -581,10 +613,12 @@ async def _run_extended_layout(
 ) -> tuple[_ExtendedDummyUI, _DummyLifecycleManager, dict[str, Any]]:
     """Extended layout runner that returns components for testing."""
     dummy_ui = _ExtendedDummyUI()
+    _DummyStatusBar.instances = []
+    user_storage = {} if initial_user_storage is None else dict(initial_user_storage)
     # Include both user and client storage (client for per-tab isolation)
     dummy_app = SimpleNamespace(
         storage=SimpleNamespace(
-            user={},
+            user=user_storage,
             client={},
             request=SimpleNamespace(url=SimpleNamespace(path=current_path)),
         )
@@ -935,6 +969,26 @@ async def test_connection_state_dispatch(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.asyncio()
+async def test_layout_bootstraps_status_bar_from_cached_circuit_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Render stale circuit-tripped status even when kill-switch cache is missing."""
+    conn_monitor = _ExtendedDummyConnectionMonitor(should_attempt_value=False)
+
+    await _run_extended_layout(
+        monkeypatch,
+        connection_monitor=conn_monitor,
+        initial_user_storage={"global_circuit_state": "TRIPPED"},
+    )
+
+    status_bar = _DummyStatusBar.instances[-1]
+    assert any(
+        call["circuit_state"] == "TRIPPED" and call["stale"] is True
+        for call in status_bar.calls
+    )
+
+
+@pytest.mark.asyncio()
 async def test_log_grid_metrics_with_monitors(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that log_grid_metrics iterates over all monitors."""
 
@@ -1226,6 +1280,76 @@ async def test_dispatch_trading_state_exception(monkeypatch: pytest.MonkeyPatch)
     wrapped = layout_module.main_layout(_page)
     # Should not crash even if JS dispatch fails
     await wrapped()
+
+
+@pytest.mark.asyncio()
+async def test_layout_dispatches_explicit_kill_and_circuit_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure banner listener payload includes kill/circuit state values."""
+
+    class _CapturingUI(_ExtendedDummyUI):
+        def __init__(self) -> None:
+            super().__init__()
+            self.js_calls: list[str] = []
+
+        def run_javascript(self, script: str, **_kwargs: Any) -> None:
+            self.js_calls.append(script)
+
+    dummy_ui = _CapturingUI()
+    dummy_app = SimpleNamespace(
+        storage=SimpleNamespace(
+            user={}, client={}, request=SimpleNamespace(url=SimpleNamespace(path="/strategies"))
+        )
+    )
+
+    monkeypatch.setattr(layout_module, "ui", dummy_ui)
+    monkeypatch.setattr(layout_module, "app", dummy_app)
+    monkeypatch.setattr(layout_module, "enable_dark_mode", lambda: None)
+    monkeypatch.setattr(
+        layout_module,
+        "get_current_user",
+        lambda: {"role": "admin", "username": "user", "user_id": "u1", "strategies": []},
+    )
+    monkeypatch.setattr(layout_module, "MarketClock", _DummyMarketClock)
+    monkeypatch.setattr(layout_module, "StatusBar", _DummyStatusBar)
+    monkeypatch.setattr(layout_module, "HeaderMetrics", _DummyHeaderMetrics)
+    monkeypatch.setattr(layout_module, "LatencyMonitor", _DummyLatencyMonitor)
+    monkeypatch.setattr(layout_module, "ConnectionMonitor", _ExtendedDummyConnectionMonitor)
+    monkeypatch.setattr(layout_module, "NotificationRouter", _DummyNotificationRouter)
+    monkeypatch.setattr(layout_module, "HotkeyManager", _DummyHotkeyManager)
+    monkeypatch.setattr(layout_module, "CommandPalette", _DummyCommandPalette)
+    monkeypatch.setattr(layout_module, "LogDrawer", _DummyLogDrawer)
+    monkeypatch.setattr(layout_module, "UserStateManager", _DummyUserStateManager)
+
+    class _LifecycleWrapper:
+        @classmethod
+        def get(cls) -> _DummyLifecycleManager:
+            return _DummyLifecycleManager()
+
+    monkeypatch.setattr(layout_module, "ClientLifecycleManager", _LifecycleWrapper)
+    monkeypatch.setattr(layout_module, "get_or_create_client_id", lambda: "client-1")
+    monkeypatch.setattr(layout_module, "get_all_monitors", lambda: {})
+    monkeypatch.setattr(
+        layout_module.AsyncTradingClient,
+        "get",
+        classmethod(
+            lambda cls: _ExtendedDummyClient(
+                kill_switch_state="DISENGAGED",
+                cb_state="TRIPPED",
+            )
+        ),
+    )
+
+    async def _page() -> None:
+        return None
+
+    wrapped = layout_module.main_layout(_page)
+    await wrapped()
+
+    dispatched = "\n".join(dummy_ui.js_calls)
+    assert '"killSwitchState": "DISENGAGED"' in dispatched
+    assert '"circuitState": "TRIPPED"' in dispatched
 
 
 @pytest.mark.asyncio()

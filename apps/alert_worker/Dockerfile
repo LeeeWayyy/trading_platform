@@ -4,7 +4,7 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -o Acquire::Retries=6 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::ForceIPv4=true && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
 # Install service dependencies
 COPY apps/alert_worker/requirements.txt ./
@@ -16,7 +16,7 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -o Acquire::Retries=6 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::ForceIPv4=true && apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
 COPY libs /app/libs

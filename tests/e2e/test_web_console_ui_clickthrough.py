@@ -48,9 +48,6 @@ DOCKER_ERROR_SERVICES = tuple(
     if token
 )
 
-LOGIN_USER = os.getenv("WEB_CONSOLE_USER", "admin")
-LOGIN_PASSWORD = os.getenv("WEB_CONSOLE_PASSWORD", "changeme")
-
 SKIP_PATH_PREFIXES = (
     "/auth/",
     "/login",
@@ -113,6 +110,26 @@ class PageResult:
     interaction_counts: dict[str, int]
     interaction_failures: list[str]
     discovered_paths: list[str]
+
+
+def _load_login_credentials() -> tuple[str, str]:
+    """Resolve UI login credentials from .env/environment without hardcoded fallbacks."""
+    dotenv_path = Path(__file__).resolve().parents[2] / ".env"
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(dotenv_path=dotenv_path, override=False)
+    except ImportError:
+        pass
+
+    username = (os.getenv("WEB_CONSOLE_USER") or "").strip()
+    password = os.getenv("WEB_CONSOLE_PASSWORD") or ""
+    if not username or not password:
+        raise RuntimeError(
+            "Missing WEB_CONSOLE_USER/WEB_CONSOLE_PASSWORD for E2E login. "
+            f"Set them in environment or .env ({dotenv_path})."
+        )
+    return username, password
 
 
 def _run(cmd: list[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -372,15 +389,41 @@ def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -
         and parsed_url.netloc == parsed_base_url.netloc
     )
     if same_origin:
-        # Same-origin static bundles can be cancelled while the UI rapidly
-        # transitions routes; this should not fail click-through coverage.
+        # Same-origin requests can be cancelled while the crawler rapidly
+        # transitions routes. Route-level failures are still caught by page
+        # status/interactions, so ignore browser-level abort noise here.
         normalized_path = (parsed_url.path or "").lower()
-        if normalized_path.startswith("/_nicegui/") or normalized_path.startswith("/static/"):
-            return True
-        return False
+        return normalized_path.startswith("/_nicegui/") or normalized_path.startswith(
+            "/static/"
+        )
 
     # Third-party static assets can be aborted during rapid route transitions.
     return bool(parsed_url.scheme and parsed_url.netloc)
+
+
+def test_is_ignorable_request_failure_allows_only_static_same_origin_aborts() -> None:
+    failure = "net::ERR_ABORTED"
+
+    assert _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/_nicegui/client.js",
+        failure,
+    )
+    assert _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/static/app.css",
+        failure,
+    )
+    assert not _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/api/v1/orders",
+        failure,
+    )
+    assert not _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/trade",
+        failure,
+    )
 
 
 def _default_input_value(input_type: str) -> str:
@@ -581,12 +624,20 @@ def _collect_docker_errors(since_token: str) -> list[str]:
     return [line for line in lines if DOCKER_ERROR_PATTERN.search(line)]
 
 
-def _login_with_retry(page: Any, *, attempts: int = 3) -> bool:
+def _login_with_retry(page: Any, *, username: str, password: str, attempts: int = 3) -> bool:
     """Login with bounded retries to handle transient auth/bootstrap delays."""
     for _ in range(attempts):
-        page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
-        page.get_by_label("Username").fill(LOGIN_USER)
-        page.get_by_label("Password").fill(LOGIN_PASSWORD)
+        try:
+            page.goto(
+                f"{BASE_URL}/login",
+                wait_until="domcontentloaded",
+                timeout=max(PAGE_GOTO_TIMEOUT_MS, 20_000),
+            )
+        except PlaywrightError:
+            page.wait_for_timeout(1500)
+            continue
+        page.get_by_label("Username").fill(username)
+        page.get_by_label("Password").fill(password)
         page.get_by_role("button", name="Sign In").click(timeout=ACTION_TIMEOUT_MS * 2)
         page.wait_for_timeout(1000)
         if "/login" not in page.url:
@@ -609,6 +660,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
     started_at = datetime.now(UTC).isoformat()
     docker_since_token = str(int(time.time()))
     deadline_monotonic = time.monotonic() + MAX_TEST_DURATION_SECONDS
+    login_user, login_password = _load_login_credentials()
 
     page_errors: list[str] = []
     console_errors: list[str] = []
@@ -649,11 +701,11 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
 
         page.on("requestfailed", _on_request_failed)
 
-        if not _login_with_retry(page):
+        if not _login_with_retry(page, username=login_user, password=login_password):
             screenshot = Path("artifacts/ui_clickthrough_login_failed.png")
             screenshot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(screenshot), full_page=True)
-            pytest.fail(f"Login failed for user '{LOGIN_USER}'. See screenshot: {screenshot}")
+            pytest.fail(f"Login failed for user '{login_user}'. See screenshot: {screenshot}")
 
         queue: deque[str] = deque(SEED_PATHS)
         visited: set[str] = set()

@@ -200,7 +200,11 @@ async def _run_layout(
             pass
 
         def update_state(
-            self, state: str | None, *, circuit_state: str | None = None
+            self,
+            state: str | None,
+            *,
+            circuit_state: str | None = None,
+            stale: bool = False,
         ) -> None:
             pass
 
@@ -281,6 +285,9 @@ async def _run_layout(
     class _DummyClient:
         async def fetch_kill_switch_status(self, _user_id: str) -> dict[str, str]:
             return {"state": "ACTIVE"}
+
+        async def fetch_circuit_breaker_status(self) -> dict[str, str]:
+            return {"state": "OPEN"}
 
     monkeypatch.setattr(
         layout_module.AsyncTradingClient,

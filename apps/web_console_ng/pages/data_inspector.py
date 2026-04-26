@@ -27,6 +27,38 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 logger = logging.getLogger(__name__)
 
 
+class PITCatalogUnavailableError(RuntimeError):
+    """Raised when PIT catalog metadata cannot be loaded for the page."""
+
+
+async def _load_available_tickers(inspector: PITInspector) -> list[str]:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(inspector.get_available_tickers),
+            timeout=4.0,
+        )
+    except TimeoutError as exc:
+        logger.warning("pit_catalog_timeout", extra={"operation": "get_available_tickers"})
+        raise PITCatalogUnavailableError("PIT catalog request timed out") from exc
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.exception("pit_catalog_fetch_failed")
+        raise PITCatalogUnavailableError("PIT catalog metadata unavailable") from exc
+
+
+async def _load_date_range(inspector: PITInspector) -> tuple[date | None, date | None]:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(inspector.get_date_range),
+            timeout=4.0,
+        )
+    except TimeoutError as exc:
+        logger.warning("pit_date_range_timeout")
+        raise PITCatalogUnavailableError("PIT date range request timed out") from exc
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.exception("pit_date_range_failed")
+        raise PITCatalogUnavailableError("PIT date range unavailable") from exc
+
+
 @ui.page("/data/inspector")
 @requires_auth
 @main_layout
@@ -52,8 +84,19 @@ async def data_inspector_page() -> None:
         )
 
     inspector = PITInspector()
-    available_tickers = await asyncio.to_thread(inspector.get_available_tickers)
-    min_date, max_date = await asyncio.to_thread(inspector.get_date_range)
+    try:
+        available_tickers = await _load_available_tickers(inspector)
+    except PITCatalogUnavailableError:
+        available_tickers = []
+
+    min_date: date | None = None
+    max_date: date | None = None
+    if available_tickers:
+        try:
+            min_date, max_date = await _load_date_range(inspector)
+        except PITCatalogUnavailableError:
+            min_date = None
+            max_date = None
 
     results_container = ui.column().classes("w-full mt-4")
 
@@ -99,6 +142,11 @@ async def data_inspector_page() -> None:
                 max_date=max_date.isoformat() if max_date else None,
                 on_submit=on_submit,
             )
+            if not available_tickers:
+                ui.label(
+                    "Ticker catalog unavailable or loading timed out. "
+                    "Retry in a moment after data services settle."
+                ).classes("text-xs text-amber-600 mt-2")
 
         # Right: Results
         with ui.column().classes("flex-1"):

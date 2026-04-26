@@ -1,7 +1,10 @@
-.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Docker Desktop local proxy endpoint that is reachable from build containers on macOS.
+# Some environments enforce egress via this proxy (iptables services1 rules).
+DOCKER_DESKTOP_PROXY ?= http://192.168.65.7:3128
 
 # Usage: $(call ci_step_header,Step X/Y,Description)
 define ci_step_header
@@ -50,7 +53,26 @@ up-dev: ## Start all dev services (rebuild first to avoid stale images)
 	@PYTHON=$$( [ -x .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3 ); \
 	$$PYTHON scripts/ops/ensure_web_console_jwt_keys.py
 	$(MAKE) ensure-requirements
-	docker compose --profile dev --profile workers up -d --build
+	@set -e; \
+	if [ -n "$(DOCKER_DESKTOP_PROXY)" ]; then \
+		echo "Building dev services using proxy: $(DOCKER_DESKTOP_PROXY)"; \
+		if ! env \
+			http_proxy="$(DOCKER_DESKTOP_PROXY)" \
+			https_proxy="$(DOCKER_DESKTOP_PROXY)" \
+			HTTP_PROXY="$(DOCKER_DESKTOP_PROXY)" \
+			HTTPS_PROXY="$(DOCKER_DESKTOP_PROXY)" \
+			docker compose --profile dev --profile workers build \
+				--build-arg http_proxy="$(DOCKER_DESKTOP_PROXY)" \
+				--build-arg https_proxy="$(DOCKER_DESKTOP_PROXY)" \
+				--build-arg HTTP_PROXY="$(DOCKER_DESKTOP_PROXY)" \
+				--build-arg HTTPS_PROXY="$(DOCKER_DESKTOP_PROXY)"; then \
+			echo "Proxy build failed, retrying direct build..."; \
+			docker compose --profile dev --profile workers build; \
+		fi; \
+	else \
+		docker compose --profile dev --profile workers build; \
+	fi; \
+	docker compose --profile dev --profile workers up -d
 	@echo "Waiting for services to be healthy..."
 	@sleep 10
 	@docker compose --profile dev ps
@@ -126,6 +148,12 @@ perf: ## Run performance tests (requires RUN_PERF_TESTS=1)
 
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
+
+ui-crawl: ## Run broad Playwright UI crawler (manual E2E diagnostic)
+	PYTHONPATH=. poetry run python tests/e2e/ui_crawl.py
+
+ui-deep: ## Run focused Playwright deep page inspector
+	PYTHONPATH=. poetry run python tests/e2e/ui_deep.py
 
 install-hooks: ## Install git hooks (pre-commit quality checks)
 	@echo "Installing git hooks..."

@@ -135,9 +135,14 @@ def test_trade_alias_redirect_target_preserves_safe_query_params(
         context=SimpleNamespace(
             client=SimpleNamespace(
                 request=SimpleNamespace(
-                    scope={
-                        "query_string": b"symbol=AAPL&qty=5&side=buy&foo=ignored",
-                    }
+                    query_params=SimpleNamespace(
+                        multi_items=lambda: [
+                            ("symbol", "AAPL"),
+                            ("qty", "5"),
+                            ("side", "buy"),
+                            ("foo", "ignored"),
+                        ]
+                    )
                 )
             )
         )

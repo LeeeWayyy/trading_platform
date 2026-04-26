@@ -27,7 +27,7 @@ from nicegui import run, ui
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.database import get_db_pool
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
+from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 logger = logging.getLogger(__name__)
@@ -790,4 +790,8 @@ __all__ = ["scheduled_reports_page"]
 @requires_auth
 async def scheduled_reports_alias_page() -> None:
     """Legacy alias route for scheduled reports."""
-    ui.navigate.to(resolve_rooted_path_from_ui("/reports", ui_module=ui))
+    render_client_redirect(
+        resolve_rooted_path_from_ui("/reports", ui_module=ui),
+        ui_module=ui,
+        message="Redirecting to Reports...",
+    )

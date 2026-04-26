@@ -111,16 +111,45 @@ async def risk_dashboard(client: Client) -> None:
     error_state: str | None = None  # Persistent error message for inline display
     prev_error_state: str | None = None  # Track previous error to avoid notification spam
     live_position_count_hint: int | None = None
+    live_position_snapshot: list[dict[str, Any]] = []
 
     async def load_risk_data() -> None:
         """Fetch risk data via RiskService (same as Streamlit, NOT REST)."""
-        nonlocal risk_data, error_state, prev_error_state, live_position_count_hint
+        nonlocal risk_data, error_state, prev_error_state, live_position_count_hint, live_position_snapshot
+
+        async def load_live_position_snapshot() -> list[dict[str, Any]]:
+            try:
+                positions_payload = await asyncio.wait_for(
+                    AsyncTradingClient.get().fetch_positions(
+                        str(user_id),
+                        role=str(user_role or ""),
+                        strategies=list(authorized_strategies),
+                    ),
+                    timeout=4.0,
+                )
+                positions_rows = positions_payload.get("positions", [])
+                if isinstance(positions_rows, list):
+                    return [row for row in positions_rows if isinstance(row, dict)]
+            except (
+                TimeoutError,
+                httpx.HTTPError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ) as exc:
+                logger.warning(
+                    "risk_live_position_hint_failed",
+                    extra={"user_id": user_id, "error_type": type(exc).__name__},
+                    exc_info=True,
+                )
+            return []
 
         def set_error(msg: str) -> None:
             """Set error state and notify only on state transition."""
-            nonlocal error_state, prev_error_state, live_position_count_hint
+            nonlocal error_state, prev_error_state, live_position_count_hint, live_position_snapshot
             risk_data.clear()  # Clear stale data on error
             live_position_count_hint = None
+            live_position_snapshot = []
             if error_state != msg:  # Only notify on state change (avoid spam)
                 error_state = msg
                 ui.notify(msg, type="negative")
@@ -142,7 +171,10 @@ async def risk_dashboard(client: Client) -> None:
                 },
             )
             service = RiskService(scoped_access)
-            data = await service.get_risk_dashboard_data()
+            data = await asyncio.wait_for(
+                service.get_risk_dashboard_data(),
+                timeout=8.0,
+            )
 
             risk_data.clear()
             risk_data.update(
@@ -156,29 +188,10 @@ async def risk_dashboard(client: Client) -> None:
                 }
             )
             live_position_count_hint = None
+            live_position_snapshot = []
             if not data.risk_metrics:
-                try:
-                    positions_payload = await AsyncTradingClient.get().fetch_positions(
-                        str(user_id),
-                        role=str(user_role or ""),
-                        strategies=list(authorized_strategies),
-                    )
-                    positions_rows = positions_payload.get("positions", [])
-                    if isinstance(positions_rows, list):
-                        live_position_count_hint = len(positions_rows)
-                except (
-                    TimeoutError,
-                    httpx.HTTPError,
-                    RuntimeError,
-                    ValueError,
-                    TypeError,
-                ) as exc:
-                    logger.warning(
-                        "risk_live_position_hint_failed",
-                        extra={"user_id": user_id, "error_type": type(exc).__name__},
-                        exc_info=True,
-                    )
-                    live_position_count_hint = None
+                live_position_snapshot = await load_live_position_snapshot()
+                live_position_count_hint = len(live_position_snapshot)
             error_state = None  # Clear error on success
             prev_error_state = None
         except PermissionError as e:
@@ -186,7 +199,14 @@ async def risk_dashboard(client: Client) -> None:
             set_error("Access denied. Please contact an administrator.")
         except TimeoutError:
             logger.warning("risk_data_timeout", extra={"user_id": user_id})
-            set_error("Request timed out. Please try again.")
+            risk_data.clear()
+            live_position_snapshot = await load_live_position_snapshot()
+            live_position_count_hint = len(live_position_snapshot) if live_position_snapshot else None
+            msg = "Risk model request timed out. Showing live exposure proxies where available."
+            if error_state != msg:
+                ui.notify(msg, type="warning")
+            error_state = msg
+            prev_error_state = msg
         except FileNotFoundError as e:
             logger.error(
                 "Risk data load failed - data files not found",
@@ -255,7 +275,65 @@ async def risk_dashboard(client: Client) -> None:
         def risk_overview_section() -> None:
             metrics = risk_data.get("risk_metrics", {})
             if not metrics:
-                if isinstance(live_position_count_hint, int) and live_position_count_hint > 0:
+                if live_position_snapshot:
+                    def _position_market_value(position: dict[str, Any]) -> float | None:
+                        market_value = safe_float(position.get("market_value"))
+                        if market_value is not None:
+                            return market_value
+                        qty = safe_float(position.get("qty")) or 0.0
+                        px = safe_float(position.get("current_price"))
+                        if px is None:
+                            px = safe_float(position.get("avg_entry_price"))
+                        return qty * px if px is not None else None
+
+                    gross_exposure = 0.0
+                    net_exposure = 0.0
+                    total_unrealized = 0.0
+                    missing_exposure_count = 0
+                    for pos in live_position_snapshot:
+                        mv = _position_market_value(pos)
+                        if mv is None:
+                            missing_exposure_count += 1
+                            continue
+                        gross_exposure += abs(mv)
+                        net_exposure += mv
+                        total_unrealized += safe_float(pos.get("unrealized_pl")) or 0.0
+
+                    with ui.card().classes("w-full p-4 bg-amber-50 border border-amber-300 mb-4"):
+                        ui.label("Model-derived risk metrics unavailable").classes(
+                            "text-amber-700 font-semibold"
+                        )
+                        ui.label(
+                            "Showing live exposure proxies until full risk model artifacts refresh."
+                        ).classes("text-sm text-amber-700")
+                        if missing_exposure_count:
+                            ui.label(
+                                f"Exposure totals exclude {missing_exposure_count} position(s) "
+                                "without market value or price data."
+                            ).classes("text-xs text-amber-700")
+
+                    with ui.row().classes("gap-8 mb-6"):
+                        _render_risk_metric(
+                            "Open Positions",
+                            str(len(live_position_snapshot)),
+                            "Count of currently open positions",
+                        )
+                        _render_risk_metric(
+                            "Gross Exposure",
+                            f"${gross_exposure:,.0f}",
+                            "Sum of absolute market value across positions",
+                        )
+                        _render_risk_metric(
+                            "Net Exposure",
+                            f"${net_exposure:,.0f}",
+                            "Directional net market value across positions",
+                        )
+                        _render_risk_metric(
+                            "Unrealized P&L",
+                            f"${total_unrealized:+,.2f}",
+                            "Current unrealized profit/loss from live positions",
+                        )
+                elif isinstance(live_position_count_hint, int) and live_position_count_hint > 0:
                     with ui.card().classes("w-full p-4 bg-amber-50 border border-amber-300"):
                         ui.label("Risk model metrics unavailable").classes(
                             "text-amber-700 font-semibold"

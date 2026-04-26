@@ -35,3 +35,22 @@ async def test_periodic_reconciliation_opens_gate():
     assert service.is_startup_complete() is False
     await service.run_reconciliation_once("periodic")
     assert service.is_startup_complete() is True
+
+
+@pytest.mark.asyncio()
+async def test_startup_reconciliation_handles_unexpected_error():
+    service = ReconciliationService(
+        db_client=object(),
+        alpaca_client=object(),
+        redis_client=None,
+        dry_run=False,
+    )
+
+    def _raise(_mode: str) -> None:
+        raise ConnectionError("broker unavailable")
+
+    service._run_reconciliation = _raise  # type: ignore[assignment]
+
+    result = await service.run_startup_reconciliation()
+    assert result is False
+    assert service.is_startup_complete() is False

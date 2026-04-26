@@ -23,6 +23,9 @@ class DummyLabel:
     def classes(self, _add: str | None = None, _remove: str | None = None) -> DummyLabel:
         return self
 
+    def props(self, _value: str) -> DummyLabel:
+        return self
+
 
 class DummyElement:
     """Mock NiceGUI element for testing."""
@@ -37,6 +40,9 @@ class DummyElement:
         if add:
             for cls in add.split():
                 self._classes.add(cls)
+        return self
+
+    def props(self, _value: str) -> DummyElement:
         return self
 
     def __enter__(self) -> DummyElement:
@@ -91,3 +97,17 @@ def test_status_bar_engaged_overrides_quiet_period(dummy_ui: None) -> None:
     bar.update_state("ENGAGED", circuit_state="QUIET_PERIOD")
     assert bar._label is not None
     assert bar._label.text == "TRADING HALTED"
+
+
+def test_status_bar_stale_circuit_trip_is_explicit(dummy_ui: None) -> None:
+    bar = StatusBar()
+    bar.update_state("UNKNOWN", circuit_state="TRIPPED", stale=True)
+    assert bar._label is not None
+    assert bar._label.text == "TRADING HALTED (CIRCUIT)"
+
+
+def test_status_bar_stale_unknown_does_not_claim_active(dummy_ui: None) -> None:
+    bar = StatusBar()
+    bar.update_state("UNKNOWN", stale=True)
+    assert bar._label is not None
+    assert bar._label.text == "TRADING STATUS UNKNOWN"

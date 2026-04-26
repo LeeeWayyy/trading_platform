@@ -6,8 +6,9 @@ cost basis method management, and Form 8949 export/preview.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -38,6 +39,10 @@ class MarketPriceFetchError(RuntimeError):
     def __init__(self, status: str, message: str) -> None:
         super().__init__(message)
         self.status = status
+
+
+class LivePositionsUnavailableError(RuntimeError):
+    """Raised when live broker positions cannot be loaded for fallback display."""
 
 
 @ui.page("/tax-lots")
@@ -85,6 +90,7 @@ async def tax_lots_page() -> None:
     # State
     show_all_users = False
     price_status = "unavailable"
+    live_positions: list[dict[str, Any]] = []
 
     async def _load_lots() -> list[Any]:
         if show_all_users and is_admin:
@@ -92,6 +98,11 @@ async def tax_lots_page() -> None:
         return await service.list_lots(open_only=True)
 
     lots = await _load_lots()
+    if not lots and not show_all_users:
+        try:
+            live_positions = await _fetch_live_positions(user)
+        except LivePositionsUnavailableError:
+            live_positions = []
 
     # Fetch wash sale adjustments for displayed lots
     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
@@ -116,7 +127,12 @@ async def tax_lots_page() -> None:
     @ui.refreshable  # type: ignore[arg-type]
     async def summary_section() -> None:
         await _render_summary_metrics(
-            lots, current_prices, wash_sale_lot_ids, db_pool, price_status=price_status,
+            lots,
+            current_prices,
+            wash_sale_lot_ids,
+            db_pool,
+            price_status=price_status,
+            live_positions=live_positions,
         )
 
     await summary_section()
@@ -131,13 +147,19 @@ async def tax_lots_page() -> None:
                 )
                 if not allowed:
                     return
-                nonlocal show_all_users, lots, wash_sale_lot_ids, current_prices, suggestions, price_status
+                nonlocal show_all_users, lots, wash_sale_lot_ids, current_prices, suggestions, price_status, live_positions
                 show_all_users = e.value
                 lots = await _load_lots()
+                live_positions = []
+                if not lots and not show_all_users:
+                    try:
+                        live_positions = await _fetch_live_positions(user)
+                    except LivePositionsUnavailableError:
+                        live_positions = []
                 wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
                 try:
                     current_prices, price_status = await _fetch_current_prices_with_status(
-                        lots, get_current_user(),
+                        lots, user,
                     )
                 except MarketPriceFetchError as exc:
                     current_prices, price_status = ({}, exc.status)
@@ -249,12 +271,18 @@ async def tax_lots_page() -> None:
                         logger.debug("audit_log_lot_close_failed")
                     ui.notify(f"Lot {lot_id[:8]}... closed", type="positive")
                     # Refresh all sections
-                    nonlocal lots, wash_sale_lot_ids, current_prices, suggestions, price_status
+                    nonlocal lots, wash_sale_lot_ids, current_prices, suggestions, price_status, live_positions
                     lots = await _load_lots()
+                    live_positions = []
+                    if not lots and not show_all_users:
+                        try:
+                            live_positions = await _fetch_live_positions(user)
+                        except LivePositionsUnavailableError:
+                            live_positions = []
                     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
                     try:
                         current_prices, price_status = await _fetch_current_prices_with_status(
-                            lots, get_current_user(),
+                            lots, user,
                         )
                     except MarketPriceFetchError as exc:
                         current_prices, price_status = ({}, exc.status)
@@ -279,10 +307,50 @@ async def tax_lots_page() -> None:
             def lot_grid() -> None:
                 if not lots:
                     with ui.card().classes("w-full p-3 mb-2 bg-slate-800 border border-slate-600"):
-                        ui.label("No open tax lots found.").classes("text-sm text-slate-200")
-                        ui.label(
-                            "Tax lots populate after fills are reconciled into lot records."
-                        ).classes("text-xs text-slate-400")
+                        if live_positions and not show_all_users:
+                            ui.label("Tax-lot records are pending reconciliation.").classes(
+                                "text-sm text-amber-200"
+                            )
+                            ui.label(
+                                f"Detected {len(live_positions)} live broker position(s)."
+                            ).classes("text-xs text-slate-300")
+                        else:
+                            ui.label("No open tax lots found.").classes("text-sm text-slate-200")
+                            ui.label(
+                                "Tax lots populate after fills are reconciled into lot records."
+                            ).classes("text-xs text-slate-400")
+                    if live_positions and not show_all_users:
+                        columns = [
+                            {"name": "symbol", "label": "Symbol", "field": "symbol"},
+                            {"name": "qty", "label": "Qty", "field": "qty"},
+                            {"name": "avg_entry", "label": "Avg Entry", "field": "avg_entry"},
+                            {"name": "current_price", "label": "Last", "field": "current_price"},
+                            {"name": "unrealized", "label": "Unrealized P&L", "field": "unrealized"},
+                        ]
+                        rows = []
+
+                        def _format_money(value: Any, *, signed: bool = False) -> str:
+                            try:
+                                parsed = Decimal(str(value))
+                            except (ArithmeticError, TypeError, ValueError):
+                                return "-"
+                            if signed:
+                                return f"${float(parsed):+,.2f}"
+                            return f"${float(parsed):,.2f}"
+
+                        for pos in live_positions:
+                            rows.append(
+                                {
+                                    "symbol": str(pos.get("symbol", "-")),
+                                    "qty": str(pos.get("qty", "-")),
+                                    "avg_entry": _format_money(pos.get("avg_entry_price")),
+                                    "current_price": _format_money(pos.get("current_price")),
+                                    "unrealized": _format_money(pos.get("unrealized_pl"), signed=True),
+                                }
+                            )
+                        with ui.card().classes("w-full p-3 mb-3"):
+                            ui.label("Live Position Snapshot").classes("font-medium mb-2")
+                            ui.table(columns=columns, rows=rows).classes("w-full")
                 render_tax_lot_table(
                     lots,
                     wash_sale_lot_ids=wash_sale_lot_ids,
@@ -385,6 +453,15 @@ async def _fetch_current_prices_with_status(
         )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
+            if has_permission(user, Permission.VIEW_PNL):
+                logger.warning(
+                    "market_prices_forbidden_with_view_pnl",
+                    extra={"role": user.get("role")},
+                )
+                raise MarketPriceFetchError(
+                    "unavailable",
+                    "Market data service denied request despite VIEW_PNL permission",
+                ) from exc
             logger.info("market_prices_permission_denied", extra={"role": user.get("role")})
             raise MarketPriceFetchError("permission_denied", "Market data permission denied") from exc
         logger.warning("market_prices_http_error", extra={"status": exc.response.status_code})
@@ -436,6 +513,28 @@ async def _fetch_current_prices(lots: list[Any], user: dict[str, Any]) -> dict[s
         return {}
 
 
+async def _fetch_live_positions(user: dict[str, Any]) -> list[dict[str, Any]]:
+    """Fetch live broker positions for fallback display when tax lots are empty."""
+    client = AsyncTradingClient.get()
+    try:
+        payload = await asyncio.wait_for(
+            client.fetch_positions(
+                user.get("user_id", "unknown"),
+                role=user.get("role"),
+                strategies=user.get("strategies"),
+            ),
+            timeout=4.0,
+        )
+    except (TimeoutError, httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
+        logger.warning("tax_lots_live_positions_fetch_failed", exc_info=True)
+        raise LivePositionsUnavailableError("live positions unavailable") from exc
+
+    raw_positions = payload.get("positions", [])
+    if not isinstance(raw_positions, list):
+        return []
+    return [row for row in raw_positions if isinstance(row, dict)]
+
+
 async def _render_summary_metrics(
     lots: list[Any],
     current_prices: dict[str, Decimal],
@@ -443,45 +542,102 @@ async def _render_summary_metrics(
     db_pool: Any,
     *,
     price_status: str = "ok",
+    live_positions: list[dict[str, Any]] | None = None,
 ) -> None:
     """Render summary header cards."""
-    # Pro-rate cost basis for partially sold lots (remaining < quantity)
-    total_cost = sum(
-        lot.cost_basis * (lot.remaining_quantity / lot.quantity) if lot.quantity > 0
-        else lot.cost_basis
-        for lot in lots
-    )
-    total_value = Decimal("0")
-    priced_cost = Decimal("0")
-    has_prices = bool(current_prices)
+    position_fallback = list(live_positions or [])
 
-    if has_prices:
+    def _to_decimal(value: Any) -> Decimal:
+        if isinstance(value, Decimal):
+            return value
+        try:
+            return Decimal(str(value))
+        except (ArithmeticError, TypeError, ValueError):
+            return Decimal("0")
+
+    def _prorated_cost_basis(lot: Any) -> Decimal:
+        cost_basis = _to_decimal(getattr(lot, "cost_basis", Decimal("0")))
+        quantity = _to_decimal(getattr(lot, "quantity", Decimal("0")))
+        remaining = _to_decimal(getattr(lot, "remaining_quantity", Decimal("0")))
+        if quantity == Decimal("0"):
+            return Decimal("0")
+        return cost_basis * (abs(remaining) / abs(quantity))
+
+    def _holding_days(lot: Any, as_of: datetime) -> int:
+        acquired = getattr(lot, "acquired_at", None)
+        if acquired is None:
+            acquired = getattr(lot, "acquisition_date", None)
+        if isinstance(acquired, date) and not isinstance(acquired, datetime):
+            acquired_dt = datetime(acquired.year, acquired.month, acquired.day, tzinfo=UTC)
+        elif isinstance(acquired, datetime):
+            acquired_dt = acquired if acquired.tzinfo is not None else acquired.replace(tzinfo=UTC)
+        else:
+            return 0
+        return max((as_of - acquired_dt).days, 0)
+
+    # Pro-rate cost basis for partially sold lots (remaining < quantity)
+    if lots:
+        total_cost = sum(
+            (_prorated_cost_basis(lot) for lot in lots),
+            Decimal("0"),
+        )
+    else:
+        total_cost = sum(
+            (
+                abs(_to_decimal(pos.get("qty")))
+                * _to_decimal(pos.get("avg_entry_price"))
+                for pos in position_fallback
+            ),
+            Decimal("0"),
+        )
+    priced_cost = Decimal("0")
+    priced_gain = Decimal("0")
+    has_prices = bool(current_prices) or bool(position_fallback)
+
+    if lots and current_prices:
         for lot in lots:
             price = current_prices.get(lot.symbol)
             if price is not None:
-                total_value += price * lot.remaining_quantity
-                # Pro-rate cost basis for partially sold lots
-                if lot.quantity > 0:
-                    priced_cost += lot.cost_basis * (lot.remaining_quantity / lot.quantity)
-                else:
-                    priced_cost += lot.cost_basis
+                remaining_quantity = _to_decimal(getattr(lot, "remaining_quantity", 0))
+                market_value = _to_decimal(price) * remaining_quantity
+                prorated_cost = _prorated_cost_basis(lot)
+                priced_cost += prorated_cost
+                priced_gain += (
+                    market_value - prorated_cost
+                    if remaining_quantity >= Decimal("0")
+                    else prorated_cost + market_value
+                )
 
-    all_priced = has_prices and all(
+    if not lots and position_fallback:
+        priced_cost = total_cost
+
+    all_priced = bool(lots) and has_prices and all(
         current_prices.get(lot.symbol) is not None for lot in lots
     )
 
     now = datetime.now(UTC)
-    short_term = [lot for lot in lots if (now - lot.acquisition_date).days <= 365]
-    long_term = [lot for lot in lots if (now - lot.acquisition_date).days > 365]
+    short_term = [lot for lot in lots if _holding_days(lot, now) <= 365]
+    long_term = [lot for lot in lots if _holding_days(lot, now) > 365]
 
     with ui.row().classes("w-full gap-4 mb-4"):
         with ui.card().classes("flex-1 p-3"):
             ui.label("Total Cost Basis").classes("text-gray-500 text-sm")
             ui.label(f"${float(total_cost):,.2f}").classes("text-xl font-bold")
+            if lots and has_prices and not all_priced and priced_cost > 0:
+                ui.label(f"Priced subset: ${float(priced_cost):,.2f}").classes(
+                    "text-xs text-slate-400"
+                )
         with ui.card().classes("flex-1 p-3"):
             ui.label("Unrealized Gain/Loss").classes("text-gray-500 text-sm")
-            if has_prices and priced_cost > 0:
-                gain = total_value - priced_cost
+            if not lots and position_fallback:
+                fallback_unrealized = sum(
+                    _to_decimal(pos.get("unrealized_pl")) for pos in position_fallback
+                )
+                color = "text-green-500" if fallback_unrealized >= 0 else "text-red-500"
+                ui.label(f"${float(fallback_unrealized):+,.2f}").classes(f"text-xl font-bold {color}")
+                ui.label("Derived from live broker positions").classes("text-xs text-slate-400")
+            elif has_prices and priced_cost > 0:
+                gain = priced_gain
                 color = "text-green-500" if gain >= 0 else "text-red-500"
                 label = f"${float(gain):+,.2f}"
                 if not all_priced:

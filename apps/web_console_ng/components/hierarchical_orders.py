@@ -195,6 +195,17 @@ def transform_to_hierarchy(
             child_id = str(child.get("client_order_id") or "")
             child["is_parent"] = False
             child["is_child"] = True
+            child_parent_id = str(child.get("parent_client_order_id") or "")
+            if child_parent_id and child_parent_id != str(parent_id):
+                logger.debug(
+                    "hierarchy_parent_id_mismatch",
+                    extra={
+                        "child_order_id": child_id,
+                        "child_parent_client_order_id": child_parent_id,
+                        "derived_parent_client_order_id": str(parent_id),
+                    },
+                )
+            child["parent_client_order_id"] = str(parent_id)
             child["hierarchy_path"] = [parent_id, child_id]
             results.append(child)
 
@@ -206,6 +217,7 @@ def transform_to_hierarchy(
             child_id = str(child.get("client_order_id") or "")
             child["is_parent"] = False
             child["is_child"] = True
+            child["parent_client_order_id"] = str(parent_id)
             child["is_orphan"] = True
             child["hierarchy_path"] = [child_id]
             results.append(child)

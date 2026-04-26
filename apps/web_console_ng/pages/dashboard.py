@@ -12,7 +12,7 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import urlencode
 
 import httpx
 from nicegui import Client, app, events, ui
@@ -88,7 +88,7 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 from apps.web_console_ng.core.sparkline_service import SparklineDataService
 from apps.web_console_ng.core.state_manager import UserStateManager
 from apps.web_console_ng.ui.layout import main_layout
-from apps.web_console_ng.ui.root_path import resolve_rooted_path_from_ui
+from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.time import validate_and_normalize_symbol
 from libs.core.common.db import acquire_connection
 from libs.data.data_pipeline.health_monitor import get_health_monitor
@@ -1167,11 +1167,13 @@ async def dashboard(client: Client) -> None:
     bulk_action_in_progress = False
     cancel_dialog_open = False
     flatten_dialog_open = False
+    bulk_action_handlers_ready = False
 
     def _set_bulk_action_buttons_enabled(enabled: bool) -> None:
         if cancel_symbol_orders_btn is not None:
             cancel_enabled = (
                 enabled
+                and bulk_action_handlers_ready
                 and can_cancel_all_orders(user_role=user_role)
                 and not workspace_connection_read_only
                 and not cancel_dialog_open
@@ -1183,6 +1185,7 @@ async def dashboard(client: Client) -> None:
         if flatten_all_positions_btn is not None:
             flatten_enabled = (
                 enabled
+                and bulk_action_handlers_ready
                 and can_flatten_all_positions(user_role=user_role)
                 and not workspace_connection_read_only
                 and not flatten_dialog_open
@@ -1570,6 +1573,10 @@ async def dashboard(client: Client) -> None:
             return False
         return None
 
+    def _normalize_kill_switch_state(state_raw: Any) -> str:
+        state = str(state_raw or "").upper() or "UNKNOWN"
+        return "DISENGAGED" if state == "ACTIVE" else state
+
     async def check_initial_kill_switch() -> None:
         """Fetch initial kill switch status on page load."""
         nonlocal kill_switch_engaged, workspace_kill_switch_state
@@ -1579,7 +1586,7 @@ async def dashboard(client: Client) -> None:
                 role=user_role,
                 strategies=user_strategies,
             )
-            state = str(ks_status.get("state", "")).upper() or "UNKNOWN"
+            state = _normalize_kill_switch_state(ks_status.get("state", ""))
             workspace_kill_switch_state = state
             kill_switch_engaged = _parse_kill_switch_state(state)
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
@@ -1587,11 +1594,21 @@ async def dashboard(client: Client) -> None:
                 "kill_switch_initial_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
-            # Use None (unknown) on API failure to preserve fail-open path in on_close_position
-            # This allows risk-reducing closes during kill switch service outages
+            cached_state = _normalize_kill_switch_state(
+                app.storage.user.get("global_kill_switch_state")
+            )
+            if cached_state != "UNKNOWN":
+                workspace_kill_switch_state = cached_state
+            else:
+                workspace_kill_switch_state = "UNKNOWN"
+            # Preserve fail-open close behavior during kill-switch service outages.
+            # Cached state is only for UI continuity; submission guards use live checks.
             kill_switch_engaged = None
-            workspace_kill_switch_state = "UNKNOWN"
         _update_workspace_kill_switch_pill()
+        app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
+        dispatch_trading_state_event(
+            client_id, {"killSwitchState": workspace_kill_switch_state}
+        )
 
     await check_initial_kill_switch()
     _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
@@ -1611,8 +1628,13 @@ async def dashboard(client: Client) -> None:
                 "circuit_breaker_initial_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
-            workspace_circuit_breaker_state = "UNKNOWN"
+            cached_state = str(app.storage.user.get("global_circuit_state", "")).upper()
+            workspace_circuit_breaker_state = cached_state or "UNKNOWN"
         _update_workspace_circuit_breaker_pill()
+        app.storage.user["global_circuit_state"] = workspace_circuit_breaker_state
+        dispatch_trading_state_event(
+            client_id, {"circuitBreakerState": workspace_circuit_breaker_state}
+        )
 
     await check_initial_circuit_breaker()
 
@@ -1629,6 +1651,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = state
             kill_switch_engaged = _parse_kill_switch_state(state)
             _update_workspace_kill_switch_pill()
+            app.storage.user["global_kill_switch_state"] = _normalize_kill_switch_state(state)
             if state not in {"DISENGAGED", "ACTIVE"}:
                 return (False, "Cannot flatten: Kill Switch is not DISENGAGED")
             return (True, "")
@@ -1636,6 +1659,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = "UNKNOWN"
             kill_switch_engaged = None
             _update_workspace_kill_switch_pill()
+            app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
             logger.warning(
                 "flatten_all_kill_switch_check_failed",
                 extra={"user_id": user_id, "error": type(exc).__name__},
@@ -1645,6 +1669,7 @@ async def dashboard(client: Client) -> None:
             workspace_kill_switch_state = "UNKNOWN"
             kill_switch_engaged = None
             _update_workspace_kill_switch_pill()
+            app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
             logger.exception(
                 "flatten_all_kill_switch_check_unexpected_error",
                 extra={"user_id": user_id, "error": type(exc).__name__},
@@ -2017,6 +2042,9 @@ async def dashboard(client: Client) -> None:
 
         dialog.open()
 
+    bulk_action_handlers_ready = True
+    _set_bulk_action_buttons_enabled(not bulk_action_in_progress)
+
     async def on_position_update(data: dict[str, Any]) -> None:
         nonlocal position_symbols, positions_snapshot
         _mark_workspace_live_data()
@@ -2079,11 +2107,12 @@ async def dashboard(client: Client) -> None:
     async def on_kill_switch_update(data: dict[str, Any]) -> None:
         nonlocal kill_switch_engaged, workspace_kill_switch_state
         logger.info("kill_switch_update", extra={"client_id": client_id, "data": data})
-        state = str(data.get("state", "")).upper()
-        workspace_kill_switch_state = state or "UNKNOWN"
+        state = _normalize_kill_switch_state(data.get("state", ""))
+        workspace_kill_switch_state = state
         # Update cached state for instant UI responses; unknown stays None for fail-open closes
         kill_switch_engaged = _parse_kill_switch_state(state)
         _update_workspace_kill_switch_pill()
+        app.storage.user["global_kill_switch_state"] = workspace_kill_switch_state
         dispatch_trading_state_event(client_id, {"killSwitchState": state})
         await activity_feed.add_item(
             {
@@ -2101,6 +2130,7 @@ async def dashboard(client: Client) -> None:
         state = str(data.get("state", "")).upper()
         workspace_circuit_breaker_state = state or "UNKNOWN"
         _update_workspace_circuit_breaker_pill()
+        app.storage.user["global_circuit_state"] = workspace_circuit_breaker_state
         dispatch_trading_state_event(client_id, {"circuitBreakerState": state})
         await activity_feed.add_item(
             {
@@ -2935,7 +2965,11 @@ async def dashboard(client: Client) -> None:
 @requires_auth
 async def dashboard_trade_alias() -> None:
     """Legacy alias route for canonical trade workspace."""
-    ui.navigate.to(_build_trade_alias_redirect_target(ui_module=ui))
+    render_client_redirect(
+        _build_trade_alias_redirect_target(ui_module=ui),
+        ui_module=ui,
+        message="Redirecting to Trade workspace...",
+    )
 
 
 def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
@@ -2949,24 +2983,18 @@ def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
             extra={"error_type": type(exc).__name__, "error": str(exc)},
         )
         return target
-
-    scope = getattr(request, "scope", None)
-    if not isinstance(scope, dict):
+    if request is None:
         return target
 
-    raw_query = scope.get("query_string", b"")
-    if isinstance(raw_query, bytes):
-        try:
-            raw_query_str = raw_query.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            logger.warning(
-                "trade_alias_query_decode_failed",
-                extra={"error_type": type(exc).__name__, "error": str(exc)},
-            )
-            return target
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        return target
+    multi_items = getattr(query_params, "multi_items", None)
+    if callable(multi_items):
+        query_items = list(multi_items())
     else:
-        raw_query_str = str(raw_query)
-    query_items = parse_qsl(raw_query_str, keep_blank_values=False)
+        items = getattr(query_params, "items", None)
+        query_items = list(items()) if callable(items) else []
     safe_items = [(key, value) for key, value in query_items if key in TRADE_REDIRECT_QUERY_KEYS]
     if not safe_items:
         return target

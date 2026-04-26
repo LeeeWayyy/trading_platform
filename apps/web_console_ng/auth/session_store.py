@@ -762,7 +762,8 @@ class ServerSessionStore:
     def _build_device_info(self, client_ip: str, device_info: dict[str, Any]) -> dict[str, str]:
         user_agent = str(device_info.get("user_agent", ""))
         ua_hash = device_info.get("ua_hash") or hashlib.sha256(user_agent.encode()).hexdigest()
-        ip_subnet = _ip_subnet(client_ip, config.DEVICE_BINDING_SUBNET_MASK)
+        normalized_ip = _normalize_device_binding_ip(client_ip)
+        ip_subnet = _ip_subnet(normalized_ip, config.DEVICE_BINDING_SUBNET_MASK)
         return {"ip_subnet": ip_subnet, "ua_hash": str(ua_hash)}
 
     def _audit_failure(
@@ -836,6 +837,22 @@ def _ip_subnet(client_ip: str, mask_bits: int) -> str:
     mask = max(0, min(mask_bits, max_bits))
     network = ipaddress.ip_network(f"{addr}/{mask}", strict=False)
     return str(network)
+
+
+def _normalize_device_binding_ip(client_ip: str) -> str:
+    """Normalize loopback variants for stable device-binding in local dev.
+
+    Browser requests in Docker/Desktop dev can alternate between IPv4 and IPv6
+    loopback addresses (127.0.0.1 vs ::1). Treat both as a single endpoint to
+    avoid spurious mid-session logouts while keeping non-loopback binding strict.
+    """
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return client_ip
+    if addr.is_loopback:
+        return "127.0.0.1"
+    return client_ip
 
 
 def _get_user_id(session: dict[str, Any]) -> str | None:

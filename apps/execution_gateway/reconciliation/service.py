@@ -245,6 +245,25 @@ class ReconciliationService:
                 },
             )
             return False
+        except ConnectionError as exc:
+            self._state.record_reconciliation_result(
+                {
+                    "status": "failed",
+                    "mode": "startup",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "error": str(exc),
+                }
+            )
+            logger.error(
+                "Startup reconciliation failed: unexpected error",
+                exc_info=True,
+                extra={
+                    "error": str(exc),
+                    "error_type": "unexpected",
+                    "reconciliation_mode": "startup",
+                },
+            )
+            return False
 
     async def run_periodic_loop(self) -> None:
         """Run reconciliation periodically until stopped."""
