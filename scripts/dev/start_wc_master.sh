@@ -32,6 +32,10 @@ echo "Stopping docker web console (if running) to free port $HOST_PORT..."
 docker stop trading_platform_web_console_dev >/dev/null 2>&1 || true
 
 TMP_ENV_SH="$(mktemp /tmp/wc_master_env.XXXXXX.sh)"
+cleanup() {
+  rm -f "$TMP_ENV_SH"
+}
+trap cleanup EXIT INT TERM
 
 "$VENV_PY" - <<'PY' "$ENV_FILE" "$TMP_ENV_SH"
 import pathlib
@@ -114,7 +118,6 @@ echo "started pid=$PID (logs: $LOG_DIR/out.log)"
 for i in {1..60}; do
   if curl -s -o /dev/null "http://localhost:$HOST_PORT/login" 2>/dev/null; then
     echo "ready after ${i}s"
-    rm -f "$TMP_ENV_SH"
     exit 0
   fi
   sleep 1
@@ -122,5 +125,4 @@ done
 
 echo "Web console did not become ready in 60s; tailing log:"
 tail -30 "$LOG_DIR/out.log" || true
-rm -f "$TMP_ENV_SH"
 exit 1

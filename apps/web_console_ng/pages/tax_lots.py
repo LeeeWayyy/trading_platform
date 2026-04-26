@@ -145,11 +145,11 @@ async def tax_lots_page() -> None:
                 lots = await _load_lots()
                 live_positions = []
                 if not lots and not show_all_users:
-                    live_positions = await _fetch_live_positions(get_current_user())
+                    live_positions = await _fetch_live_positions(user)
                 wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
                 try:
                     current_prices, price_status = await _fetch_current_prices_with_status(
-                        lots, get_current_user(),
+                        lots, user,
                     )
                 except MarketPriceFetchError as exc:
                     current_prices, price_status = ({}, exc.status)
@@ -265,11 +265,11 @@ async def tax_lots_page() -> None:
                     lots = await _load_lots()
                     live_positions = []
                     if not lots and not show_all_users:
-                        live_positions = await _fetch_live_positions(get_current_user())
+                        live_positions = await _fetch_live_positions(user)
                     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
                     try:
                         current_prices, price_status = await _fetch_current_prices_with_status(
-                            lots, get_current_user(),
+                            lots, user,
                         )
                     except MarketPriceFetchError as exc:
                         current_prices, price_status = ({}, exc.status)
@@ -546,9 +546,9 @@ async def _render_summary_metrics(
         cost_basis = _to_decimal(getattr(lot, "cost_basis", Decimal("0")))
         quantity = _to_decimal(getattr(lot, "quantity", Decimal("0")))
         remaining = _to_decimal(getattr(lot, "remaining_quantity", Decimal("0")))
-        if quantity <= Decimal("0"):
+        if quantity == Decimal("0"):
             return cost_basis
-        return cost_basis * (remaining / quantity)
+        return cost_basis * (abs(remaining) / abs(quantity))
 
     def _holding_days(lot: Any, as_of: datetime) -> int:
         acquired = getattr(lot, "acquired_at", None)
@@ -579,14 +579,23 @@ async def _render_summary_metrics(
         )
     total_value = Decimal("0")
     priced_cost = Decimal("0")
+    priced_gain = Decimal("0")
     has_prices = bool(current_prices) or bool(position_fallback)
 
     if lots and current_prices:
         for lot in lots:
             price = current_prices.get(lot.symbol)
             if price is not None:
-                total_value += _to_decimal(price) * _to_decimal(getattr(lot, "remaining_quantity", 0))
-                priced_cost += _prorated_cost_basis(lot)
+                remaining_quantity = _to_decimal(getattr(lot, "remaining_quantity", 0))
+                market_value = _to_decimal(price) * remaining_quantity
+                prorated_cost = _prorated_cost_basis(lot)
+                total_value += market_value
+                priced_cost += prorated_cost
+                priced_gain += (
+                    market_value - prorated_cost
+                    if remaining_quantity >= Decimal("0")
+                    else prorated_cost + market_value
+                )
 
     if not lots and position_fallback:
         total_value = Decimal("0")
@@ -595,7 +604,7 @@ async def _render_summary_metrics(
             if market_value != Decimal("0"):
                 total_value += market_value
             else:
-                total_value += abs(_to_decimal(pos.get("qty"))) * _to_decimal(
+                total_value += _to_decimal(pos.get("qty")) * _to_decimal(
                     pos.get("current_price")
                 )
         priced_cost = total_cost
@@ -622,7 +631,7 @@ async def _render_summary_metrics(
                 ui.label(f"${float(fallback_unrealized):+,.2f}").classes(f"text-xl font-bold {color}")
                 ui.label("Derived from live broker positions").classes("text-xs text-slate-400")
             elif has_prices and priced_cost > 0:
-                gain = total_value - priced_cost
+                gain = priced_gain
                 color = "text-green-500" if gain >= 0 else "text-red-500"
                 label = f"${float(gain):+,.2f}"
                 if not all_priced:

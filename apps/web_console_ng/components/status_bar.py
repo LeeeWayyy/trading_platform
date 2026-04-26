@@ -69,7 +69,10 @@ class StatusBar:
                 self._set_state_classes("UNKNOWN")
                 return
             if self._label:
-                self._label.set_text("TRADING ACTIVE (STALE)")
+                if normalized in {"DISENGAGED", "ACTIVE"}:
+                    self._label.set_text("TRADING ACTIVE (STALE)")
+                else:
+                    self._label.set_text("TRADING STATUS UNKNOWN")
             self._set_state_classes("UNKNOWN")
             return
 

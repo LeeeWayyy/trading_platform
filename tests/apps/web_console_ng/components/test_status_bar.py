@@ -104,3 +104,10 @@ def test_status_bar_stale_circuit_trip_is_explicit(dummy_ui: None) -> None:
     bar.update_state("UNKNOWN", circuit_state="TRIPPED", stale=True)
     assert bar._label is not None
     assert bar._label.text == "TRADING HALTED (CIRCUIT)"
+
+
+def test_status_bar_stale_unknown_does_not_claim_active(dummy_ui: None) -> None:
+    bar = StatusBar()
+    bar.update_state("UNKNOWN", stale=True)
+    assert bar._label is not None
+    assert bar._label.text == "TRADING STATUS UNKNOWN"

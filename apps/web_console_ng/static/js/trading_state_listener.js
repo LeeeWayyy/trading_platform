@@ -63,10 +63,13 @@
         : detail.circuitState;
     const readOnly = detail.readOnly;
     const connectionState = detail.connectionState;
-    const statusStale = detail.statusStale === true;
+    const hasStatusStale = Object.prototype.hasOwnProperty.call(detail, 'statusStale');
 
     window._tradingState = window._tradingState || {};
-    window._tradingState.statusStale = statusStale;
+    if (hasStatusStale) {
+      window._tradingState.statusStale = detail.statusStale === true;
+    }
+    const statusStale = window._tradingState.statusStale === true;
 
     // Update kill switch badge
     const ksEl = document.getElementById('kill-switch-badge');

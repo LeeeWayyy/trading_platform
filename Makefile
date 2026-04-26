@@ -54,20 +54,25 @@ up-dev: ## Start all dev services (rebuild first to avoid stale images)
 	$$PYTHON scripts/ops/ensure_web_console_jwt_keys.py
 	$(MAKE) ensure-requirements
 	@set -e; \
-	BUILD_CMD="docker compose --profile dev --profile workers build"; \
-	UP_CMD="docker compose --profile dev --profile workers up -d"; \
 	if [ -n "$(DOCKER_DESKTOP_PROXY)" ]; then \
-		PROXY_ENV="http_proxy=$(DOCKER_DESKTOP_PROXY) https_proxy=$(DOCKER_DESKTOP_PROXY) HTTP_PROXY=$(DOCKER_DESKTOP_PROXY) HTTPS_PROXY=$(DOCKER_DESKTOP_PROXY)"; \
 		echo "Building dev services using proxy: $(DOCKER_DESKTOP_PROXY)"; \
-		BUILD_ARGS="--build-arg http_proxy=$(DOCKER_DESKTOP_PROXY) --build-arg https_proxy=$(DOCKER_DESKTOP_PROXY) --build-arg HTTP_PROXY=$(DOCKER_DESKTOP_PROXY) --build-arg HTTPS_PROXY=$(DOCKER_DESKTOP_PROXY)"; \
-		if ! eval "$$PROXY_ENV $$BUILD_CMD $$BUILD_ARGS"; then \
+		if ! env \
+			http_proxy="$(DOCKER_DESKTOP_PROXY)" \
+			https_proxy="$(DOCKER_DESKTOP_PROXY)" \
+			HTTP_PROXY="$(DOCKER_DESKTOP_PROXY)" \
+			HTTPS_PROXY="$(DOCKER_DESKTOP_PROXY)" \
+			docker compose --profile dev --profile workers build \
+				--build-arg http_proxy="$(DOCKER_DESKTOP_PROXY)" \
+				--build-arg https_proxy="$(DOCKER_DESKTOP_PROXY)" \
+				--build-arg HTTP_PROXY="$(DOCKER_DESKTOP_PROXY)" \
+				--build-arg HTTPS_PROXY="$(DOCKER_DESKTOP_PROXY)"; then \
 			echo "Proxy build failed, retrying direct build..."; \
-			$$BUILD_CMD; \
+			docker compose --profile dev --profile workers build; \
 		fi; \
 	else \
-		$$BUILD_CMD; \
+		docker compose --profile dev --profile workers build; \
 	fi; \
-	$$UP_CMD
+	docker compose --profile dev --profile workers up -d
 	@echo "Waiting for services to be healthy..."
 	@sleep 10
 	@docker compose --profile dev ps
