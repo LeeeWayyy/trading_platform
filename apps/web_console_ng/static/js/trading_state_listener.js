@@ -64,10 +64,17 @@
     const readOnly = detail.readOnly;
     const connectionState = detail.connectionState;
     const hasStatusStale = Object.prototype.hasOwnProperty.call(detail, 'statusStale');
+    const hasFreshTradingState =
+      typeof killSwitchState === 'string' ||
+      typeof killSwitch === 'boolean' ||
+      typeof circuitBreakerState === 'string' ||
+      typeof circuitBreaker === 'boolean';
 
     window._tradingState = window._tradingState || {};
     if (hasStatusStale) {
       window._tradingState.statusStale = detail.statusStale === true;
+    } else if (hasFreshTradingState) {
+      window._tradingState.statusStale = false;
     }
     const statusStale = window._tradingState.statusStale === true;
 

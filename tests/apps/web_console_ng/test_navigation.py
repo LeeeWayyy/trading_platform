@@ -214,7 +214,11 @@ async def _run_layout(monkeypatch: pytest.MonkeyPatch, current_path: str) -> _Fa
             pass
 
         def update_state(
-            self, state: str | None, *, circuit_state: str | None = None
+            self,
+            state: str | None,
+            *,
+            circuit_state: str | None = None,
+            stale: bool = False,
         ) -> None:
             pass
 
@@ -411,7 +415,11 @@ async def test_exposure_link_hidden_without_permission(
             pass
 
         def update_state(
-            self, state: str | None, *, circuit_state: str | None = None
+            self,
+            state: str | None,
+            *,
+            circuit_state: str | None = None,
+            stale: bool = False,
         ) -> None:
             pass
 
@@ -563,7 +571,11 @@ async def test_universes_link_hidden_without_permission(
             pass
 
         def update_state(
-            self, state: str | None, *, circuit_state: str | None = None
+            self,
+            state: str | None,
+            *,
+            circuit_state: str | None = None,
+            stale: bool = False,
         ) -> None:
             pass
 

@@ -391,8 +391,11 @@ def test_trading_state_listener_honors_stale_status_events() -> None:
     listener = listener_path.read_text(encoding="utf-8")
 
     assert "const hasStatusStale = Object.prototype.hasOwnProperty.call(detail, 'statusStale');" in listener
+    assert "const hasFreshTradingState =" in listener
     assert "if (hasStatusStale) {" in listener
     assert "window._tradingState.statusStale = detail.statusStale === true;" in listener
+    assert "} else if (hasFreshTradingState) {" in listener
+    assert "window._tradingState.statusStale = false;" in listener
     assert "const statusStale = window._tradingState.statusStale === true;" in listener
     assert "if (window._tradingState && window._tradingState.statusStale) return;" in listener
     assert "if (ksEl && !statusStale)" in listener

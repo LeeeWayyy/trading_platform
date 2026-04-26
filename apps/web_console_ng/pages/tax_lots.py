@@ -577,7 +577,6 @@ async def _render_summary_metrics(
             ),
             Decimal("0"),
         )
-    total_value = Decimal("0")
     priced_cost = Decimal("0")
     priced_gain = Decimal("0")
     has_prices = bool(current_prices) or bool(position_fallback)
@@ -589,7 +588,6 @@ async def _render_summary_metrics(
                 remaining_quantity = _to_decimal(getattr(lot, "remaining_quantity", 0))
                 market_value = _to_decimal(price) * remaining_quantity
                 prorated_cost = _prorated_cost_basis(lot)
-                total_value += market_value
                 priced_cost += prorated_cost
                 priced_gain += (
                     market_value - prorated_cost
@@ -598,15 +596,6 @@ async def _render_summary_metrics(
                 )
 
     if not lots and position_fallback:
-        total_value = Decimal("0")
-        for pos in position_fallback:
-            market_value = _to_decimal(pos.get("market_value"))
-            if market_value != Decimal("0"):
-                total_value += market_value
-            else:
-                total_value += _to_decimal(pos.get("qty")) * _to_decimal(
-                    pos.get("current_price")
-                )
         priced_cost = total_cost
 
     all_priced = bool(lots) and has_prices and all(

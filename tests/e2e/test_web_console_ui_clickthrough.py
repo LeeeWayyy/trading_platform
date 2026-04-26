@@ -393,12 +393,37 @@ def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -
         # transitions routes. Route-level failures are still caught by page
         # status/interactions, so ignore browser-level abort noise here.
         normalized_path = (parsed_url.path or "").lower()
-        if normalized_path.startswith("/_nicegui/") or normalized_path.startswith("/static/"):
-            return True
-        return normalized_path.startswith("/")
+        return normalized_path.startswith("/_nicegui/") or normalized_path.startswith(
+            "/static/"
+        )
 
     # Third-party static assets can be aborted during rapid route transitions.
     return bool(parsed_url.scheme and parsed_url.netloc)
+
+
+def test_is_ignorable_request_failure_allows_only_static_same_origin_aborts() -> None:
+    failure = "net::ERR_ABORTED"
+
+    assert _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/_nicegui/client.js",
+        failure,
+    )
+    assert _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/static/app.css",
+        failure,
+    )
+    assert not _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/api/v1/orders",
+        failure,
+    )
+    assert not _is_ignorable_request_failure(
+        "GET",
+        f"{BASE_URL}/trade",
+        failure,
+    )
 
 
 def _default_input_value(input_type: str) -> str:
