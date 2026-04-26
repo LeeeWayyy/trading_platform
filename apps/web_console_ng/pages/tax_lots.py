@@ -41,6 +41,10 @@ class MarketPriceFetchError(RuntimeError):
         self.status = status
 
 
+class LivePositionsUnavailableError(RuntimeError):
+    """Raised when live broker positions cannot be loaded for fallback display."""
+
+
 @ui.page("/tax-lots")
 @requires_auth
 @main_layout
@@ -95,7 +99,10 @@ async def tax_lots_page() -> None:
 
     lots = await _load_lots()
     if not lots and not show_all_users:
-        live_positions = await _fetch_live_positions(user)
+        try:
+            live_positions = await _fetch_live_positions(user)
+        except LivePositionsUnavailableError:
+            live_positions = []
 
     # Fetch wash sale adjustments for displayed lots
     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
@@ -145,7 +152,10 @@ async def tax_lots_page() -> None:
                 lots = await _load_lots()
                 live_positions = []
                 if not lots and not show_all_users:
-                    live_positions = await _fetch_live_positions(user)
+                    try:
+                        live_positions = await _fetch_live_positions(user)
+                    except LivePositionsUnavailableError:
+                        live_positions = []
                 wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
                 try:
                     current_prices, price_status = await _fetch_current_prices_with_status(
@@ -265,7 +275,10 @@ async def tax_lots_page() -> None:
                     lots = await _load_lots()
                     live_positions = []
                     if not lots and not show_all_users:
-                        live_positions = await _fetch_live_positions(user)
+                        try:
+                            live_positions = await _fetch_live_positions(user)
+                        except LivePositionsUnavailableError:
+                            live_positions = []
                     wash_sale_lot_ids = await _fetch_wash_sale_lot_ids(db_pool, lots)
                     try:
                         current_prices, price_status = await _fetch_current_prices_with_status(
@@ -512,9 +525,9 @@ async def _fetch_live_positions(user: dict[str, Any]) -> list[dict[str, Any]]:
             ),
             timeout=4.0,
         )
-    except (TimeoutError, httpx.HTTPError, ValueError, TypeError, RuntimeError):
+    except (TimeoutError, httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
         logger.warning("tax_lots_live_positions_fetch_failed", exc_info=True)
-        return []
+        raise LivePositionsUnavailableError("live positions unavailable") from exc
 
     raw_positions = payload.get("positions", [])
     if not isinstance(raw_positions, list):
