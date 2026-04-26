@@ -12,7 +12,7 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import urlencode
 
 import httpx
 from nicegui import Client, app, events, ui
@@ -2983,24 +2983,18 @@ def _build_trade_alias_redirect_target(*, ui_module: Any) -> str:
             extra={"error_type": type(exc).__name__, "error": str(exc)},
         )
         return target
-
-    scope = getattr(request, "scope", None)
-    if not isinstance(scope, dict):
+    if request is None:
         return target
 
-    raw_query = scope.get("query_string", b"")
-    if isinstance(raw_query, bytes):
-        try:
-            raw_query_str = raw_query.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            logger.warning(
-                "trade_alias_query_decode_failed",
-                extra={"error_type": type(exc).__name__, "error": str(exc)},
-            )
-            return target
+    query_params = getattr(request, "query_params", None)
+    if query_params is None:
+        return target
+    multi_items = getattr(query_params, "multi_items", None)
+    if callable(multi_items):
+        query_items = list(multi_items())
     else:
-        raw_query_str = str(raw_query)
-    query_items = parse_qsl(raw_query_str, keep_blank_values=False)
+        items = getattr(query_params, "items", None)
+        query_items = list(items()) if callable(items) else []
     safe_items = [(key, value) for key, value in query_items if key in TRADE_REDIRECT_QUERY_KEYS]
     if not safe_items:
         return target

@@ -245,7 +245,7 @@ class ReconciliationService:
                 },
             )
             return False
-        except Exception as exc:
+        except ConnectionError as exc:
             self._state.record_reconciliation_result(
                 {
                     "status": "failed",
