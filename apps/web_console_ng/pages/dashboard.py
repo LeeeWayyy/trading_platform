@@ -951,7 +951,7 @@ async def dashboard(client: Client) -> None:
     circuit_breaker_status_pill: _CommandStatusPill | None = None
     session_clock_pill: _CommandStatusPill | None = None
     circuit_breaker_control_btn: ui.button | None = None
-    circuit_breaker_control_tooltip: ui.tooltip | None = None
+    circuit_breaker_control_tooltip_label: ui.label | None = None
     circuit_breaker_control_tone = "workspace-v2-circuit-control-muted"
     workspace_circuit_breaker_state = "UNKNOWN"
     can_view_alerts = has_permission(user, Permission.VIEW_ALERTS)
@@ -981,11 +981,11 @@ async def dashboard(client: Client) -> None:
             can_reset=can_reset_circuit,
         )
         tone_class = f"workspace-v2-circuit-control-{tone}"
-        circuit_breaker_control_btn.set_icon(icon)
-        circuit_breaker_control_btn.props["aria-label"] = tooltip
-        circuit_breaker_control_btn.props["data-cb-action"] = action
-        if circuit_breaker_control_tooltip is not None:
-            circuit_breaker_control_tooltip.text = tooltip
+        circuit_breaker_control_btn.props(
+            f'icon={icon} aria-label="{tooltip}" data-cb-action={action}'
+        )
+        if circuit_breaker_control_tooltip_label is not None:
+            circuit_breaker_control_tooltip_label.set_text(tooltip)
         if circuit_breaker_control_tone != tone_class:
             circuit_breaker_control_btn.classes(remove=circuit_breaker_control_tone)
             circuit_breaker_control_btn.classes(add=tone_class)
@@ -1097,7 +1097,7 @@ async def dashboard(client: Client) -> None:
         await _confirm_circuit_breaker_action(action)
 
     def _render_circuit_breaker_header_action() -> None:
-        nonlocal circuit_breaker_control_btn, circuit_breaker_control_tooltip
+        nonlocal circuit_breaker_control_btn, circuit_breaker_control_tooltip_label
         circuit_breaker_control_btn = ui.button(
             icon="help_outline",
             on_click=_handle_circuit_breaker_control_click,
@@ -1105,9 +1105,10 @@ async def dashboard(client: Client) -> None:
             "workspace-v2-circuit-control workspace-v2-circuit-control-muted"
         )
         with circuit_breaker_control_btn:
-            circuit_breaker_control_tooltip = ui.tooltip(
-                "Breaker status unknown: check connection before changing state"
-            )
+            with ui.tooltip():
+                circuit_breaker_control_tooltip_label = ui.label(
+                    "Breaker status unknown: check connection before changing state"
+                )
         _update_workspace_circuit_breaker_control()
 
     # Unified Execution Workspace is the only supported trading layout.
