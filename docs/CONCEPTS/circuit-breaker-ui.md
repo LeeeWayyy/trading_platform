@@ -80,8 +80,8 @@ Example state payload:
 {
   "state": "OPEN",
   "tripped_at": null,
-  "reason": null,
-  "details": null,
+  "trip_reason": null,
+  "trip_details": null,
   "reset_at": null,
   "reset_by": null
 }

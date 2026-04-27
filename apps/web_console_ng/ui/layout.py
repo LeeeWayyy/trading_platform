@@ -888,7 +888,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         cb_status = await client.fetch_circuit_breaker_status(
                             user_id, role=user_role, strategies=user_strategies
                         )
-                        cb_state = str(cb_status.get("state", "OPEN")).upper() or "OPEN"
+                        cb_state = str(cb_status.get("state", "UNKNOWN")).upper() or "UNKNOWN"
                         if cb_state == "QUIET_PERIOD":
                             cb_state = "OPEN"
                     except (

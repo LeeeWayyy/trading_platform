@@ -745,7 +745,6 @@ async def dashboard(client: Client) -> None:
     """Main trading dashboard with real-time updates."""
     trading_client = AsyncTradingClient.get()
     user = get_current_user()
-    circuit_action_user = dict(user)
     user_id = str(user.get("user_id") or user.get("username") or "").strip()
     user_role = str(user.get("role") or "viewer")
     strategies = user.get("strategies") or []
@@ -1041,7 +1040,7 @@ async def dashboard(client: Client) -> None:
                             await run.io_bound(
                                 cb_service.trip,
                                 TRADE_WORKSPACE_CIRCUIT_TRIP_REASON,
-                                circuit_action_user,
+                                dict(user),
                                 acknowledged=True,
                             )
                             ui.notify("Circuit breaker tripped", type="positive")
@@ -1050,7 +1049,7 @@ async def dashboard(client: Client) -> None:
                             await run.io_bound(
                                 cb_service.reset,
                                 TRADE_WORKSPACE_CIRCUIT_RESET_REASON,
-                                circuit_action_user,
+                                dict(user),
                                 acknowledged=True,
                             )
                             ui.notify("Trading resumed", type="positive")

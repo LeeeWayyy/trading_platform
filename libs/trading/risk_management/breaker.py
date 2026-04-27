@@ -646,9 +646,6 @@ class CircuitBreaker:
                 'reset_by': None
             }
         """
-        # Ensure legacy transitional states are normalized in the status payload
-        # without mutating Redis from a read-only getter path.
-        normalized_state = self.get_state()
         state_json = self.redis.get(self.state_key)
         if not state_json:
             # FAIL CLOSED: Do not auto-reinitialize (matches get_state behavior)
@@ -662,6 +659,12 @@ class CircuitBreaker:
             )
 
         state_data: dict[str, Any] = json.loads(state_json)
+        raw_state = str(state_data.get("state", "")).upper()
+        normalized_state = (
+            CircuitBreakerState.OPEN
+            if raw_state == CircuitBreakerState.QUIET_PERIOD.value
+            else CircuitBreakerState(raw_state)
+        )
         state_data["state"] = normalized_state.value
         return state_data
 
