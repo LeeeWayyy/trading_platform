@@ -15,10 +15,41 @@ The key is namespaced by ENVIRONMENT to prevent cross-env throttling
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import Protocol, cast
 
-if TYPE_CHECKING:
-    from libs.core.redis_client import RedisClient
+
+class RedisRateLimitClient(Protocol):
+    """Redis operations required for circuit-breaker reset rate limiting."""
+
+    def eval(self, script: str, numkeys: int, *keys_and_args: str) -> int | str:
+        """Run a Redis Lua script."""
+        ...
+
+    def delete(self, *keys: str) -> object:
+        """Delete Redis keys."""
+        ...
+
+
+class RedisWrapperRateLimitClient(RedisRateLimitClient, Protocol):
+    """Project RedisClient wrapper with SET NX helper."""
+
+    def set_if_not_exists(self, key: str, value: str, ex: int | None = None) -> bool:
+        """Set a key only when it does not already exist."""
+        ...
+
+
+class RedisPyRateLimitClient(RedisRateLimitClient, Protocol):
+    """redis-py client surface used by the NiceGUI sync dependency."""
+
+    def set(
+        self,
+        name: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> object:
+        """Set a key with optional expiration and NX semantics."""
+        ...
 
 
 # Lua script for atomic INCR + EXPIRE (prevents race condition/orphaned keys)
@@ -56,7 +87,7 @@ class CBRateLimiter:
 
     KEY_PREFIX = "cb_ratelimit"
 
-    def __init__(self, redis_client: RedisClient) -> None:
+    def __init__(self, redis_client: RedisRateLimitClient) -> None:
         """Initialize the rate limiter.
 
         Args:
@@ -86,10 +117,11 @@ class CBRateLimiter:
             # client directly.
             set_if_not_exists = getattr(self.redis, "set_if_not_exists", None)
             if callable(set_if_not_exists):
-                return bool(set_if_not_exists(self.key, "1", ex=window))
+                wrapper_client = cast(RedisWrapperRateLimitClient, self.redis)
+                return wrapper_client.set_if_not_exists(self.key, "1", ex=window)
 
-            redis_client: Any = self.redis
-            return bool(redis_client.set(self.key, "1", ex=window, nx=True))
+            redis_py_client = cast(RedisPyRateLimitClient, self.redis)
+            return bool(redis_py_client.set(self.key, "1", ex=window, nx=True))
 
         # For limit > 1, use Lua script for atomic INCR + EXPIRE
         # This eliminates the race condition where a crash between INCR and EXPIRE

@@ -1848,7 +1848,7 @@ async def dashboard(client: Client) -> None:
                 role=user_role,
                 strategies=user_strategies,
             )
-            workspace_circuit_breaker_state = str(cb_status.get("state", "")).upper() or "OPEN"
+            workspace_circuit_breaker_state = str(cb_status.get("state", "")).upper() or "UNKNOWN"
             if workspace_circuit_breaker_state == "QUIET_PERIOD":
                 workspace_circuit_breaker_state = "OPEN"
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
@@ -1857,7 +1857,7 @@ async def dashboard(client: Client) -> None:
                 extra={"user_id": user_id, "error": type(exc).__name__},
             )
             cached_state = str(app.storage.user.get("global_circuit_state", "")).upper()
-            workspace_circuit_breaker_state = cached_state or "OPEN"
+            workspace_circuit_breaker_state = cached_state or "UNKNOWN"
             if workspace_circuit_breaker_state == "QUIET_PERIOD":
                 workspace_circuit_breaker_state = "OPEN"
         _update_workspace_circuit_breaker_pill()

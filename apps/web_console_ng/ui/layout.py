@@ -449,7 +449,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             with ui.row().classes("gap-2 items-center flex-nowrap h-10 shrink-0 overflow-x-auto"):
                 kill_switch_button = (
                     ui.button(
-                        "KILL SWITCH: DISENGAGED",
+                        "KILL SWITCH: UNKNOWN",
                     )
                     .classes(
                         "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 shrink-0"
@@ -475,7 +475,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     .props("id=kill-switch-disengage")
                 )
                 circuit_breaker_badge = (
-                    ui.label("CIRCUIT OK")
+                    ui.label("CIRCUIT: UNKNOWN")
                     .classes(
                         "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 flex items-center shrink-0"
                     )
@@ -865,8 +865,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         header_metrics.mark_stale()
                     dispatch_trading_state(
                         {
-                            "killSwitchState": last_kill_switch_state or "DISENGAGED",
-                            "circuitState": last_circuit_state or "OPEN",
+                            "killSwitchState": last_kill_switch_state or "UNKNOWN",
+                            "circuitState": last_circuit_state or "UNKNOWN",
                             "statusStale": True,
                         }
                     )
@@ -907,7 +907,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                                 "error_type": type(e).__name__,
                             },
                         )
-                        cb_state = "OPEN"
+                        cb_state = "UNKNOWN"
 
                     _render_kill_switch_state(display_state)
                     _update_status_bar(display_state, cb_state, stale=False)
@@ -939,7 +939,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     # Keep last known-good state on transient failures to avoid dashboard churn.
                     if last_kill_switch_state is not None:
                         cached_state = last_kill_switch_state
-                        cached_cb_state = last_circuit_state or "OPEN"
+                        cached_cb_state = last_circuit_state or "UNKNOWN"
                         kill_switch_state = cached_state
                         _render_kill_switch_state(cached_state, stale=True)
                         _update_status_bar(cached_state, cached_cb_state, stale=True)
@@ -953,7 +953,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         )
                         set_kill_switch_controls(cached_state)
                     else:
-                        fallback_cb_state = last_circuit_state or "OPEN"
+                        fallback_cb_state = last_circuit_state or "UNKNOWN"
                         if fallback_cb_state == "UNKNOWN":
                             try:
                                 # Use a short fallback timeout to avoid compounding status-loop latency
@@ -964,7 +964,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                                     timeout=1.5,
                                 )
                                 fallback_cb_state = (
-                                    str(cb_status.get("state", "OPEN")).upper() or "OPEN"
+                                    str(cb_status.get("state", "UNKNOWN")).upper() or "UNKNOWN"
                                 )
                                 if fallback_cb_state == "QUIET_PERIOD":
                                     fallback_cb_state = "OPEN"
@@ -977,15 +977,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                                 KeyError,
                                 TypeError,
                             ):
-                                fallback_cb_state = "OPEN"
-                        kill_switch_state = "DISENGAGED"
-                        _render_kill_switch_state("DISENGAGED", stale=True)
-                        _update_status_bar("DISENGAGED", fallback_cb_state, stale=True)
-                        set_kill_switch_controls("DISENGAGED")
+                                fallback_cb_state = "UNKNOWN"
+                        kill_switch_state = "UNKNOWN"
+                        _render_kill_switch_state("UNKNOWN", stale=True)
+                        _update_status_bar("UNKNOWN", fallback_cb_state, stale=True)
+                        set_kill_switch_controls("UNKNOWN")
                         _render_circuit_breaker_state(fallback_cb_state)
                         dispatch_trading_state(
                             {
-                                "killSwitchState": "DISENGAGED",
+                                "killSwitchState": "UNKNOWN",
                                 "circuitState": fallback_cb_state,
                                 "statusStale": True,
                             }
