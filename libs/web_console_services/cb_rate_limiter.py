@@ -117,7 +117,7 @@ class CBRateLimiter:
                 key, value, ex=ex
             )
 
-        if isinstance(redis_client, RedisPyRateLimitClient):
+        elif isinstance(redis_client, RedisPyRateLimitClient):
             redis_py_client = cast(RedisPyRateLimitClient, redis_client)
             return lambda key, value, ex: bool(
                 redis_py_client.set(key, value, ex=ex, nx=True)

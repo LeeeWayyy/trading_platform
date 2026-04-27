@@ -479,7 +479,8 @@ class CircuitBreakerService:
         admin_action_total.labels(action=action).inc()
 
         # Merge reason with additional details
-        audit_details: dict[str, Any] = {"reason": str(reason)}
+        reason_text = str(reason)
+        audit_details: dict[str, Any] = {"reason": reason_text}
         if details:
             audit_details.update(details)
 
@@ -517,7 +518,7 @@ class CircuitBreakerService:
                             resource_id,
                             user_id,
                             json.dumps(audit_details),
-                            reason,
+                            reason_text,
                             ip_address,
                             outcome,
                         ),

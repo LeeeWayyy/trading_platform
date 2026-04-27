@@ -245,7 +245,8 @@ class CircuitBreaker:
 
         # Normalize legacy QUIET_PERIOD payloads in memory only. get_state()
         # remains read-only; cleanup of old Redis payloads belongs in an
-        # explicit migration/maintenance path, not a getter.
+        # explicit migration/maintenance path, not this getter or a background
+        # task triggered by it.
         if state_data["state"] == CircuitBreakerState.QUIET_PERIOD.value:
             logger.debug("Treating legacy QUIET_PERIOD state as OPEN")
             return CircuitBreakerState.OPEN
