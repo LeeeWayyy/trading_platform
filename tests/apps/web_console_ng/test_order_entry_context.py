@@ -736,6 +736,17 @@ class TestVerifySafetyState:
         assert result is False
 
     @pytest.mark.asyncio()
+    async def test_verify_circuit_breaker_legacy_quiet_period(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Legacy QUIET_PERIOD is safe after quiet-period removal."""
+        context._redis.get = AsyncMock(return_value=json.dumps({"state": "QUIET_PERIOD"}))
+
+        result = await context._verify_circuit_breaker_safe()
+
+        assert result is True
+
+    @pytest.mark.asyncio()
     async def test_verify_circuit_breaker_missing(self, context: OrderEntryContext) -> None:
         """Missing circuit breaker returns False."""
         context._redis.get = AsyncMock(return_value=None)

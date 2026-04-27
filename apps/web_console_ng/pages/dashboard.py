@@ -1169,7 +1169,11 @@ async def dashboard(client: Client) -> None:
 
                 order_context.create_order_ticket(
                     show_execution_context_ribbon=False,
-                    header_actions=_render_circuit_breaker_header_action,
+                    header_actions=(
+                        _render_circuit_breaker_header_action
+                        if config.FEATURE_CIRCUIT_BREAKER
+                        else None
+                    ),
                 )
 
                 with ui.element("div").classes("workspace-v2-panel"):

@@ -825,7 +825,7 @@ class OrderEntryContext:
         Fetches directly from Redis (not cached pub/sub state) for authoritative check.
 
         Returns:
-            True if circuit breaker is OPEN (trading allowed).
+            True if circuit breaker is OPEN or legacy QUIET_PERIOD (trading allowed).
             False if TRIPPED, unknown, timeout, or error (fail-closed).
         """
         try:
@@ -841,6 +841,9 @@ class OrderEntryContext:
 
                 tripped_at = cb_data.get("tripped_at")
                 reset_at = cb_data.get("reset_at")
+
+                if cb_state == "QUIET_PERIOD":
+                    return True
 
                 if cb_state == "OPEN":
                     if reset_at:

@@ -259,6 +259,20 @@ class TestCircuitBreakerStateQueries:
 
         assert status == state_data
 
+    def test_get_status_normalizes_legacy_quiet_period(self, mock_redis_client):
+        """Test get_status returns normalized state for legacy QUIET_PERIOD payloads."""
+        state_data = {
+            "state": CircuitBreakerState.QUIET_PERIOD.value,
+            "reset_at": "2025-10-19T15:30:00+00:00",
+            "trip_count_today": 1,
+        }
+        mock_redis_client.get.return_value = json.dumps(state_data)
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        status = breaker.get_status()
+
+        assert status == {**state_data, "state": CircuitBreakerState.OPEN.value}
+
 
 class TestCircuitBreakerTripOperation:
     """Tests for trip() operation."""

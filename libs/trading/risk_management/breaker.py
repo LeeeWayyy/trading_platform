@@ -646,9 +646,9 @@ class CircuitBreaker:
                 'reset_by': None
             }
         """
-        # Ensure legacy transitional states are normalized before returning a
-        # status payload to UI/API callers.
-        self.get_state()
+        # Ensure legacy transitional states are normalized in the status payload
+        # without mutating Redis from a read-only getter path.
+        normalized_state = self.get_state()
         state_json = self.redis.get(self.state_key)
         if not state_json:
             # FAIL CLOSED: Do not auto-reinitialize (matches get_state behavior)
@@ -661,7 +661,9 @@ class CircuitBreaker:
                 "operator must verify safety and manually reinitialize if appropriate."
             )
 
-        return json.loads(state_json)  # type: ignore[no-any-return]
+        state_data: dict[str, Any] = json.loads(state_json)
+        state_data["state"] = normalized_state.value
+        return state_data
 
     def get_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """
