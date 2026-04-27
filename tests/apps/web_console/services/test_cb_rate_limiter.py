@@ -49,6 +49,19 @@ class TestCBRateLimiter:
         assert result is False
         mock_redis.set_if_not_exists.assert_called_once_with(rate_limiter.key, "1", ex=60)
 
+    def test_limit_one_supports_redis_py_set_nx_ex(self) -> None:
+        """Runtime redis-py clients should use SET NX EX directly."""
+        redis_client = MagicMock(spec=["set", "eval", "delete"])
+        redis_client.set.return_value = True
+        with patch.dict("os.environ", {"ENVIRONMENT": "test"}):
+            rate_limiter = CBRateLimiter(redis_client)
+
+        result = rate_limiter.check_global(limit=1, window=60)
+
+        assert result is True
+        redis_client.set.assert_called_once_with(rate_limiter.key, "1", ex=60, nx=True)
+        redis_client.eval.assert_not_called()
+
     def test_lua_script_used_for_limit_gt_1(
         self, rate_limiter: CBRateLimiter, mock_redis: MagicMock
     ) -> None:

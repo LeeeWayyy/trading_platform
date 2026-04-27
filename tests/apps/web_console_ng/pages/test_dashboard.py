@@ -155,3 +155,55 @@ def test_trade_alias_redirect_target_preserves_safe_query_params(
 
     target = dashboard_module._build_trade_alias_redirect_target(ui_module=dummy_ui)
     assert target == "/console?symbol=AAPL&qty=5&side=buy"
+
+
+def test_workspace_circuit_breaker_control_states() -> None:
+    assert dashboard_module.resolve_workspace_circuit_breaker_control(
+        "OPEN",
+        can_trip=True,
+        can_reset=True,
+    ) == (
+        "lock",
+        "normal",
+        "Halt new order entries after confirmation",
+        True,
+        "trip",
+    )
+
+    assert dashboard_module.resolve_workspace_circuit_breaker_control(
+        "TRIPPED",
+        can_trip=True,
+        can_reset=True,
+    ) == (
+        "lock_open",
+        "danger",
+        "Resume trading after confirmation",
+        True,
+        "reset",
+    )
+
+    assert dashboard_module.resolve_workspace_circuit_breaker_control(
+        "UNKNOWN",
+        can_trip=True,
+        can_reset=True,
+    ) == (
+        "help_outline",
+        "muted",
+        "Breaker status unknown: check connection before changing state",
+        False,
+        "none",
+    )
+
+
+def test_dashboard_removes_standalone_circuit_breaker_page_from_quick_links() -> None:
+    links = dashboard_module.resolve_workspace_quick_links(
+        user_role="admin",
+        feature_alerts_enabled=True,
+        can_view_alerts=True,
+        can_view_data_quality=True,
+        feature_strategy_management_enabled=True,
+        can_manage_strategies=True,
+        feature_model_registry_enabled=True,
+        can_view_models=True,
+    )
+    assert "/circuit-breaker" not in {path for _, path in links}

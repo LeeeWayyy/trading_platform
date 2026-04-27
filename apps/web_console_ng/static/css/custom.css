@@ -1070,3 +1070,62 @@
     min-height: 24px !important;
     padding: 2px 8px !important;
 }
+
+.workspace-v2-circuit-control {
+    width: 28px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    border: 1px solid rgba(71, 85, 105, 0.78);
+    background: rgba(15, 23, 42, 0.82) !important;
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        color 140ms ease;
+}
+
+.workspace-v2-circuit-control-normal {
+    color: #34d399 !important;
+    border-color: rgba(52, 211, 153, 0.52);
+    box-shadow: 0 0 14px rgba(52, 211, 153, 0.14);
+}
+
+.workspace-v2-circuit-control-danger {
+    color: #fb7185 !important;
+    border-color: rgba(251, 113, 133, 0.62);
+    box-shadow: 0 0 16px rgba(251, 113, 133, 0.24);
+}
+
+.workspace-v2-circuit-control-warning {
+    color: #fbbf24 !important;
+    border-color: rgba(251, 191, 36, 0.58);
+    box-shadow: 0 0 14px rgba(251, 191, 36, 0.18);
+}
+
+.workspace-v2-circuit-control-muted {
+    color: #94a3b8 !important;
+    border-color: rgba(100, 116, 139, 0.58);
+}
+
+.workspace-v2-circuit-control[disabled] {
+    opacity: 0.58 !important;
+}
+
+.workspace-v2-circuit-dialog {
+    width: min(440px, calc(100vw - 32px));
+    border: 1px solid rgba(71, 85, 105, 0.74);
+    background: linear-gradient(145deg, #0f172a 0%, #111827 100%) !important;
+    color: #e5e7eb;
+}
+
+.workspace-v2-circuit-dialog-title {
+    color: #f8fafc;
+    font-size: 0.94rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.workspace-v2-circuit-dialog-copy {
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}

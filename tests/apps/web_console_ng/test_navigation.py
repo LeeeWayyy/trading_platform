@@ -330,7 +330,6 @@ def test_navigation_item_structure() -> None:
     assert items == [
         ("Trade", "/", "candlestick_chart", None),
         ("Research Workspace", "/research", "hub", None),
-        ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
         ("System Health", "/health", "monitor_heart", None),
         ("Risk Analytics", "/risk", "trending_up", None),
         ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8

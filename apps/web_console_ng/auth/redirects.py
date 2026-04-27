@@ -12,7 +12,6 @@ ALLOWED_REDIRECT_PATHS = {
     "/",
     "/trade",
     "/research",
-    "/circuit-breaker",
     "/risk",
     "/admin",
     "/tax-lots",
@@ -38,7 +37,6 @@ ALLOWED_REDIRECT_QUERY_KEYS_BY_PATH: dict[str, frozenset[str]] = {
     "/research": RESEARCH_ALLOWED_QUERY_KEYS,
     "/risk": frozenset({"symbol", "tab", "view"}),
     "/tax-lots": frozenset({"symbol", "tab", "view"}),
-    "/circuit-breaker": frozenset({"tab", "view"}),
     # The nested ``next`` value is only a transport parameter for MFA handoff.
     # It must be re-sanitized by the MFA page before any redirect action.
     "/mfa-verify": frozenset({"pending", "next"}),

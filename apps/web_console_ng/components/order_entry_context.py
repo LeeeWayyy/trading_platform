@@ -417,7 +417,12 @@ class OrderEntryContext:
         self._dom_ladder = DOMLadderComponent(levels=levels)
         return self._dom_ladder.create()
 
-    def create_order_ticket(self, *, show_execution_context_ribbon: bool = True) -> Any:
+    def create_order_ticket(
+        self,
+        *,
+        show_execution_context_ribbon: bool = True,
+        header_actions: Callable[[], None] | None = None,
+    ) -> Any:
         """Create and configure the OrderTicket component.
 
         Creates the component, wires up safety verification callbacks,
@@ -425,6 +430,7 @@ class OrderEntryContext:
 
         Args:
             show_execution_context_ribbon: Render compact execution snapshot row on ticket.
+            header_actions: Optional factory for compact ticket-header controls.
 
         Returns:
             The OrderTicket UI card (nicegui element).
@@ -443,7 +449,8 @@ class OrderEntryContext:
             verify_kill_switch=self.get_verify_kill_switch(),
         )
         return self._order_ticket.create(
-            show_execution_context_ribbon=show_execution_context_ribbon
+            show_execution_context_ribbon=show_execution_context_ribbon,
+            header_actions=header_actions,
         )
 
     # NOTE: _on_market_context_price_updated was removed to avoid redundant double-dispatch.
@@ -641,7 +648,8 @@ class OrderEntryContext:
                     elif cb_state == "TRIPPED":
                         cb_reason = cb_data.get("trip_reason", "Initial state: TRIPPED")
                     elif cb_state == "QUIET_PERIOD":
-                        cb_reason = "Initial state: QUIET_PERIOD (transitional)"
+                        cb_tripped = False
+                        cb_reason = None  # type: ignore[assignment]
                     else:
                         cb_reason = f"Initial state: Unknown ({cb_state!r})"
                 except (json.JSONDecodeError, TypeError, AttributeError) as exc:
@@ -818,7 +826,7 @@ class OrderEntryContext:
 
         Returns:
             True if circuit breaker is OPEN (trading allowed).
-            False if TRIPPED, QUIET_PERIOD, unknown, timeout, or error (fail-closed).
+            False if TRIPPED, unknown, timeout, or error (fail-closed).
         """
         try:
             cb_raw = await asyncio.wait_for(
@@ -997,8 +1005,8 @@ class OrderEntryContext:
             tripped = True
             reason = "Malformed circuit breaker state"
         elif state == "QUIET_PERIOD":
-            tripped = True
-            reason = "Circuit breaker in quiet period"
+            tripped = False
+            reason = None
         elif state == "TRIPPED":
             tripped = True
             raw_reason = data.get("trip_reason")

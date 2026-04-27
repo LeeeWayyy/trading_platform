@@ -817,7 +817,7 @@ async def test_on_close_position_circuit_breaker_tripped_warns_but_allows(
 async def test_on_close_position_circuit_breaker_quiet_period_warns(
     dummy_ui_with_dialog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Circuit breaker in QUIET_PERIOD warns but allows close."""
+    """Legacy QUIET_PERIOD is treated as open and allows close without warning."""
     mock_client = AsyncMock()
     mock_client.fetch_kill_switch_status.return_value = {"state": "DISENGAGED"}
     mock_client.fetch_circuit_breaker_status.return_value = {"state": "QUIET_PERIOD"}
@@ -827,7 +827,7 @@ async def test_on_close_position_circuit_breaker_quiet_period_warns(
     await grid_module.on_close_position("AAPL", 10, "user-1", "admin")
 
     assert dummy_ui_with_dialog["dialog"].is_open
-    assert any("QUIET_PERIOD" in message for message, _ in dummy_ui_with_dialog["notify_calls"])
+    assert not any("QUIET_PERIOD" in message for message, _ in dummy_ui_with_dialog["notify_calls"])
 
 
 @pytest.mark.asyncio()

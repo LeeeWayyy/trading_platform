@@ -18,10 +18,10 @@ class StatusBar:
             "w-full h-6 flex items-center justify-center text-xs font-semibold tracking-wide"
         ).props("id=global-status-banner")
         with self._container:
-            self._label = ui.label("TRADING STATUS UNKNOWN").classes("uppercase").props(
+            self._label = ui.label("TRADING ACTIVE").classes("uppercase").props(
                 "id=global-status-banner-label"
             )
-        self._set_state_classes("UNKNOWN")
+        self._set_state_classes("DISENGAGED")
 
     def _set_state_classes(self, state: str) -> None:
         if not self._container:
@@ -63,11 +63,6 @@ class StatusBar:
                     )
                 self._set_state_classes("ENGAGED")
                 return
-            if cb_normalized == "QUIET_PERIOD":
-                if self._label:
-                    self._label.set_text("TRADING PAUSED (QUIET)")
-                self._set_state_classes("UNKNOWN")
-                return
             if self._label:
                 if normalized in {"DISENGAGED", "ACTIVE"}:
                     self._label.set_text("TRADING ACTIVE (STALE)")
@@ -86,12 +81,6 @@ class StatusBar:
                 self._label.set_text("TRADING HALTED")
             self._set_state_classes("ENGAGED")
             return
-        if cb_normalized == "QUIET_PERIOD":
-            if self._label:
-                self._label.set_text("TRADING PAUSED (QUIET)")
-            self._set_state_classes("UNKNOWN")
-            return
-
         if self._label:
             if normalized in {"DISENGAGED", "ACTIVE"}:
                 self._label.set_text("TRADING ACTIVE")

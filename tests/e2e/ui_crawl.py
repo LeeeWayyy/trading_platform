@@ -54,7 +54,6 @@ DEFAULT_ROUTES = [
     "/execution-quality",
     "/journal",
     "/notebooks",
-    "/circuit-breaker",
     "/admin",
     "/health",
 ]

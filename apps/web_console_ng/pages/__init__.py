@@ -21,7 +21,6 @@ _PAGE_MODULES = (
     "apps.web_console_ng.pages.alpha_explorer",
     "apps.web_console_ng.pages.attribution",
     "apps.web_console_ng.pages.backtest",
-    "apps.web_console_ng.pages.circuit_breaker",
     "apps.web_console_ng.pages.compare",
     "apps.web_console_ng.pages.dashboard",
     "apps.web_console_ng.pages.data_coverage",

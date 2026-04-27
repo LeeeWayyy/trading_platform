@@ -33,14 +33,7 @@
       return;
     }
 
-    if (circuit === 'QUIET_PERIOD') {
-      label.textContent = 'TRADING PAUSED (QUIET)';
-      banner.classList.add('bg-yellow-500', 'text-black');
-      banner.classList.remove('bg-red-600', 'bg-green-600', 'text-white');
-      return;
-    }
-
-    if (state === 'DISENGAGED' || state === 'ACTIVE') {
+    if (state === 'DISENGAGED' || state === 'ACTIVE' || circuit === 'OPEN' || circuit === 'QUIET_PERIOD') {
       label.textContent = 'TRADING ACTIVE';
       banner.classList.add('bg-green-600', 'text-white');
       banner.classList.remove('bg-red-600', 'bg-yellow-500', 'text-black');
@@ -118,14 +111,10 @@
           cbEl.textContent = 'CIRCUIT TRIPPED';
           cbEl.classList.add('bg-red-500', 'text-white');
           cbEl.classList.remove('bg-green-500', 'bg-yellow-500', 'text-black');
-        } else if (state === 'OPEN') {
+        } else if (state === 'OPEN' || state === 'QUIET_PERIOD') {
           cbEl.textContent = 'CIRCUIT OK';
           cbEl.classList.add('bg-green-500', 'text-white');
           cbEl.classList.remove('bg-red-500', 'bg-yellow-500', 'text-black');
-        } else if (state === 'QUIET_PERIOD') {
-          cbEl.textContent = 'CIRCUIT QUIET PERIOD';
-          cbEl.classList.add('bg-yellow-500', 'text-black');
-          cbEl.classList.remove('bg-red-500', 'bg-green-500', 'text-white');
         } else {
           cbEl.textContent = `CIRCUIT: ${state || 'UNKNOWN'}`;
           cbEl.classList.add('bg-yellow-500', 'text-black');

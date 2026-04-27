@@ -424,7 +424,7 @@ async def on_close_position(
             strategies=strategies,
         )
         cb_state = str(cb_status.get("state", "")).upper()
-        if cb_state in {"TRIPPED", "ENGAGED", "ON", "QUIET_PERIOD"}:
+        if cb_state in {"TRIPPED", "ENGAGED", "ON"}:
             logger.info(
                 "close_position_circuit_breaker_tripped",
                 extra={

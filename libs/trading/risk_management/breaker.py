@@ -5,7 +5,7 @@ The circuit breaker automatically halts trading when risk conditions are violate
 (e.g., daily loss limit exceeded, max drawdown breached, data staleness).
 
 State Machine:
-    OPEN → (violation detected) → TRIPPED → (manual reset) → QUIET_PERIOD → OPEN
+    OPEN → (violation detected) → TRIPPED → (manual reset) → OPEN
 
 Storage:
     State persisted in Redis for fast access and cross-service consistency.
@@ -34,7 +34,7 @@ See Also:
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, cast
 
@@ -60,7 +60,7 @@ class CircuitBreakerState(str, Enum):
 
     OPEN: Normal trading allowed
     TRIPPED: Trading blocked (new entries forbidden)
-    QUIET_PERIOD: Monitoring only after reset (5 min before returning to OPEN)
+    QUIET_PERIOD: Deprecated transitional state from older deployments.
     """
 
     OPEN = "OPEN"
@@ -102,16 +102,16 @@ class CircuitBreaker:
         True
         >>> breaker.reset()
         >>> breaker.get_state()
-        <CircuitBreakerState.QUIET_PERIOD: 'QUIET_PERIOD'>
+        <CircuitBreakerState.OPEN: 'OPEN'>
 
     Notes:
         - State transitions are atomic (Redis operations)
         - All operations logged to trip history
-        - Quiet period lasts 5 minutes after reset
+        - Manual reset returns directly to OPEN after operator confirmation
         - Thread-safe via Redis atomic operations
     """
 
-    QUIET_PERIOD_DURATION = 300  # 5 minutes in seconds
+    QUIET_PERIOD_DURATION = 0  # Deprecated: reset reopens immediately.
 
     def __init__(self, redis_client: RedisClient, auto_initialize: bool = False):
         """
@@ -207,10 +207,10 @@ class CircuitBreaker:
         """
         Get current circuit breaker state.
 
-        Automatically transitions from QUIET_PERIOD to OPEN if quiet period expired.
+        Automatically transitions legacy QUIET_PERIOD payloads to OPEN.
 
         Returns:
-            Current state (OPEN, TRIPPED, or QUIET_PERIOD)
+            Current state (OPEN or TRIPPED). Legacy QUIET_PERIOD is normalized.
 
         Raises:
             RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
@@ -243,19 +243,12 @@ class CircuitBreaker:
 
         state_data = json.loads(state_json)
 
-        # Check if quiet period expired
+        # Normalize legacy QUIET_PERIOD payloads to OPEN immediately. The
+        # operator confirmation dialog is now the only reset friction.
         if state_data["state"] == CircuitBreakerState.QUIET_PERIOD.value:
-            if state_data.get("reset_at"):
-                reset_at = datetime.fromisoformat(state_data["reset_at"])
-                elapsed = datetime.now(UTC) - reset_at
-                if elapsed > timedelta(seconds=self.QUIET_PERIOD_DURATION):
-                    # Auto-transition to OPEN
-                    logger.info(
-                        f"Quiet period expired after {elapsed.total_seconds():.0f}s, "
-                        f"transitioning to OPEN"
-                    )
-                    self._transition_to_open()
-                    return CircuitBreakerState.OPEN
+            logger.info("Normalizing legacy QUIET_PERIOD state to OPEN")
+            self._transition_to_open()
+            return CircuitBreakerState.OPEN
 
         return CircuitBreakerState(state_data["state"])
 
@@ -280,7 +273,7 @@ class CircuitBreaker:
         """
         Trip the circuit breaker atomically.
 
-        Transitions state from OPEN/QUIET_PERIOD to TRIPPED and logs reason.
+        Transitions state from OPEN to TRIPPED and logs reason.
         Uses WATCH/MULTI/EXEC transaction to prevent race conditions in
         multi-process/multi-threaded environments.
 
@@ -390,11 +383,10 @@ class CircuitBreaker:
 
     def reset(self, reset_by: str = "system") -> None:
         """
-        Reset circuit breaker from TRIPPED to QUIET_PERIOD atomically.
+        Reset circuit breaker from TRIPPED to OPEN atomically.
 
-        Requires manual intervention. Starts 5-minute quiet period before
-        returning to OPEN state. Uses WATCH/MULTI/EXEC transaction to prevent
-        race conditions.
+        Requires manual intervention. Uses WATCH/MULTI/EXEC transaction to
+        prevent race conditions.
 
         Args:
             reset_by: Identifier of who/what reset the breaker (e.g., "operator", "system")
@@ -407,11 +399,10 @@ class CircuitBreaker:
             >>> # ... conditions cleared ...
             >>> breaker.reset(reset_by="operator")
             >>> breaker.get_state()
-            <CircuitBreakerState.QUIET_PERIOD: 'QUIET_PERIOD'>
+            <CircuitBreakerState.OPEN: 'OPEN'>
 
         Notes:
             - Only valid when state is TRIPPED
-            - Automatically transitions to OPEN after 5 minutes
             - Updates trip history with reset timestamp
             - Retries automatically on concurrent modification (WatchError)
             - Retries on transient connection errors (ConnectionError, TimeoutError)
@@ -461,11 +452,15 @@ class CircuitBreaker:
                     # Start atomic transaction
                     pipe.multi()
 
-                    # Transition to QUIET_PERIOD
+                    # Transition directly to OPEN. Confirmation now happens in
+                    # the operator UI; no quiet period remains after reset.
                     now = datetime.now(UTC).isoformat()
                     state_data.update(
                         {
-                            "state": CircuitBreakerState.QUIET_PERIOD.value,
+                            "state": CircuitBreakerState.OPEN.value,
+                            "tripped_at": None,
+                            "trip_reason": None,
+                            "trip_details": None,
                             "reset_at": now,
                             "reset_by": reset_by,
                         }
@@ -477,8 +472,7 @@ class CircuitBreaker:
                     pipe.execute()
 
                     logger.info(
-                        f"Circuit breaker reset to QUIET_PERIOD: reset_by={reset_by}, "
-                        f"duration={self.QUIET_PERIOD_DURATION}s"
+                        f"Circuit breaker reset to OPEN: reset_by={reset_by}"
                     )
 
                     break  # Success
@@ -497,10 +491,9 @@ class CircuitBreaker:
     )
     def _transition_to_open(self) -> None:
         """
-        Internal method to transition from QUIET_PERIOD to OPEN atomically.
+        Internal method to transition legacy/non-open states to OPEN atomically.
 
-        Called automatically when quiet period expires. Uses WATCH/MULTI/EXEC
-        transaction to prevent race conditions.
+        Uses WATCH/MULTI/EXEC transaction to prevent race conditions.
 
         Raises:
             RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
@@ -653,6 +646,9 @@ class CircuitBreaker:
                 'reset_by': None
             }
         """
+        # Ensure legacy transitional states are normalized before returning a
+        # status payload to UI/API callers.
+        self.get_state()
         state_json = self.redis.get(self.state_key)
         if not state_json:
             # FAIL CLOSED: Do not auto-reinitialize (matches get_state behavior)

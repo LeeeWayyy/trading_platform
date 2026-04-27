@@ -1,107 +1,68 @@
-# Circuit Breaker Dashboard
+# Circuit Breaker Trade Control
 
 ## Overview
 
-The Circuit Breaker Dashboard provides a web-based interface for monitoring and controlling the trading platform's circuit breaker mechanism. This critical safety feature allows operators to manually trip or reset the circuit breaker, view current status, and review trip/reset history.
+Circuit breaker status is global, but manual trip/reset actions now live in the Trade workspace order-entry area. The former standalone `/circuit-breaker` page has been removed to keep emergency execution controls inside the trading cockpit.
 
-## Architecture
+The global header remains the monitoring surface: it shows the current circuit state beside the other safety indicators. The Order Ticket header is the action surface: it exposes a compact circuit breaker icon that opens a confirmation dialog.
 
-```
-+-------------------+     +------------------+     +-------+
-| Streamlit UI      | --> | CB Service       | --> | Redis |
-| (circuit_breaker  |     | (cb_service.py)  |     | State |
-|  .py)             |     |                  |     |       |
-+-------------------+     +------------------+     +-------+
-        |                         |
-        v                         v
-+-------------------+     +------------------+
-| Session State     |     | PostgreSQL       |
-| (ack state)       |     | (audit_log)      |
-+-------------------+     +------------------+
-```
+## Placement
+
+| Surface | Purpose | Interaction |
+|---------|---------|-------------|
+| Global header safety strip | Monitor current circuit state from any page | Read-only status badge |
+| Trade workspace Order Ticket header | Trip or reset the circuit breaker during execution workflow | Icon button plus confirmation dialog |
+
+This separates the circuit breaker from the kill switch. The kill switch is a broader emergency stop, while the circuit breaker tactically blocks new entries and may still allow risk-reducing exits. Keeping their primary actions apart reduces accidental activation risk.
 
 ## Status Indicators
 
-The circuit breaker has three possible states:
-
-| State | Icon | Description |
-|-------|------|-------------|
-| **OPEN** | Green | Normal operation - trading allowed |
-| **TRIPPED** | Red | Trading halted - requires manual reset |
-| **QUIET_PERIOD** | Yellow | Cooling down after reset (optional) |
+| State | Icon | Tone | Description |
+|-------|------|------|-------------|
+| `OPEN` | `lock` | Emerald | Trading is allowed; clicking can halt new entries after confirmation |
+| `TRIPPED` | `lock_open` | Rose | New entries are blocked; clicking can request reset after confirmation |
+| `UNKNOWN` | `help_outline` | Slate | State cannot be verified; control is disabled fail-closed |
 
 ## RBAC Requirements
 
-Access to the Circuit Breaker Dashboard is controlled by permissions:
+Circuit breaker actions are still enforced by the service layer.
 
-| Action | Required Permission | Roles |
-|--------|---------------------|-------|
-| View status | `VIEW_CIRCUIT_BREAKER` | Viewer, Operator, Admin |
-| Trip breaker | `TRIP_CIRCUIT` | Operator, Admin |
-| Reset breaker | `RESET_CIRCUIT` | Operator, Admin |
+| Action | Required Permission |
+|--------|---------------------|
+| Trip breaker | `TRIP_CIRCUIT` |
+| Reset breaker | `RESET_CIRCUIT` |
 
-The page is also gated by the `FEATURE_CIRCUIT_BREAKER` feature flag.
+The UI only enables the corresponding action when the current user has permission and the circuit state is actionable. Backend RBAC, validation, rate limiting, and audit logging remain authoritative.
 
 ## Manual Trip Workflow
 
-1. Navigate to **Circuit Breaker** page
-2. Click **"Trip Circuit Breaker"** button
-3. Enter a reason (minimum 20 characters)
-4. Check the acknowledgment checkbox confirming you understand the impact
-5. Click **"Confirm Trip"**
+1. Open the Trade workspace.
+2. Locate the circuit breaker icon in the Order Ticket header.
+3. Click the icon while the state is `OPEN`.
+4. Confirm **Halt Trading** in the modal.
 
-**Impact:** When tripped, all new trading orders are blocked. Only risk-reducing orders may be allowed.
+No reason input is required. The UI submits the deterministic audit reason `MANUAL`.
+
+**Impact:** When tripped, all new risk-increasing order entries are blocked. Risk-reducing exits may remain available under the existing safety-gate semantics.
 
 ## Manual Reset Workflow
 
-1. Navigate to **Circuit Breaker** page
-2. Verify all conditions are normalized (displayed on page)
-3. Click **"Reset Circuit Breaker"** button
-4. Enter a reason (minimum 20 characters)
-5. Check the acknowledgment checkbox
-6. Click **"Confirm Reset"**
+1. Open the Trade workspace.
+2. Locate the circuit breaker icon in the Order Ticket header.
+3. Click the icon while the state is `TRIPPED`.
+4. Confirm **Resume Trading** in the modal after verifying recovery conditions.
 
-**Rate Limit:** Only 1 reset per minute is allowed (global, not per-user).
+No reason input is required. The UI submits a deterministic audit reason indicating trade-workspace manual reset confirmation.
 
-## Step-Up Confirmation
+**Rate limit:** Reset operations remain globally rate-limited by the circuit breaker service.
 
-Both trip and reset operations require:
+## Safety Guarantees
 
-1. **Reason text** - Minimum 20 characters explaining the action
-2. **Acknowledgment checkbox** - Must be checked to enable confirm button
-3. **Server-side validation** - Prevents bypassing client-side checks
-
-This ensures operators consciously confirm critical actions.
-
-## Rate Limiting
-
-Reset operations are globally rate-limited to prevent accidental rapid resets:
-
-- **Limit:** 1 reset per minute
-- **Scope:** Global (all users share the same limit)
-- **Implementation:** Redis-based with atomic INCR and TTL
-
-If rate limit is exceeded, the UI displays an error and the operation is rejected.
-
-## Audit Logging
-
-All circuit breaker operations are logged to PostgreSQL:
-
-```sql
-INSERT INTO audit_log (
-    timestamp, action, resource_type, resource_id,
-    user_id, user_name, details, ip_address, outcome
-) VALUES (
-    NOW(), 'CIRCUIT_BREAKER_TRIP', 'circuit_breaker', 'global',
-    :user_id, :user_name, :details_json, :ip, 'success'
-)
-```
-
-Details include:
-- Trip reason
-- Tripped by user ID
-- Reset reason (for reset actions)
-- Reset by user ID
+- Unknown Redis/service state disables the action control fail-closed.
+- The global header status remains visible for situational awareness.
+- The order ticket submission pipeline still performs its existing preview, confirm, and fresh safety checks.
+- Trip/reset operations use `run.io_bound` because the circuit breaker service is synchronous.
+- Service-layer RBAC, validation, audit logging, and rate limiting are unchanged.
 
 ## Redis Key Schema
 
@@ -111,40 +72,22 @@ Circuit breaker state is stored in Redis:
 |-----|------|-------------|
 | `circuit_breaker:state` | JSON | Current state and metadata |
 | `circuit_breaker:history` | ZSET | Trip/reset history with timestamps |
-| `circuit_breaker:reset_rate_limit` | String | Rate limit counter with TTL |
+| `circuit_breaker:reset_rate_limit` | String | Reset rate-limit counter with TTL |
 
-**State JSON structure:**
+Example state payload:
+
 ```json
 {
-    "state": "OPEN",
-    "tripped_at": null,
-    "trip_reason": null,
-    "trip_details": null,
-    "reset_at": "2025-01-15T10:30:00Z",
-    "reset_by": "operator@example.com",
-    "trip_count_today": 0
+  "state": "OPEN",
+  "tripped_at": null,
+  "reason": null,
+  "details": null,
+  "reset_at": null,
+  "reset_by": null
 }
 ```
 
-## Prometheus Metrics
-
-The following metrics are exposed for monitoring:
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `cb_status_checks_total` | Counter | Total CB status checks |
-| `cb_trip_total` | Counter | Total trips (manual + auto) |
-| `cb_reset_total` | Counter | Total resets |
-| `cb_staleness_seconds` | Gauge | Time since last state verification |
-
-## SLA Alerts
-
-| Condition | Threshold | Action |
-|-----------|-----------|--------|
-| CB staleness high | > 10 seconds | Page on-call (PagerDuty) |
-
-## Related Documentation
+## Related Docs
 
 - [Circuit Breaker Operations Runbook](../RUNBOOKS/circuit-breaker-ops.md)
-- [Risk Management Concepts](./risk-management.md)
-- [ADR-0029: Alerting System](../ADRs/ADR-0029-alerting-system.md)
+- [Risk Management ADR](../ADRs/0011-risk-management-system.md)

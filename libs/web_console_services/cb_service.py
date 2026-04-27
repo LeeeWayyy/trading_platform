@@ -495,7 +495,6 @@ class CircuitBreakerService:
             return
 
         user_id = user.get("user_id")
-        user_name = user.get("username") or user.get("name")
         ip_address = user.get("ip_address")
 
         start = time.monotonic()
@@ -507,9 +506,9 @@ class CircuitBreakerService:
                         """
                         INSERT INTO audit_log (
                             timestamp, action, resource_type, resource_id,
-                            user_id, user_name, details, ip_address, outcome
+                            user_id, details, reason, ip_address, outcome, event_type
                         ) VALUES (
-                            NOW(), %s, %s, %s, %s, %s, %s, %s, %s
+                            NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 'action'
                         )
                         """,
                         (
@@ -517,8 +516,8 @@ class CircuitBreakerService:
                             resource_type,
                             resource_id,
                             user_id,
-                            user_name,
                             json.dumps(audit_details),
+                            reason,
                             ip_address,
                             outcome,
                         ),

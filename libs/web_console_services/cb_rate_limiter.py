@@ -15,7 +15,7 @@ The key is namespaced by ENVIRONMENT to prevent cross-env throttling
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from libs.core.redis_client import RedisClient
@@ -81,9 +81,15 @@ class CBRateLimiter:
             True if reset allowed, False if rate limited
         """
         if limit == 1:
-            # Use dedicated setnx method - truly atomic, no crash risk
-            # Returns True if key was set (allowed), False if exists (blocked)
-            return self.redis.set_if_not_exists(self.key, "1", ex=window)
+            # Use SET NX EX semantics. The shared RedisClient exposes a helper,
+            # while some web-console call paths pass the underlying redis-py
+            # client directly.
+            set_if_not_exists = getattr(self.redis, "set_if_not_exists", None)
+            if callable(set_if_not_exists):
+                return bool(set_if_not_exists(self.key, "1", ex=window))
+
+            redis_client: Any = self.redis
+            return bool(redis_client.set(self.key, "1", ex=window, nx=True))
 
         # For limit > 1, use Lua script for atomic INCR + EXPIRE
         # This eliminates the race condition where a crash between INCR and EXPIRE

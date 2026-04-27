@@ -20,7 +20,7 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import pytest
@@ -32,7 +32,10 @@ EXEC_GATEWAY_URL = os.getenv("EXECUTION_GATEWAY_BASE_URL", "http://localhost:800
 DOCKER_LOG_WINDOW_MINUTES = int(os.getenv("WEB_CONSOLE_UI_DOCKER_LOG_WINDOW_MINUTES", "15"))
 MAX_PAGES = int(os.getenv("WEB_CONSOLE_UI_MAX_PAGES", "32"))
 MAX_INTERACTIONS_PER_PAGE = int(
-    os.getenv("WEB_CONSOLE_UI_MAX_INTERACTIONS_PER_PAGE", os.getenv("WEB_CONSOLE_UI_MAX_CLICKS_PER_PAGE", "20"))
+    os.getenv(
+        "WEB_CONSOLE_UI_MAX_INTERACTIONS_PER_PAGE",
+        os.getenv("WEB_CONSOLE_UI_MAX_CLICKS_PER_PAGE", "20"),
+    )
 )
 MAX_INTERACTION_PASSES = int(os.getenv("WEB_CONSOLE_UI_MAX_INTERACTION_PASSES", "3"))
 MAX_TOTAL_INTERACTIONS = int(os.getenv("WEB_CONSOLE_UI_MAX_TOTAL_INTERACTIONS", "220"))
@@ -66,7 +69,6 @@ SEED_PATHS = [
     "/risk/exposure",
     "/attribution",
     "/tax-lots",
-    "/circuit-breaker",
     "/risk",
     "/research?tab=discover",
     "/research?tab=validate&backtest_tab=running",
@@ -194,8 +196,10 @@ def _discover_paths(page: Any) -> list[str]:
 
 
 def _collect_interaction_targets(page: Any) -> list[dict[str, str]]:
-    return page.evaluate(
-        """
+    return cast(
+        list[dict[str, str]],
+        page.evaluate(
+            """
         () => {
           const attr = 'data-live-interaction-target';
           const targets = [];
@@ -257,6 +261,7 @@ def _collect_interaction_targets(page: Any) -> list[dict[str, str]]:
           return targets;
         }
         """
+        ),
     )
 
 
@@ -344,19 +349,29 @@ def _retry_marker_click_by_semantics(page: Any, target: dict[str, str]) -> bool:
 
     try:
         if kind == "button":
-            locator = page.get_by_role("button", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            locator = page.get_by_role(
+                "button", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)
+            ).first
             if locator.count() == 0:
                 locator = page.locator(f'button:has-text("{name}")').first
         elif kind == "tab":
-            locator = page.get_by_role("tab", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            locator = page.get_by_role(
+                "tab", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)
+            ).first
         elif kind == "link":
-            locator = page.get_by_role("link", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            locator = page.get_by_role(
+                "link", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)
+            ).first
             if locator.count() == 0:
                 locator = page.locator(f'a:has-text("{name}")').first
         else:
-            locator = page.get_by_role("switch", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+            locator = page.get_by_role(
+                "switch", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)
+            ).first
             if locator.count() == 0:
-                locator = page.get_by_role("checkbox", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)).first
+                locator = page.get_by_role(
+                    "checkbox", name=re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)
+                ).first
 
         if locator.count() == 0:
             return False
@@ -385,17 +400,14 @@ def _is_ignorable_request_failure(method: str, url: str, failure_message: str) -
     parsed_url = urlparse(url)
     parsed_base_url = urlparse(BASE_URL)
     same_origin = (
-        parsed_url.scheme == parsed_base_url.scheme
-        and parsed_url.netloc == parsed_base_url.netloc
+        parsed_url.scheme == parsed_base_url.scheme and parsed_url.netloc == parsed_base_url.netloc
     )
     if same_origin:
         # Same-origin requests can be cancelled while the crawler rapidly
         # transitions routes. Route-level failures are still caught by page
         # status/interactions, so ignore browser-level abort noise here.
         normalized_path = (parsed_url.path or "").lower()
-        return normalized_path.startswith("/_nicegui/") or normalized_path.startswith(
-            "/static/"
-        )
+        return normalized_path.startswith("/_nicegui/") or normalized_path.startswith("/static/")
 
     # Third-party static assets can be aborted during rapid route transitions.
     return bool(parsed_url.scheme and parsed_url.netloc)
@@ -522,9 +534,8 @@ def _interact_with_targets(
                     # Best-effort scroll only. In dense grids/nav drawers Playwright can
                     # intermittently time out while waiting for layout stabilization.
                     # Continue and let click/fill determine true interactability.
-                    if (
-                        "timeout" not in str(scroll_exc).lower()
-                        and not _should_ignore_click_error(scroll_exc)
+                    if "timeout" not in str(scroll_exc).lower() and not _should_ignore_click_error(
+                        scroll_exc
                     ):
                         raise
 
@@ -532,7 +543,10 @@ def _interact_with_targets(
                     locator.click(timeout=ACTION_TIMEOUT_MS)
                 elif kind == "input":
                     locator.click(timeout=ACTION_TIMEOUT_MS)
-                    locator.fill(_default_input_value(target.get("input_type", "")), timeout=ACTION_TIMEOUT_MS)
+                    locator.fill(
+                        _default_input_value(target.get("input_type", "")),
+                        timeout=ACTION_TIMEOUT_MS,
+                    )
                     locator.press("Tab", timeout=ACTION_TIMEOUT_MS)
                 elif kind == "select":
                     locator.click(timeout=ACTION_TIMEOUT_MS)
@@ -577,12 +591,18 @@ def _interact_with_targets(
                 normalized = _normalize_path(current_path)
                 if normalized and normalized != path:
                     discovered_via_click.add(normalized)
-                    page.goto(f"{BASE_URL}{path}", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+                    page.goto(
+                        f"{BASE_URL}{path}",
+                        wait_until="domcontentloaded",
+                        timeout=PAGE_GOTO_TIMEOUT_MS,
+                    )
                     page.wait_for_timeout(PAGE_SETTLE_MS)
             except PlaywrightError as exc:
                 if _should_ignore_click_error(exc):
                     continue
-                if _is_stale_marker_timeout(exc, selector) and _retry_marker_click_by_semantics(page, target):
+                if _is_stale_marker_timeout(exc, selector) and _retry_marker_click_by_semantics(
+                    page, target
+                ):
                     interactions += 1
                     interaction_counts[kind] += 1
                     page.wait_for_timeout(ACTION_SETTLE_MS)
@@ -597,7 +617,11 @@ def _interact_with_targets(
                     normalized = _normalize_path(current_path)
                     if normalized and normalized != path:
                         discovered_via_click.add(normalized)
-                        page.goto(f"{BASE_URL}{path}", wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+                        page.goto(
+                            f"{BASE_URL}{path}",
+                            wait_until="domcontentloaded",
+                            timeout=PAGE_GOTO_TIMEOUT_MS,
+                        )
                         page.wait_for_timeout(PAGE_SETTLE_MS)
                     continue
                 failures.append(f"{kind}:{name}: {exc!s}")
@@ -624,6 +648,30 @@ def _collect_docker_errors(since_token: str) -> list[str]:
     return [line for line in lines if DOCKER_ERROR_PATTERN.search(line)]
 
 
+def _clear_circuit_breaker_reset_rate_limit() -> None:
+    """Clear local-dev CB reset rate-limit keys so repeated e2e runs are deterministic."""
+    redis_containers = [
+        name
+        for name in _run(["docker", "ps", "--format", "{{.Names}}"]).stdout.splitlines()
+        if "redis" in name.lower()
+    ]
+    if not redis_containers:
+        return
+
+    _run(
+        [
+            "docker",
+            "exec",
+            redis_containers[0],
+            "redis-cli",
+            "DEL",
+            "cb_ratelimit:development:reset:global",
+            "cb_ratelimit:paper:reset:global",
+            "cb_ratelimit:test:reset:global",
+        ]
+    )
+
+
 def _login_with_retry(page: Any, *, username: str, password: str, attempts: int = 3) -> bool:
     """Login with bounded retries to handle transient auth/bootstrap delays."""
     for _ in range(attempts):
@@ -644,6 +692,153 @@ def _login_with_retry(page: Any, *, username: str, password: str, attempts: int 
             return True
         page.wait_for_timeout(1500)
     return False
+
+
+def _visible_trading_status_text(page: Any) -> str:
+    text = page.locator("body").inner_text(timeout=10_000)
+    return "\n".join(
+        line
+        for line in text.splitlines()
+        if any(
+            marker in line.upper()
+            for marker in (
+                "TRADING ",
+                "CIRCUIT",
+                "KILL SWITCH",
+                "CB ",
+                "RESUME",
+                "HALT",
+            )
+        )
+    )
+
+
+def _assert_circuit_state(page: Any, *, active: bool) -> None:
+    status_text = _visible_trading_status_text(page)
+    if active:
+        assert "TRADING ACTIVE" in status_text
+        assert "CIRCUIT OK" in status_text
+        assert "CB READY" in status_text
+        assert "TRADING HALTED" not in status_text
+        assert "CB TRIPPED" not in status_text
+        return
+
+    assert "TRADING HALTED (CIRCUIT)" in status_text
+    assert "CIRCUIT TRIPPED" in status_text
+    assert "CB TRIPPED" in status_text
+
+
+def _click_circuit_breaker_control(page: Any) -> None:
+    control = page.locator(".workspace-v2-circuit-control").first
+    assert control.count() == 1, "Circuit breaker trade-page control was not rendered"
+    control.scroll_into_view_if_needed(timeout=5_000)
+    control.click(timeout=5_000)
+
+
+def _click_dialog_button(page: Any, label: str) -> None:
+    dialog = page.locator(".q-dialog").last
+    assert dialog.count() == 1, f"Expected confirmation dialog for {label}"
+    dialog.get_by_role("button", name=re.compile(rf"^{re.escape(label)}$", re.IGNORECASE)).click(
+        timeout=5_000
+    )
+
+
+def _wait_for_circuit_state(page: Any, *, active: bool) -> None:
+    expected = "TRADING ACTIVE" if active else "TRADING HALTED (CIRCUIT)"
+    page.locator("body").filter(has_text=expected).wait_for(timeout=12_000)
+    _assert_circuit_state(page, active=active)
+
+
+def _resume_circuit_breaker_if_needed(page: Any) -> None:
+    if "TRADING HALTED (CIRCUIT)" not in _visible_trading_status_text(page):
+        _assert_circuit_state(page, active=True)
+        return
+
+    _clear_circuit_breaker_reset_rate_limit()
+    _click_circuit_breaker_control(page)
+    modal_text = page.locator(".q-dialog").last.inner_text(timeout=5_000)
+    assert "RESUME TRADING?" in modal_text
+    assert "quiet period" not in modal_text.lower()
+    _click_dialog_button(page, "Resume Trading")
+    _wait_for_circuit_state(page, active=True)
+
+
+@pytest.mark.e2e()
+def test_trade_circuit_breaker_click_flow_matches_visible_status() -> None:
+    """Verify trade-page CB Halt/Resume buttons update visible status consistently."""
+    if not _docker_available():
+        pytest.skip("docker compose is not available")
+
+    if not _http_ready(f"{BASE_URL}/health"):
+        pytest.skip("web_console_dev is not healthy; start docker services first")
+
+    docker_since_token = str(int(time.time()))
+    login_user, login_password = _load_login_credentials()
+    page_errors: list[str] = []
+    console_errors: list[str] = []
+    response_5xx: list[str] = []
+    request_failures: list[str] = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(base_url=BASE_URL, viewport={"width": 1440, "height": 900})
+        page = context.new_page()
+
+        page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+        page.on(
+            "console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None
+        )
+        page.on(
+            "response",
+            lambda resp: response_5xx.append(f"{resp.status} {resp.url}")
+            if resp.status >= 500
+            else None,
+        )
+
+        def _on_request_failed(req: Any) -> None:
+            failure_message = str(req.failure or "")
+            if not _is_ignorable_request_failure(str(req.method), str(req.url), failure_message):
+                request_failures.append(f"{req.method} {req.url} {failure_message}")
+
+        page.on("requestfailed", _on_request_failed)
+
+        if not _login_with_retry(page, username=login_user, password=login_password):
+            pytest.fail(f"Login failed for user '{login_user}'")
+
+        page.goto(f"{BASE_URL}/", wait_until="networkidle", timeout=45_000)
+        page.wait_for_timeout(2_000)
+
+        _resume_circuit_breaker_if_needed(page)
+        _assert_circuit_state(page, active=True)
+
+        _click_circuit_breaker_control(page)
+        halt_modal_text = page.locator(".q-dialog").last.inner_text(timeout=5_000)
+        assert "HALT ALL TRADING?" in halt_modal_text
+        _click_dialog_button(page, "Halt Trading")
+        _wait_for_circuit_state(page, active=False)
+
+        _clear_circuit_breaker_reset_rate_limit()
+        _click_circuit_breaker_control(page)
+        resume_modal_text = page.locator(".q-dialog").last.inner_text(timeout=5_000)
+        assert "RESUME TRADING?" in resume_modal_text
+        assert "immediately" in resume_modal_text.lower()
+        assert "quiet period" not in resume_modal_text.lower()
+        _click_dialog_button(page, "Resume Trading")
+        _wait_for_circuit_state(page, active=True)
+
+        page.goto(f"{BASE_URL}/trade", wait_until="networkidle", timeout=45_000)
+        page.wait_for_timeout(1_500)
+        _assert_circuit_state(page, active=True)
+
+        context.close()
+        browser.close()
+
+    docker_errors = _collect_docker_errors(docker_since_token)
+    assert not page_errors, f"Browser page errors found: {page_errors[:5]}"
+    assert not console_errors, f"Browser console errors found: {console_errors[:5]}"
+    assert not response_5xx, f"HTTP 5xx responses found: {response_5xx[:5]}"
+    assert not request_failures, f"Failed requests found: {request_failures[:5]}"
+    assert not docker_errors, f"Docker errors found after CB click-flow: {docker_errors[:10]}"
 
 
 @pytest.mark.e2e()
@@ -689,8 +884,11 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
         )
         page.on(
             "response",
-            lambda resp: response_5xx.append(f"{resp.status} {resp.url}") if resp.status >= 500 else None,
+            lambda resp: response_5xx.append(f"{resp.status} {resp.url}")
+            if resp.status >= 500
+            else None,
         )
+
         def _on_request_failed(req: Any) -> None:
             failure_message = str(req.failure or "")
             entry = f"{req.method} {req.url} {failure_message}"
@@ -835,13 +1033,18 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
                 for r in results
             ),
             "total_form_interactions": sum(
-                r.interaction_counts.get("input", 0) + r.interaction_counts.get("select", 0) for r in results
+                r.interaction_counts.get("input", 0) + r.interaction_counts.get("select", 0)
+                for r in results
             ),
             "total_targets_seen": sum(r.total_targets_seen for r in results),
             "total_skipped_risky": sum(r.skipped_risky for r in results),
             "total_skipped_flaky": sum(r.skipped_flaky for r in results),
-            "pages_passed": sum(1 for r in results if r.status_code < 400 and not r.interaction_failures),
-            "pages_failed": sum(1 for r in results if r.status_code >= 400 or r.interaction_failures),
+            "pages_passed": sum(
+                1 for r in results if r.status_code < 400 and not r.interaction_failures
+            ),
+            "pages_failed": sum(
+                1 for r in results if r.status_code >= 400 or r.interaction_failures
+            ),
             "max_pages_budget": MAX_PAGES,
             "max_total_interactions_budget": MAX_TOTAL_INTERACTIONS,
             "max_duration_seconds_budget": MAX_TEST_DURATION_SECONDS,
@@ -859,7 +1062,9 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    page_interaction_failures = [f"{r.path}: {msg}" for r in results for msg in r.interaction_failures]
+    page_interaction_failures = [
+        f"{r.path}: {msg}" for r in results for msg in r.interaction_failures
+    ]
     total_interactions_observed = sum(r.interactions for r in results)
     assert (
         total_interactions_observed >= MIN_TOTAL_INTERACTIONS
@@ -868,5 +1073,7 @@ def test_web_console_live_clickthrough_has_no_browser_or_docker_errors() -> None
     assert not console_errors, f"Browser console errors found: {console_errors[:5]}"
     assert not response_5xx, f"HTTP 5xx responses found: {response_5xx[:5]}"
     assert not request_failures, f"Failed requests found: {request_failures[:5]}"
-    assert not page_interaction_failures, f"UI interaction failures found: {page_interaction_failures[:10]}"
+    assert (
+        not page_interaction_failures
+    ), f"UI interaction failures found: {page_interaction_failures[:10]}"
     assert not docker_errors, f"Docker errors found after click-through: {docker_errors[:10]}"
