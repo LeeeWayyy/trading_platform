@@ -39,6 +39,24 @@ def _mock_db_pool(rows: list[tuple[datetime, str, object, str | None]]) -> Magic
     return mock_pool
 
 
+def test_service_init_skips_legacy_migration_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        patch("libs.web_console_services.cb_service.CircuitBreaker") as breaker_class,
+        patch("libs.web_console_services.cb_service.CBRateLimiter"),
+    ):
+        breaker = MagicMock()
+        breaker.migrate_legacy_quiet_period_state.side_effect = RuntimeError("redis down")
+        breaker_class.return_value = breaker
+
+        with caplog.at_level("WARNING"):
+            service = CircuitBreakerService(MagicMock(), db_pool=None)
+
+    assert service.breaker is breaker
+    assert "circuit_breaker_legacy_state_migration_skipped" in caplog.text
+
+
 @patch("libs.web_console_services.cb_service.admin_action_total")
 def test_log_audit_without_db_pool_falls_back(
     admin_action_total: MagicMock, caplog: pytest.LogCaptureFixture

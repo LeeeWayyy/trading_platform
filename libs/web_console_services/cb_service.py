@@ -103,7 +103,13 @@ class CircuitBreakerService:
         self.redis = redis_client
         self.db_pool = db_pool
         self.breaker = CircuitBreaker(redis_client)
-        self.breaker.migrate_legacy_quiet_period_state()
+        try:
+            self.breaker.migrate_legacy_quiet_period_state()
+        except (json.JSONDecodeError, redis.RedisError, RuntimeError, ValueError) as exc:
+            logger.warning(
+                "circuit_breaker_legacy_state_migration_skipped",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
         self.rate_limiter = CBRateLimiter(redis_client)
 
     def get_status(self) -> dict[str, Any]:

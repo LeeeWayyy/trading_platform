@@ -679,12 +679,17 @@ class CircuitBreaker:
 
         state_data: dict[str, Any] = json.loads(state_json)
         raw_state = str(state_data.get("state", "")).upper()
-        normalized_state = (
-            CircuitBreakerState.OPEN
-            if raw_state == CircuitBreakerState.QUIET_PERIOD.value
-            else CircuitBreakerState(raw_state)
-        )
-        state_data["state"] = normalized_state.value
+        valid_states = {CircuitBreakerState.OPEN.value, CircuitBreakerState.TRIPPED.value}
+        if raw_state == CircuitBreakerState.QUIET_PERIOD.value:
+            state_data["state"] = CircuitBreakerState.OPEN.value
+        elif raw_state in valid_states:
+            state_data["state"] = raw_state
+        else:
+            logger.error(
+                "Invalid circuit breaker state in Redis status payload",
+                extra={"state": raw_state},
+            )
+            state_data["state"] = "UNKNOWN"
         return state_data
 
     def get_history(self, limit: int = 50) -> list[dict[str, Any]]:

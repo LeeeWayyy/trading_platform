@@ -1003,7 +1003,17 @@ async def dashboard(client: Client) -> None:
             _update_workspace_circuit_breaker_pill()
             _update_workspace_circuit_breaker_control()
             return
-        status = await run.io_bound(cb_service.get_status)
+        try:
+            status = await run.io_bound(cb_service.get_status)
+        except Exception as exc:
+            logger.warning(
+                "trade_workspace_circuit_status_refresh_failed",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
+            workspace_circuit_breaker_state = "UNKNOWN"
+            _update_workspace_circuit_breaker_pill()
+            _update_workspace_circuit_breaker_control()
+            return
         workspace_circuit_breaker_state = str(status.get("state", "")).upper() or "UNKNOWN"
         _update_workspace_circuit_breaker_pill()
         _update_workspace_circuit_breaker_control()
