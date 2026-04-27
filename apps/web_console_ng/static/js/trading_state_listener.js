@@ -33,7 +33,7 @@
       return;
     }
 
-    if (state === 'DISENGAGED' || state === 'ACTIVE' || circuit === 'OPEN' || circuit === 'QUIET_PERIOD') {
+    if ((state === 'DISENGAGED' || state === 'ACTIVE') && (circuit === 'OPEN' || circuit === 'QUIET_PERIOD')) {
       label.textContent = 'TRADING ACTIVE';
       banner.classList.add('bg-green-600', 'text-white');
       banner.classList.remove('bg-red-600', 'bg-yellow-500', 'text-black');

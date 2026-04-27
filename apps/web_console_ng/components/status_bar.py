@@ -18,10 +18,10 @@ class StatusBar:
             "w-full h-6 flex items-center justify-center text-xs font-semibold tracking-wide"
         ).props("id=global-status-banner")
         with self._container:
-            self._label = ui.label("TRADING ACTIVE").classes("uppercase").props(
+            self._label = ui.label("TRADING STATUS UNKNOWN").classes("uppercase").props(
                 "id=global-status-banner-label"
             )
-        self._set_state_classes("DISENGAGED")
+        self._set_state_classes("UNKNOWN")
 
     def _set_state_classes(self, state: str) -> None:
         if not self._container:

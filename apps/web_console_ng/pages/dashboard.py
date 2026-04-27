@@ -100,6 +100,11 @@ from libs.platform.web_console_auth.permissions import (
     has_permission,
 )
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
+from libs.web_console_services.cb_service import (
+    RateLimitExceeded,
+    RBACViolation,
+    ValidationError,
+)
 
 if TYPE_CHECKING:
     from libs.web_console_services.cb_service import CircuitBreakerService
@@ -1022,12 +1027,6 @@ async def dashboard(client: Client) -> None:
                 ui.button("Cancel", on_click=dialog.close).props("flat")
 
                 async def _execute() -> None:
-                    from libs.web_console_services.cb_service import (
-                        RateLimitExceeded,
-                        RBACViolation,
-                        ValidationError,
-                    )
-
                     cb_service = _get_trade_workspace_cb_service()
                     if cb_service is None:
                         ui.notify(
