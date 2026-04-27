@@ -11,7 +11,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -101,13 +101,11 @@ from libs.platform.web_console_auth.permissions import (
 )
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
 from libs.web_console_services.cb_service import (
+    CircuitBreakerService,
     RateLimitExceeded,
     RBACViolation,
     ValidationError,
 )
-
-if TYPE_CHECKING:
-    from libs.web_console_services.cb_service import CircuitBreakerService
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +136,8 @@ _strategy_resolution_cache: OrderedDict[
 # Process-local cache is intentional: short TTL smooths per-worker query bursts without
 # introducing cross-worker consistency requirements for deterministic DB lookups.
 _strategy_resolution_cache_lock = threading.Lock()
+_trade_workspace_cb_service: CircuitBreakerService | None = None
+_trade_workspace_cb_service_lock = threading.Lock()
 
 
 def _get_trade_workspace_cb_service() -> CircuitBreakerService | None:
@@ -146,34 +146,43 @@ def _get_trade_workspace_cb_service() -> CircuitBreakerService | None:
     Redis is authoritative for circuit-breaker safety state. If Redis is not
     available, controls fail closed instead of constructing an alternate client.
     """
-    if not hasattr(app.storage, "_trade_workspace_cb_service"):
-        from libs.web_console_services.cb_service import CircuitBreakerService
+    global _trade_workspace_cb_service
+    if _trade_workspace_cb_service is None:
+        with _trade_workspace_cb_service_lock:
+            if _trade_workspace_cb_service is not None:
+                return _trade_workspace_cb_service
+            _trade_workspace_cb_service = _build_trade_workspace_cb_service()
+    return _trade_workspace_cb_service
 
-        try:
-            sync_pool = get_sync_db_pool()
-        except RuntimeError:
-            sync_pool = None
-            logger.warning(
-                "trade_workspace_sync_db_pool_unavailable",
-                extra={"impact": "circuit breaker audit logging disabled"},
-            )
 
-        try:
-            sync_redis: RedisClient = get_sync_redis_client()  # type: ignore[assignment]
-        except RuntimeError:
-            logger.error(
-                "trade_workspace_redis_unavailable_fail_closed",
-                extra={"impact": "circuit breaker trade control disabled"},
-            )
-            return None
-
-        app.storage._trade_workspace_cb_service = CircuitBreakerService(  # type: ignore[attr-defined]  # noqa: B010
-            sync_redis,
-            sync_pool,
+def _build_trade_workspace_cb_service() -> CircuitBreakerService | None:
+    """Construct the process-local circuit-breaker service singleton."""
+    try:
+        sync_pool = get_sync_db_pool()
+    except RuntimeError:
+        sync_pool = None
+        logger.warning(
+            "trade_workspace_sync_db_pool_unavailable",
+            extra={"impact": "circuit breaker audit logging disabled"},
         )
 
-    service: CircuitBreakerService = getattr(app.storage, "_trade_workspace_cb_service")  # noqa: B009
-    return service
+    try:
+        sync_redis: RedisClient = get_sync_redis_client()  # type: ignore[assignment]
+    except RuntimeError:
+        logger.error(
+            "trade_workspace_redis_unavailable_fail_closed",
+            extra={"impact": "circuit breaker trade control disabled"},
+        )
+        return None
+
+    return CircuitBreakerService(sync_redis, sync_pool)
+
+
+def _reset_trade_workspace_cb_service_for_tests() -> None:
+    """Clear the process-local circuit-breaker service cache in tests."""
+    global _trade_workspace_cb_service
+    with _trade_workspace_cb_service_lock:
+        _trade_workspace_cb_service = None
 
 
 def _build_strategy_resolution_scope_key(
@@ -971,7 +980,8 @@ async def dashboard(client: Client) -> None:
         )
         tone_class = f"workspace-v2-circuit-control-{tone}"
         circuit_breaker_control_btn.set_icon(icon)
-        circuit_breaker_control_btn.props(f"aria-label='{tooltip}' data-cb-action={action}")
+        circuit_breaker_control_btn.props["aria-label"] = tooltip
+        circuit_breaker_control_btn.props["data-cb-action"] = action
         if circuit_breaker_control_tooltip is not None:
             circuit_breaker_control_tooltip.text = tooltip
         if circuit_breaker_control_tone != tone_class:
