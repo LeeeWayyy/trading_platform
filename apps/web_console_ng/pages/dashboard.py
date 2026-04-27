@@ -1040,7 +1040,7 @@ async def dashboard(client: Client) -> None:
                             await run.io_bound(
                                 cb_service.trip,
                                 TRADE_WORKSPACE_CIRCUIT_TRIP_REASON,
-                                dict(user),
+                                user,
                                 acknowledged=True,
                             )
                             ui.notify("Circuit breaker tripped", type="positive")
@@ -1049,7 +1049,7 @@ async def dashboard(client: Client) -> None:
                             await run.io_bound(
                                 cb_service.reset,
                                 TRADE_WORKSPACE_CIRCUIT_RESET_REASON,
-                                dict(user),
+                                user,
                                 acknowledged=True,
                             )
                             ui.notify("Trading resumed", type="positive")

@@ -207,10 +207,10 @@ class CircuitBreaker:
         """
         Get current circuit breaker state.
 
-        Automatically transitions legacy QUIET_PERIOD payloads to OPEN.
+        Treats legacy QUIET_PERIOD payloads as OPEN without mutating Redis.
 
         Returns:
-            Current state (OPEN or TRIPPED). Legacy QUIET_PERIOD is normalized.
+            Current state (OPEN or TRIPPED). Legacy QUIET_PERIOD is normalized in memory.
 
         Raises:
             RuntimeError: If circuit breaker state is missing from Redis (fail-closed).
@@ -243,11 +243,11 @@ class CircuitBreaker:
 
         state_data = json.loads(state_json)
 
-        # Normalize legacy QUIET_PERIOD payloads to OPEN immediately. The
-        # operator confirmation dialog is now the only reset friction.
+        # Normalize legacy QUIET_PERIOD payloads in memory only. get_state()
+        # remains read-only; cleanup of old Redis payloads belongs in an
+        # explicit migration/maintenance path, not a getter.
         if state_data["state"] == CircuitBreakerState.QUIET_PERIOD.value:
-            logger.info("Normalizing legacy QUIET_PERIOD state to OPEN")
-            self._transition_to_open()
+            logger.info("Treating legacy QUIET_PERIOD state as OPEN")
             return CircuitBreakerState.OPEN
 
         return CircuitBreakerState(state_data["state"])

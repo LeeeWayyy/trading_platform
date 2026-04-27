@@ -15,9 +15,15 @@ The key is namespaced by ENVIRONMENT to prevent cross-env throttling
 from __future__ import annotations
 
 import os
-from typing import Protocol, cast
+from collections.abc import Callable
+from typing import Protocol, cast, runtime_checkable
+
+import redis
+
+from libs.core.redis_client import RedisClient
 
 
+@runtime_checkable
 class RedisRateLimitClient(Protocol):
     """Redis operations required for circuit-breaker reset rate limiting."""
 
@@ -30,6 +36,7 @@ class RedisRateLimitClient(Protocol):
         ...
 
 
+@runtime_checkable
 class RedisWrapperRateLimitClient(RedisRateLimitClient, Protocol):
     """Project RedisClient wrapper with SET NX helper."""
 
@@ -38,6 +45,7 @@ class RedisWrapperRateLimitClient(RedisRateLimitClient, Protocol):
         ...
 
 
+@runtime_checkable
 class RedisPyRateLimitClient(RedisRateLimitClient, Protocol):
     """redis-py client surface used by the NiceGUI sync dependency."""
 
@@ -87,16 +95,43 @@ class CBRateLimiter:
 
     KEY_PREFIX = "cb_ratelimit"
 
-    def __init__(self, redis_client: RedisRateLimitClient) -> None:
+    def __init__(self, redis_client: RedisClient | redis.Redis) -> None:
         """Initialize the rate limiter.
 
         Args:
             redis_client: RedisClient instance for rate limit storage
         """
         self.redis = redis_client
+        self._set_once = self._resolve_set_once(redis_client)
         # Namespace by environment to prevent cross-env throttling
         env = os.getenv("ENVIRONMENT", "development")
         self.key = f"{self.KEY_PREFIX}:{env}:reset:global"
+
+    def _resolve_set_once(
+        self, redis_client: RedisClient | redis.Redis
+    ) -> Callable[[str, str, int], bool]:
+        """Resolve the concrete SET NX EX operation once during construction."""
+        if isinstance(redis_client, RedisClient):
+            return lambda key, value, ex: redis_client.set_if_not_exists(key, value, ex=ex)
+
+        if isinstance(redis_client, redis.Redis):
+            return lambda key, value, ex: bool(redis_client.set(key, value, ex=ex, nx=True))
+
+        # Tests use MagicMock stand-ins. Keep this compatibility path explicit
+        # and fail fast for unsupported objects instead of probing every call.
+        if isinstance(redis_client, RedisWrapperRateLimitClient):
+            wrapper_client = cast(RedisWrapperRateLimitClient, redis_client)
+            return lambda key, value, ex: wrapper_client.set_if_not_exists(
+                key, value, ex=ex
+            )
+        if isinstance(redis_client, RedisPyRateLimitClient):
+            redis_py_client = cast(RedisPyRateLimitClient, redis_client)
+            return lambda key, value, ex: bool(
+                redis_py_client.set(key, value, ex=ex, nx=True)
+            )
+
+        msg = f"Unsupported Redis rate-limit client: {type(redis_client).__name__}"
+        raise TypeError(msg)
 
     def check_global(self, limit: int = 1, window: int = 60) -> bool:
         """Check if global reset is allowed (atomic).
@@ -112,21 +147,14 @@ class CBRateLimiter:
             True if reset allowed, False if rate limited
         """
         if limit == 1:
-            # Use SET NX EX semantics. The shared RedisClient exposes a helper,
-            # while some web-console call paths pass the underlying redis-py
-            # client directly.
-            set_if_not_exists = getattr(self.redis, "set_if_not_exists", None)
-            if callable(set_if_not_exists):
-                wrapper_client = cast(RedisWrapperRateLimitClient, self.redis)
-                return wrapper_client.set_if_not_exists(self.key, "1", ex=window)
-
-            redis_py_client = cast(RedisPyRateLimitClient, self.redis)
-            return bool(redis_py_client.set(self.key, "1", ex=window, nx=True))
+            return self._set_once(self.key, "1", window)
 
         # For limit > 1, use Lua script for atomic INCR + EXPIRE
         # This eliminates the race condition where a crash between INCR and EXPIRE
         # could leave an orphaned key that never expires (permanent lockout)
-        new_count = self.redis.eval(_INCR_WITH_EXPIRE_LUA, 1, self.key, str(window))
+        new_count = cast(
+            int | str, self.redis.eval(_INCR_WITH_EXPIRE_LUA, 1, self.key, str(window))
+        )
         return int(new_count) <= limit
 
     def clear(self) -> None:
