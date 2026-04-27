@@ -96,6 +96,13 @@ def test_entitlement_status_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Mock mode" in reason
 
     monkeypatch.delenv("ALPACA_L2_USE_MOCK", raising=False)
+    monkeypatch.delenv("ALPACA_L2_ENABLED", raising=False)
+    monkeypatch.setenv("WEB_CONSOLE_NG_DEBUG", "true")
+    entitled, reason = Level2WebSocketService.entitlement_status()
+    assert entitled is True
+    assert "local dev synthetic data" in reason
+
+    monkeypatch.setenv("WEB_CONSOLE_NG_DEBUG", "false")
     monkeypatch.setenv("ALPACA_L2_ENABLED", "false")
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False

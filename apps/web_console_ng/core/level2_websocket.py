@@ -72,7 +72,15 @@ class Level2WebSocketService:
         # Explicit mock mode
         if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:
             return True, "Mock mode (synthetic data)"
-        enabled = os.getenv("ALPACA_L2_ENABLED", "false").lower() in {"1", "true", "yes"}
+        enabled_raw = os.getenv("ALPACA_L2_ENABLED")
+        if enabled_raw is None and os.getenv("WEB_CONSOLE_NG_DEBUG", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return True, "Mock mode (local dev synthetic data)"
+        enabled = str(enabled_raw or "").lower() in {"1", "true", "yes"}
         if not enabled:
             return False, "Level 2 data not enabled"
         api_key = os.getenv("ALPACA_PRO_API_KEY", "").strip()

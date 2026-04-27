@@ -185,6 +185,13 @@ class TestPriceUpdateEvent:
         assert event.symbol == "AAPL"
         assert event.price == Decimal("150.05")  # Mid price
         assert event.timestamp == timestamp.isoformat()
+        assert event.bid == Decimal("150.00")
+        assert event.ask == Decimal("150.10")
+        assert event.bid_price == Decimal("150.00")
+        assert event.ask_price == Decimal("150.10")
+        assert event.bid_size == 100
+        assert event.ask_size == 200
+        assert event.exchange == "NASDAQ"
 
     def test_event_serialization(self):
         """Test event JSON serialization."""
@@ -198,3 +205,5 @@ class TestPriceUpdateEvent:
         assert event_dict["event_type"] == "price.updated"
         assert event_dict["symbol"] == "AAPL"
         assert event_dict["price"] == Decimal("150.05")
+        assert event_dict["bid"] is None
+        assert event_dict["ask"] is None

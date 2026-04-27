@@ -7,6 +7,7 @@ Integration tests with real Alpaca API are separate.
 
 import asyncio
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -140,6 +141,11 @@ class TestAlpacaMarketDataStream:
         from libs.data.market_data.types import PriceUpdateEvent
 
         assert isinstance(pub_call_args[0][1], PriceUpdateEvent)
+        event = pub_call_args[0][1]
+        assert event.bid == Decimal("150.00")
+        assert event.ask == Decimal("150.10")
+        assert event.bid_size == 100
+        assert event.ask_size == 200
 
     @pytest.mark.asyncio()
     async def test_handle_quote_with_invalid_data(self, stream, mock_redis, mock_publisher):

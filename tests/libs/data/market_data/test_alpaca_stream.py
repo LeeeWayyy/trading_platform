@@ -358,6 +358,10 @@ class TestQuoteHandling:
         assert isinstance(event, PriceUpdateEvent)
         assert event.symbol == "AAPL"
         assert event.price == Decimal("100.05")
+        assert event.bid == Decimal("100.00")
+        assert event.ask == Decimal("100.10")
+        assert event.bid_size == 10
+        assert event.ask_size == 12
 
     @pytest.mark.asyncio()
     async def test_handle_quote_alpaca_object_success(

@@ -76,3 +76,10 @@ def test_price_update_event_from_quote(quote: QuoteData) -> None:
     assert event.symbol == quote.symbol
     assert event.price == quote.mid_price
     assert event.timestamp == quote.timestamp.isoformat()
+    assert event.bid == quote.bid_price
+    assert event.ask == quote.ask_price
+    assert event.bid_price == quote.bid_price
+    assert event.ask_price == quote.ask_price
+    assert event.bid_size == quote.bid_size
+    assert event.ask_size == quote.ask_size
+    assert event.exchange == quote.exchange

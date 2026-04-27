@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -253,6 +253,29 @@ class TestMarketContextPriceData:
         # UI update timestamp was NOT changed (UI was skipped)
         assert component._last_ui_update == initial_update_time
 
+    def test_set_price_data_preserves_seeded_volume(
+        self, component: MarketContextComponent
+    ) -> None:
+        """Quote-only live ticks preserve the most recent bar volume."""
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            last_price=Decimal("100.00"),
+            volume=123456,
+        )
+
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "100.00",
+                "ask": "100.10",
+                "price": "100.05",
+            }
+        )
+
+        assert component._data is not None
+        assert component._data.volume == 123456
+
 
 class TestMarketContextStaleness:
     """Tests for staleness checks."""
@@ -370,6 +393,47 @@ class TestMarketContextSymbolChange:
         await component.on_symbol_changed("AAPL")
 
         assert component._current_symbol == "AAPL"
+
+    @pytest.mark.asyncio()
+    async def test_symbol_change_seeds_last_and_volume_from_recent_bar(self) -> None:
+        """Recent bars populate last/volume while live bid/ask quote ticks warm up."""
+        timestamp = datetime.now(UTC)
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(
+            return_value={
+                "bars": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.25,
+                        "volume": 123456,
+                    }
+                ]
+            }
+        )
+        component = MarketContextComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+
+        await component.on_symbol_changed("AAPL")
+
+        assert component._data is not None
+        assert component._data.symbol == "AAPL"
+        assert component._data.last_price == Decimal("101.25")
+        assert component._data.volume == 123456
+        client.fetch_historical_bars.assert_awaited_once_with(
+            symbol="AAPL",
+            timeframe="5Min",
+            limit=1,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
 
 
 class TestMarketContextDispose:
