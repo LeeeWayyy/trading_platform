@@ -155,6 +155,33 @@ class TestCircuitBreakerStateQueries:
         assert state == CircuitBreakerState.OPEN
         mock_redis_client.pipeline.assert_not_called()
 
+    def test_migrate_legacy_quiet_period_state_persists_open(self, mock_redis_client):
+        """Test explicit legacy migration rewrites QUIET_PERIOD as OPEN."""
+        reset_at = datetime.now(UTC) - timedelta(seconds=600)
+        state_data = {
+            "state": CircuitBreakerState.QUIET_PERIOD.value,
+            "reset_at": reset_at.isoformat(),
+            "trip_count_today": 1,
+        }
+        mock_redis_client.get.return_value = json.dumps(state_data)
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+
+        assert breaker.migrate_legacy_quiet_period_state() is True
+        migrated_payload = json.loads(mock_redis_client.set.call_args[0][1])
+        assert migrated_payload == {**state_data, "state": CircuitBreakerState.OPEN.value}
+
+    def test_migrate_legacy_quiet_period_state_noops_for_open(self, mock_redis_client):
+        """Test explicit legacy migration does not rewrite current OPEN state."""
+        mock_redis_client.get.return_value = json.dumps(
+            {"state": CircuitBreakerState.OPEN.value}
+        )
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+
+        assert breaker.migrate_legacy_quiet_period_state() is False
+        mock_redis_client.set.assert_not_called()
+
     def test_is_tripped_when_tripped(self, mock_redis_client):
         """Test is_tripped returns True when TRIPPED."""
         state_data = {

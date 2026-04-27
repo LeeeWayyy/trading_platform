@@ -103,6 +103,7 @@ class CircuitBreakerService:
         self.redis = redis_client
         self.db_pool = db_pool
         self.breaker = CircuitBreaker(redis_client)
+        self.breaker.migrate_legacy_quiet_period_state()
         self.rate_limiter = CBRateLimiter(redis_client)
 
     def get_status(self) -> dict[str, Any]:
@@ -505,6 +506,7 @@ class CircuitBreakerService:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
+                        -- Current audit_log schema has user_id but no user_name column.
                         INSERT INTO audit_log (
                             timestamp, action, resource_type, resource_id,
                             user_id, details, reason, ip_address, outcome, event_type

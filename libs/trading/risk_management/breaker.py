@@ -152,6 +152,25 @@ class CircuitBreaker:
             )
             self._initialize_state()
 
+    def migrate_legacy_quiet_period_state(self) -> bool:
+        """Persist legacy QUIET_PERIOD payloads as OPEN outside read paths.
+
+        Returns:
+            True when a legacy payload was updated, False otherwise.
+        """
+        state_json = self.redis.get(self.state_key)
+        if not state_json:
+            return False
+
+        state_data: dict[str, Any] = json.loads(state_json)
+        if state_data.get("state") != CircuitBreakerState.QUIET_PERIOD.value:
+            return False
+
+        state_data["state"] = CircuitBreakerState.OPEN.value
+        self.redis.set(self.state_key, json.dumps(state_data))
+        logger.info("Migrated legacy QUIET_PERIOD circuit breaker state to OPEN")
+        return True
+
     def initialize_state(self, force: bool = False) -> bool:
         """
         Explicitly initialize circuit breaker state in Redis.
@@ -244,9 +263,8 @@ class CircuitBreaker:
         state_data = json.loads(state_json)
 
         # Normalize legacy QUIET_PERIOD payloads in memory only. get_state()
-        # remains read-only; cleanup of old Redis payloads belongs in an
-        # explicit migration/maintenance path, not this getter or a background
-        # task triggered by it.
+        # remains read-only; constructor/service startup performs persistence
+        # cleanup through migrate_legacy_quiet_period_state().
         if state_data["state"] == CircuitBreakerState.QUIET_PERIOD.value:
             logger.debug("Treating legacy QUIET_PERIOD state as OPEN")
             return CircuitBreakerState.OPEN
