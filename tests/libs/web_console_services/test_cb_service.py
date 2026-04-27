@@ -87,15 +87,17 @@ def test_log_audit_with_db_pool_writes(
     )
     cursor.execute.assert_called_once()
     _, params = cursor.execute.call_args[0]
-    # Params order: action, resource_type, resource_id, user_id, details_json, reason, ip_address, outcome
-    assert params[0] == "CIRCUIT_BREAKER_RESET"
-    assert params[1] == "circuit_breaker"
-    assert params[2] == "global"
-    assert params[3] == "user-2"
-    audit_details = json.loads(params[4])  # params[4] is json.dumps(audit_details)
+    # Params order: timestamp, action, resource_type, resource_id, user_id, details_json, reason, ip_address, outcome
+    assert isinstance(params[0], datetime)
+    assert params[0].tzinfo == UTC
+    assert params[1] == "CIRCUIT_BREAKER_RESET"
+    assert params[2] == "circuit_breaker"
+    assert params[3] == "global"
+    assert params[4] == "user-2"
+    audit_details = json.loads(params[5])  # params[5] is json.dumps(audit_details)
     assert audit_details["reason"] == "Recovered"
     assert audit_details["reset_by"] == "user-2"
-    assert params[5] == "Recovered"
+    assert params[6] == "Recovered"
     audit_write_latency_seconds.observe.assert_called_once()
 
 

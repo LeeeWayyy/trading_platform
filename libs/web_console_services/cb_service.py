@@ -509,10 +509,11 @@ class CircuitBreakerService:
                             timestamp, action, resource_type, resource_id,
                             user_id, details, reason, ip_address, outcome, event_type
                         ) VALUES (
-                            now(), %s, %s, %s, %s, %s, %s, %s, %s, 'action'
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, 'action'
                         )
                         """,
                         (
+                            datetime.now(UTC),
                             action,
                             resource_type,
                             resource_id,

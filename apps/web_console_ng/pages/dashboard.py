@@ -137,10 +137,10 @@ _strategy_resolution_cache: OrderedDict[
 # introducing cross-worker consistency requirements for deterministic DB lookups.
 _strategy_resolution_cache_lock = threading.Lock()
 _trade_workspace_cb_service: CircuitBreakerService | None = None
-_trade_workspace_cb_service_lock = threading.Lock()
+_trade_workspace_cb_service_lock = asyncio.Lock()
 
 
-def _get_trade_workspace_cb_service() -> CircuitBreakerService | None:
+async def _get_trade_workspace_cb_service() -> CircuitBreakerService | None:
     """Return sync circuit-breaker service for trade-workspace manual controls.
 
     Redis is authoritative for circuit-breaker safety state. If Redis is not
@@ -148,10 +148,12 @@ def _get_trade_workspace_cb_service() -> CircuitBreakerService | None:
     """
     global _trade_workspace_cb_service
     if _trade_workspace_cb_service is None:
-        with _trade_workspace_cb_service_lock:
+        async with _trade_workspace_cb_service_lock:
             if _trade_workspace_cb_service is not None:
                 return _trade_workspace_cb_service
-            _trade_workspace_cb_service = _build_trade_workspace_cb_service()
+            _trade_workspace_cb_service = await run.io_bound(
+                _build_trade_workspace_cb_service
+            )
     return _trade_workspace_cb_service
 
 
@@ -159,7 +161,7 @@ def _build_trade_workspace_cb_service() -> CircuitBreakerService | None:
     """Construct the process-local circuit-breaker service singleton."""
     try:
         sync_pool = get_sync_db_pool()
-    except RuntimeError:
+    except (ImportError, RuntimeError):
         sync_pool = None
         logger.warning(
             "trade_workspace_sync_db_pool_unavailable",
@@ -168,7 +170,7 @@ def _build_trade_workspace_cb_service() -> CircuitBreakerService | None:
 
     try:
         sync_redis: RedisClient = get_sync_redis_client()  # type: ignore[assignment]
-    except RuntimeError:
+    except (ImportError, RuntimeError):
         logger.error(
             "trade_workspace_redis_unavailable_fail_closed",
             extra={"impact": "circuit breaker trade control disabled"},
@@ -181,8 +183,7 @@ def _build_trade_workspace_cb_service() -> CircuitBreakerService | None:
 def _reset_trade_workspace_cb_service_for_tests() -> None:
     """Clear the process-local circuit-breaker service cache in tests."""
     global _trade_workspace_cb_service
-    with _trade_workspace_cb_service_lock:
-        _trade_workspace_cb_service = None
+    _trade_workspace_cb_service = None
 
 
 def _build_strategy_resolution_scope_key(
@@ -996,7 +997,7 @@ async def dashboard(client: Client) -> None:
 
     async def _refresh_circuit_breaker_from_service() -> None:
         nonlocal workspace_circuit_breaker_state
-        cb_service = _get_trade_workspace_cb_service()
+        cb_service = await _get_trade_workspace_cb_service()
         if cb_service is None:
             workspace_circuit_breaker_state = "UNKNOWN"
             _update_workspace_circuit_breaker_pill()
@@ -1038,7 +1039,7 @@ async def dashboard(client: Client) -> None:
                 ui.button("Cancel", on_click=dialog.close).props("flat")
 
                 async def _execute() -> None:
-                    cb_service = _get_trade_workspace_cb_service()
+                    cb_service = await _get_trade_workspace_cb_service()
                     if cb_service is None:
                         ui.notify(
                             "Circuit breaker service unavailable; control disabled for safety",
