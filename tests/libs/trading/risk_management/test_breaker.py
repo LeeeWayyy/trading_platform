@@ -114,8 +114,7 @@ class TestCircuitBreakerStateQueries:
         assert state == CircuitBreakerState.TRIPPED
 
     def test_get_state_quiet_period_not_expired(self, mock_redis_client):
-        """Test get_state returns QUIET_PERIOD when period not expired."""
-        # Reset 1 minute ago (still within 5-minute quiet period)
+        """Test legacy QUIET_PERIOD immediately normalizes to OPEN."""
         reset_at = datetime.now(UTC) - timedelta(seconds=60)
         state_data = {
             "state": CircuitBreakerState.QUIET_PERIOD.value,
@@ -123,15 +122,21 @@ class TestCircuitBreakerStateQueries:
             "trip_count_today": 1,
         }
         mock_redis_client.get.return_value = json.dumps(state_data)
+        mock_pipeline = Mock()
+        mock_redis_client.pipeline.return_value = mock_pipeline
+        mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
+        mock_pipeline.__exit__ = Mock(return_value=False)
+        mock_pipeline.get.return_value = json.dumps(state_data)
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         state = breaker.get_state()
 
-        assert state == CircuitBreakerState.QUIET_PERIOD
+        assert state == CircuitBreakerState.OPEN
 
-    def test_get_state_quiet_period_expired_transitions_to_open(self, mock_redis_client):
-        """Test get_state auto-transitions to OPEN when quiet period expired."""
-        # Reset 10 minutes ago (beyond 5-minute quiet period)
+    def test_get_state_quiet_period_expired_returns_open_without_write(
+        self, mock_redis_client
+    ):
+        """Test legacy QUIET_PERIOD reads as OPEN without mutating Redis."""
         reset_at = datetime.now(UTC) - timedelta(seconds=600)
         state_data = {
             "state": CircuitBreakerState.QUIET_PERIOD.value,
@@ -140,25 +145,53 @@ class TestCircuitBreakerStateQueries:
         }
         mock_redis_client.get.return_value = json.dumps(state_data)
 
-        # Mock pipeline for _transition_to_open
         mock_pipeline = Mock()
-        mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
-        mock_pipeline.__exit__ = Mock(return_value=False)
-        mock_pipeline.watch = Mock()
-        mock_pipeline.get.return_value = json.dumps(state_data)
-        mock_pipeline.multi = Mock()
-        mock_pipeline.set = Mock()
-        mock_pipeline.execute = Mock()
-        mock_pipeline.unwatch = Mock()
         mock_redis_client._client.pipeline.return_value = mock_pipeline
         mock_redis_client.pipeline.return_value = mock_pipeline
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         state = breaker.get_state()
 
-        # Verify transition to OPEN was triggered
         assert state == CircuitBreakerState.OPEN
-        mock_pipeline.set.assert_called_once()
+        mock_redis_client.pipeline.assert_not_called()
+
+    def test_migrate_legacy_quiet_period_state_persists_open(self, mock_redis_client):
+        """Test explicit legacy migration rewrites QUIET_PERIOD as OPEN."""
+        reset_at = datetime.now(UTC) - timedelta(seconds=600)
+        state_data = {
+            "state": CircuitBreakerState.QUIET_PERIOD.value,
+            "reset_at": reset_at.isoformat(),
+            "trip_count_today": 1,
+        }
+        mock_redis_client.get.return_value = json.dumps(state_data)
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+
+        assert breaker.migrate_legacy_quiet_period_state() is True
+        migrated_payload = json.loads(mock_redis_client.set.call_args[0][1])
+        assert migrated_payload == {**state_data, "state": CircuitBreakerState.OPEN.value}
+
+    def test_migrate_legacy_quiet_period_state_noops_for_open(self, mock_redis_client):
+        """Test explicit legacy migration does not rewrite current OPEN state."""
+        mock_redis_client.get.return_value = json.dumps(
+            {"state": CircuitBreakerState.OPEN.value}
+        )
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+
+        assert breaker.migrate_legacy_quiet_period_state() is False
+        mock_redis_client.set.assert_not_called()
+
+    def test_get_status_returns_unknown_for_invalid_redis_state(
+        self, mock_redis_client
+    ):
+        """Test status reads degrade safely when Redis contains a corrupt state."""
+        state_data = {"state": "BROKEN", "trip_count_today": 0}
+        mock_redis_client.get.return_value = json.dumps(state_data)
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+
+        assert breaker.get_status() == {**state_data, "state": "UNKNOWN"}
 
     def test_is_tripped_when_tripped(self, mock_redis_client):
         """Test is_tripped returns True when TRIPPED."""
@@ -183,13 +216,17 @@ class TestCircuitBreakerStateQueries:
         assert breaker.is_tripped() is False
 
     def test_is_tripped_when_quiet_period(self, mock_redis_client):
-        """Test is_tripped returns False when QUIET_PERIOD."""
-        # Use recent time to avoid auto-transition to OPEN
+        """Test is_tripped returns False for legacy QUIET_PERIOD."""
         state_data = {
             "state": CircuitBreakerState.QUIET_PERIOD.value,
             "reset_at": datetime.now(UTC).isoformat(),
         }
         mock_redis_client.get.return_value = json.dumps(state_data)
+        mock_pipeline = Mock()
+        mock_redis_client.pipeline.return_value = mock_pipeline
+        mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
+        mock_pipeline.__exit__ = Mock(return_value=False)
+        mock_pipeline.get.return_value = json.dumps(state_data)
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
 
@@ -259,6 +296,20 @@ class TestCircuitBreakerStateQueries:
         status = breaker.get_status()
 
         assert status == state_data
+
+    def test_get_status_normalizes_legacy_quiet_period(self, mock_redis_client):
+        """Test get_status returns normalized state for legacy QUIET_PERIOD payloads."""
+        state_data = {
+            "state": CircuitBreakerState.QUIET_PERIOD.value,
+            "reset_at": "2025-10-19T15:30:00+00:00",
+            "trip_count_today": 1,
+        }
+        mock_redis_client.get.return_value = json.dumps(state_data)
+
+        breaker = CircuitBreaker(redis_client=mock_redis_client)
+        status = breaker.get_status()
+
+        assert status == {**state_data, "state": CircuitBreakerState.OPEN.value}
 
 
 class TestCircuitBreakerTripOperation:
@@ -425,8 +476,8 @@ class TestCircuitBreakerResetOperation:
         mock_pipeline.__exit__ = Mock(return_value=False)
         return mock_redis, mock_pipeline
 
-    def test_reset_from_tripped_to_quiet_period(self, mock_redis_client):
-        """Test reset transitions from TRIPPED to QUIET_PERIOD."""
+    def test_reset_from_tripped_to_open(self, mock_redis_client):
+        """Test reset transitions from TRIPPED to OPEN."""
         mock_redis, mock_pipeline = mock_redis_client
 
         # Initial state: TRIPPED
@@ -445,11 +496,13 @@ class TestCircuitBreakerResetOperation:
         breaker = CircuitBreaker(redis_client=mock_redis)
         breaker.reset(reset_by="operator")
 
-        # Verify state transitioned to QUIET_PERIOD
+        # Verify state transitioned to OPEN
         call_args = mock_pipeline.set.call_args
         updated_state = json.loads(call_args[0][1])
 
-        assert updated_state["state"] == CircuitBreakerState.QUIET_PERIOD.value
+        assert updated_state["state"] == CircuitBreakerState.OPEN.value
+        assert updated_state["tripped_at"] is None
+        assert updated_state["trip_reason"] is None
         assert updated_state["reset_by"] == "operator"
         assert "reset_at" in updated_state
 
@@ -634,16 +687,11 @@ class TestCircuitBreakerEdgeCases:
         with pytest.raises(RuntimeError, match="Circuit breaker state missing from Redis"):
             breaker.is_tripped()
 
-    def test_transition_to_open_fails_closed_when_state_deleted(self, mock_redis_client):
-        """Test _transition_to_open raises RuntimeError when state deleted during transition.
-
-        If state is deleted during quiet period expiry transition, we should fail-closed
-        rather than auto-initializing to OPEN.
-        """
+    def test_legacy_quiet_period_read_does_not_write_state(self, mock_redis_client):
+        """Test get_state does not mutate legacy QUIET_PERIOD payloads."""
         mock_redis, mock_pipeline = mock_redis_client
 
-        # During __init__, state is in QUIET_PERIOD with expired time
-        reset_at = datetime.now(UTC) - timedelta(seconds=600)  # 10 minutes ago
+        reset_at = datetime.now(UTC) - timedelta(seconds=600)
         initial_state = {
             "state": CircuitBreakerState.QUIET_PERIOD.value,
             "reset_at": reset_at.isoformat(),
@@ -651,16 +699,10 @@ class TestCircuitBreakerEdgeCases:
         }
         mock_redis.get.return_value = json.dumps(initial_state)
 
-        # Mock pipeline for _transition_to_open - state deleted during pipeline
-        mock_pipeline.watch = Mock()
-        mock_pipeline.get.return_value = None  # State deleted
-        mock_pipeline.unwatch = Mock()
-
         breaker = CircuitBreaker(redis_client=mock_redis)
 
-        # get_state() should trigger transition, which should fail-closed
-        with pytest.raises(RuntimeError, match="Circuit breaker state missing"):
-            breaker.get_state()
+        assert breaker.get_state() == CircuitBreakerState.OPEN
+        mock_pipeline.set.assert_not_called()
 
     def test_trip_reason_enum_values(self, mock_redis_client):
         """Test all TripReason enum values are valid."""
@@ -992,19 +1034,23 @@ class TestCircuitBreakerQuietPeriodEdgeCases:
         return mock_redis
 
     def test_quiet_period_without_reset_at(self, mock_redis_client):
-        """Test QUIET_PERIOD state without reset_at field (edge case)."""
+        """Test legacy QUIET_PERIOD without reset_at normalizes to OPEN."""
         # State data missing reset_at field
         state_data = {
             "state": CircuitBreakerState.QUIET_PERIOD.value,
             "trip_count_today": 1,
         }
         mock_redis_client.get.return_value = json.dumps(state_data)
+        mock_pipeline = Mock()
+        mock_redis_client.pipeline.return_value = mock_pipeline
+        mock_pipeline.__enter__ = Mock(return_value=mock_pipeline)
+        mock_pipeline.__exit__ = Mock(return_value=False)
+        mock_pipeline.get.return_value = json.dumps(state_data)
 
         breaker = CircuitBreaker(redis_client=mock_redis_client)
         state = breaker.get_state()
 
-        # Should return QUIET_PERIOD without attempting transition
-        assert state == CircuitBreakerState.QUIET_PERIOD
+        assert state == CircuitBreakerState.OPEN
 
 
 class TestCircuitBreakerFailClosedBehavior:

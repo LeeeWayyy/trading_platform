@@ -507,7 +507,7 @@ class TestFetchInitialSafetyState:
 
     @pytest.mark.asyncio()
     async def test_circuit_breaker_quiet_period(self, context: OrderEntryContext) -> None:
-        """QUIET_PERIOD is treated as tripped."""
+        """Legacy QUIET_PERIOD is treated as open after quiet period removal."""
         context._redis.get = AsyncMock(
             side_effect=[
                 json.dumps({"state": "QUIET_PERIOD"}),
@@ -518,7 +518,7 @@ class TestFetchInitialSafetyState:
         await context._fetch_initial_safety_state()
 
         context._order_ticket.set_circuit_breaker_state.assert_called_with(
-            True, "Initial state: QUIET_PERIOD (transitional)"
+            False, None
         )
 
     @pytest.mark.asyncio()
@@ -736,6 +736,17 @@ class TestVerifySafetyState:
         assert result is False
 
     @pytest.mark.asyncio()
+    async def test_verify_circuit_breaker_legacy_quiet_period(
+        self, context: OrderEntryContext
+    ) -> None:
+        """Legacy QUIET_PERIOD is safe after quiet-period removal."""
+        context._redis.get = AsyncMock(return_value=json.dumps({"state": "QUIET_PERIOD"}))
+
+        result = await context._verify_circuit_breaker_safe()
+
+        assert result is True
+
+    @pytest.mark.asyncio()
     async def test_verify_circuit_breaker_missing(self, context: OrderEntryContext) -> None:
         """Missing circuit breaker returns False."""
         context._redis.get = AsyncMock(return_value=None)
@@ -872,11 +883,11 @@ class TestSafetyStateCallbacks:
 
     @pytest.mark.asyncio()
     async def test_circuit_breaker_update_quiet_period(self, context: OrderEntryContext) -> None:
-        """QUIET_PERIOD is treated as tripped."""
+        """Legacy QUIET_PERIOD update is treated as open."""
         await context._on_circuit_breaker_update({"state": "QUIET_PERIOD"})
 
         context._order_ticket.set_circuit_breaker_state.assert_called_with(
-            True, "Circuit breaker in quiet period"
+            False, None
         )
 
     @pytest.mark.asyncio()

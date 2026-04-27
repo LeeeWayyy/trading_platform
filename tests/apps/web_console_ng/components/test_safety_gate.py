@@ -426,17 +426,16 @@ class TestSafetyGateCheckWithApiVerification:
         assert "TRIPPED" in result.reason
 
     @pytest.mark.asyncio()
-    async def test_fail_closed_circuit_breaker_quiet_period_blocks(
+    async def test_fail_closed_circuit_breaker_quiet_period_allows(
         self, gate: SafetyGate, mock_client: AsyncMock
     ) -> None:
-        """FAIL_CLOSED should block on circuit breaker quiet period."""
+        """Legacy QUIET_PERIOD is treated as open after quiet period removal."""
         mock_client.fetch_circuit_breaker_status.return_value = {"state": "QUIET_PERIOD"}
         result = await gate.check_with_api_verification(
             policy=SafetyPolicy.FAIL_CLOSED,
             cached_connection_state="CONNECTED",
         )
-        assert result.allowed is False
-        assert "QUIET_PERIOD" in result.reason
+        assert result.allowed is True
 
     @pytest.mark.asyncio()
     async def test_fail_open_unknown_connection_warns(self, gate: SafetyGate) -> None:

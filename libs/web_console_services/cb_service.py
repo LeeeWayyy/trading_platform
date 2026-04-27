@@ -103,6 +103,13 @@ class CircuitBreakerService:
         self.redis = redis_client
         self.db_pool = db_pool
         self.breaker = CircuitBreaker(redis_client)
+        try:
+            self.breaker.migrate_legacy_quiet_period_state()
+        except (json.JSONDecodeError, redis.RedisError, RuntimeError, ValueError) as exc:
+            logger.warning(
+                "circuit_breaker_legacy_state_migration_skipped",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
         self.rate_limiter = CBRateLimiter(redis_client)
 
     def get_status(self) -> dict[str, Any]:
@@ -479,7 +486,8 @@ class CircuitBreakerService:
         admin_action_total.labels(action=action).inc()
 
         # Merge reason with additional details
-        audit_details: dict[str, Any] = {"reason": str(reason)}
+        reason_text = str(reason)
+        audit_details: dict[str, Any] = {"reason": reason_text}
         if details:
             audit_details.update(details)
 
@@ -495,7 +503,6 @@ class CircuitBreakerService:
             return
 
         user_id = user.get("user_id")
-        user_name = user.get("username") or user.get("name")
         ip_address = user.get("ip_address")
 
         start = time.monotonic()
@@ -505,22 +512,25 @@ class CircuitBreakerService:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
+                        -- Current audit_log schema has user_id but no user_name column.
                         INSERT INTO audit_log (
                             timestamp, action, resource_type, resource_id,
-                            user_id, user_name, details, ip_address, outcome
+                            user_id, details, reason, ip_address, outcome, event_type
                         ) VALUES (
-                            NOW(), %s, %s, %s, %s, %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
+                            datetime.now(UTC),
                             action,
                             resource_type,
                             resource_id,
                             user_id,
-                            user_name,
                             json.dumps(audit_details),
+                            reason_text,
                             ip_address,
                             outcome,
+                            "action",
                         ),
                     )
                 conn.commit()

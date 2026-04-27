@@ -353,7 +353,7 @@ def test_resolve_workspace_quick_links_for_trader() -> None:
         can_view_models=True,
     )
     paths = {path for _, path in links}
-    assert "/circuit-breaker" in paths
+    assert "/circuit-breaker" not in paths
     assert "/alerts" in paths
     assert "/journal" in paths
     assert "/strategies" in paths
@@ -511,5 +511,5 @@ def test_resolve_workspace_circuit_breaker_pill_states() -> None:
     unknown = dashboard_module.resolve_workspace_circuit_breaker_pill(None)
     assert tripped == ("CB TRIPPED", "danger")
     assert open_state == ("CB READY", "normal")
-    assert quiet == ("CB QUIET", "warning")
+    assert quiet == ("CB READY", "normal")
     assert unknown == ("CB UNKNOWN", "muted")

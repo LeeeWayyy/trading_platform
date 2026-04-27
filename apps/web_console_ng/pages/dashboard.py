@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from nicegui import Client, app, events, ui
+from nicegui import Client, app, events, run, ui
 
 from apps.web_console_ng import config
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
@@ -76,6 +76,7 @@ from apps.web_console_ng.core.client import AsyncTradingClient
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.core.connection_monitor import ConnectionMonitor
 from apps.web_console_ng.core.database import get_db_pool
+from apps.web_console_ng.core.dependencies import get_sync_db_pool, get_sync_redis_client
 from apps.web_console_ng.core.realtime import (
     RealtimeUpdater,
     circuit_breaker_channel,
@@ -91,6 +92,7 @@ from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from apps.web_console_ng.utils.time import validate_and_normalize_symbol
 from libs.core.common.db import acquire_connection
+from libs.core.redis_client import RedisClient
 from libs.data.data_pipeline.health_monitor import get_health_monitor
 from libs.platform.web_console_auth.permissions import (
     Permission,
@@ -98,6 +100,12 @@ from libs.platform.web_console_auth.permissions import (
     has_permission,
 )
 from libs.web_console_data.strategy_scoped_queries import StrategyScopedDataAccess
+from libs.web_console_services.cb_service import (
+    CircuitBreakerService,
+    RateLimitExceeded,
+    RBACViolation,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +124,8 @@ _FLATTEN_ALL_ALLOWED_ROLES = frozenset({"admin"})
 STRATEGY_RESOLUTION_LOOKBACK_DAYS = 90
 STRATEGY_RESOLUTION_CACHE_TTL_S = 5.0
 STRATEGY_RESOLUTION_CACHE_MAX_ENTRIES = 1024
+TRADE_WORKSPACE_CIRCUIT_TRIP_REASON = "MANUAL"
+TRADE_WORKSPACE_CIRCUIT_RESET_REASON = "Trade workspace manual circuit reset confirmation"
 ScopeKey = tuple[str, frozenset[str]]
 StrategyResolutionScopeKey = tuple[str, ...]
 StrategyResolutionCacheKey = tuple[StrategyResolutionScopeKey, str]
@@ -126,6 +136,54 @@ _strategy_resolution_cache: OrderedDict[
 # Process-local cache is intentional: short TTL smooths per-worker query bursts without
 # introducing cross-worker consistency requirements for deterministic DB lookups.
 _strategy_resolution_cache_lock = threading.Lock()
+_trade_workspace_cb_service: CircuitBreakerService | None = None
+_trade_workspace_cb_service_lock = asyncio.Lock()
+
+
+async def _get_trade_workspace_cb_service() -> CircuitBreakerService | None:
+    """Return sync circuit-breaker service for trade-workspace manual controls.
+
+    Redis is authoritative for circuit-breaker safety state. If Redis is not
+    available, controls fail closed instead of constructing an alternate client.
+    """
+    global _trade_workspace_cb_service
+    if _trade_workspace_cb_service is None:
+        async with _trade_workspace_cb_service_lock:
+            if _trade_workspace_cb_service is not None:
+                return _trade_workspace_cb_service
+            _trade_workspace_cb_service = await run.io_bound(
+                _build_trade_workspace_cb_service
+            )
+    return _trade_workspace_cb_service
+
+
+def _build_trade_workspace_cb_service() -> CircuitBreakerService | None:
+    """Construct the process-local circuit-breaker service singleton."""
+    try:
+        sync_pool = get_sync_db_pool()
+    except (ImportError, RuntimeError):
+        sync_pool = None
+        logger.warning(
+            "trade_workspace_sync_db_pool_unavailable",
+            extra={"impact": "circuit breaker audit logging disabled"},
+        )
+
+    try:
+        sync_redis: RedisClient = get_sync_redis_client()  # type: ignore[assignment]
+    except (ImportError, RuntimeError):
+        logger.error(
+            "trade_workspace_redis_unavailable_fail_closed",
+            extra={"impact": "circuit breaker trade control disabled"},
+        )
+        return None
+
+    return CircuitBreakerService(sync_redis, sync_pool)
+
+
+def _reset_trade_workspace_cb_service_for_tests() -> None:
+    """Clear the process-local circuit-breaker service cache in tests."""
+    global _trade_workspace_cb_service
+    _trade_workspace_cb_service = None
 
 
 def _build_strategy_resolution_scope_key(
@@ -408,11 +466,42 @@ def resolve_workspace_circuit_breaker_pill(state: str | None) -> tuple[str, str]
     normalized = str(state or "UNKNOWN").upper()
     if normalized == "TRIPPED":
         return ("CB TRIPPED", "danger")
-    if normalized == "OPEN":
+    if normalized in {"OPEN", "QUIET_PERIOD"}:
         return ("CB READY", "normal")
-    if normalized == "QUIET_PERIOD":
-        return ("CB QUIET", "warning")
     return (f"CB {normalized}", "muted")
+
+
+def resolve_workspace_circuit_breaker_control(
+    state: str | None,
+    *,
+    can_trip: bool,
+    can_reset: bool,
+) -> tuple[str, str, str, bool, str]:
+    """Return icon, tone, tooltip, enabled flag, and action for CB ticket control."""
+    normalized = str(state or "UNKNOWN").upper()
+    if normalized == "TRIPPED":
+        enabled = can_reset
+        tooltip = (
+            "Resume trading after confirmation"
+            if enabled
+            else "RESET_CIRCUIT permission required"
+        )
+        return ("lock_open", "danger", tooltip, enabled, "reset")
+    if normalized in {"OPEN", "QUIET_PERIOD"}:
+        enabled = can_trip
+        tooltip = (
+            "Halt new order entries after confirmation"
+            if enabled
+            else "TRIP_CIRCUIT permission required"
+        )
+        return ("lock", "normal", tooltip, enabled, "trip")
+    return (
+        "help_outline",
+        "muted",
+        "Breaker status unknown: check connection before changing state",
+        False,
+        "none",
+    )
 
 
 def resolve_workspace_quick_links(
@@ -428,7 +517,6 @@ def resolve_workspace_quick_links(
 ) -> list[tuple[str, str]]:
     """Return workspace quick-link routes visible for the current user context."""
     base_links = [
-        ("Circuit", "/circuit-breaker"),
         ("Alerts", "/alerts"),
         ("Journal", "/journal"),
         ("Strategies", "/strategies"),
@@ -667,6 +755,7 @@ async def dashboard(client: Client) -> None:
     """Main trading dashboard with real-time updates."""
     trading_client = AsyncTradingClient.get()
     user = get_current_user()
+    circuit_action_user = user.copy()
     user_id = str(user.get("user_id") or user.get("username") or "").strip()
     user_role = str(user.get("role") or "viewer")
     strategies = user.get("strategies") or []
@@ -861,10 +950,16 @@ async def dashboard(client: Client) -> None:
     kill_switch_status_pill: _CommandStatusPill | None = None
     circuit_breaker_status_pill: _CommandStatusPill | None = None
     session_clock_pill: _CommandStatusPill | None = None
+    circuit_breaker_control_btn: ui.button | None = None
+    circuit_breaker_control_tooltip_label: ui.label | None = None
+    circuit_breaker_control_tone = "workspace-v2-circuit-control-muted"
+    workspace_circuit_breaker_state = "UNKNOWN"
     can_view_alerts = has_permission(user, Permission.VIEW_ALERTS)
     can_view_data_quality = has_permission(user, Permission.VIEW_DATA_QUALITY)
     can_manage_strategies = has_permission(user, Permission.MANAGE_STRATEGIES)
     can_view_models = has_permission(user, Permission.VIEW_MODELS)
+    can_trip_circuit = has_permission(user, Permission.TRIP_CIRCUIT)
+    can_reset_circuit = has_permission(user, Permission.RESET_CIRCUIT)
     workspace_quick_links = resolve_workspace_quick_links(
         user_role=user_role,
         feature_alerts_enabled=config.FEATURE_ALERTS,
@@ -875,6 +970,156 @@ async def dashboard(client: Client) -> None:
         feature_model_registry_enabled=config.FEATURE_MODEL_REGISTRY,
         can_view_models=can_view_models,
     )
+
+    def _update_workspace_circuit_breaker_control() -> None:
+        nonlocal circuit_breaker_control_tone
+        if circuit_breaker_control_btn is None:
+            return
+        icon, tone, tooltip, enabled, action = resolve_workspace_circuit_breaker_control(
+            workspace_circuit_breaker_state,
+            can_trip=can_trip_circuit,
+            can_reset=can_reset_circuit,
+        )
+        tone_class = f"workspace-v2-circuit-control-{tone}"
+        circuit_breaker_control_btn.props(
+            f'icon={icon} aria-label="{tooltip}" data-cb-action={action}'
+        )
+        if circuit_breaker_control_tooltip_label is not None:
+            circuit_breaker_control_tooltip_label.set_text(tooltip)
+        if circuit_breaker_control_tone != tone_class:
+            circuit_breaker_control_btn.classes(remove=circuit_breaker_control_tone)
+            circuit_breaker_control_btn.classes(add=tone_class)
+            circuit_breaker_control_tone = tone_class
+        if enabled:
+            circuit_breaker_control_btn.enable()
+        else:
+            circuit_breaker_control_btn.disable()
+
+    async def _refresh_circuit_breaker_from_service() -> None:
+        nonlocal workspace_circuit_breaker_state
+        cb_service = await _get_trade_workspace_cb_service()
+        if cb_service is None:
+            workspace_circuit_breaker_state = "UNKNOWN"
+            _update_workspace_circuit_breaker_pill()
+            _update_workspace_circuit_breaker_control()
+            return
+        try:
+            status = await run.io_bound(cb_service.get_status)
+        except Exception as exc:
+            logger.warning(
+                "trade_workspace_circuit_status_refresh_failed",
+                extra={"error": str(exc), "error_type": type(exc).__name__},
+            )
+            workspace_circuit_breaker_state = "UNKNOWN"
+            _update_workspace_circuit_breaker_pill()
+            _update_workspace_circuit_breaker_control()
+            return
+        workspace_circuit_breaker_state = str(status.get("state", "")).upper() or "UNKNOWN"
+        _update_workspace_circuit_breaker_pill()
+        _update_workspace_circuit_breaker_control()
+        app.storage.user["global_circuit_state"] = workspace_circuit_breaker_state
+        dispatch_trading_state_event(
+            client_id,
+            {"circuitBreakerState": workspace_circuit_breaker_state},
+        )
+
+    async def _confirm_circuit_breaker_action(action: str) -> None:
+        """Confirm and execute manual CB trip/reset from the trade workspace."""
+        if action not in {"trip", "reset"}:
+            ui.notify("Circuit breaker state is not actionable", type="warning")
+            return
+
+        title = "HALT ALL TRADING?" if action == "trip" else "RESUME TRADING?"
+        body = (
+            "This immediately blocks all new order entries. Risk-reducing exits and "
+            "stop-loss handling remain available. Confirm emergency halt?"
+            if action == "trip"
+            else (
+                "You are re-enabling order submission immediately. Confirm manual "
+                "recovery only after system conditions are normalized."
+            )
+        )
+        confirm_label = "Halt Trading" if action == "trip" else "Resume Trading"
+        confirm_color = "red" if action == "trip" else "green"
+
+        with ui.dialog() as dialog, ui.card().classes("workspace-v2-circuit-dialog"):
+            ui.label(title).classes("workspace-v2-circuit-dialog-title")
+            ui.label(body).classes("workspace-v2-circuit-dialog-copy")
+            with ui.row().classes("w-full justify-end gap-2 mt-3"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+
+                async def _execute() -> None:
+                    cb_service = await _get_trade_workspace_cb_service()
+                    if cb_service is None:
+                        ui.notify(
+                            "Circuit breaker service unavailable; control disabled for safety",
+                            type="negative",
+                        )
+                        dialog.close()
+                        return
+                    try:
+                        if action == "trip":
+                            await run.io_bound(
+                                cb_service.trip,
+                                TRADE_WORKSPACE_CIRCUIT_TRIP_REASON,
+                                circuit_action_user,
+                                acknowledged=True,
+                            )
+                            ui.notify("Circuit breaker tripped", type="positive")
+                        else:
+                            ui.notify("Resuming trading...", type="info")
+                            await run.io_bound(
+                                cb_service.reset,
+                                TRADE_WORKSPACE_CIRCUIT_RESET_REASON,
+                                circuit_action_user,
+                                acknowledged=True,
+                            )
+                            ui.notify("Trading resumed", type="positive")
+                        dialog.close()
+                        await _refresh_circuit_breaker_from_service()
+                    except RateLimitExceeded as exc:
+                        ui.notify(f"Rate limit exceeded: {exc}", type="negative")
+                    except (RBACViolation, ValidationError) as exc:
+                        ui.notify(str(exc), type="negative")
+                    except (RuntimeError, ValueError) as exc:
+                        logger.exception(
+                            "trade_workspace_circuit_breaker_action_failed",
+                            extra={
+                                "action": action,
+                                "state": workspace_circuit_breaker_state,
+                                "error": str(exc),
+                            },
+                        )
+                        ui.notify("Circuit breaker action failed", type="negative")
+
+                ui.button(confirm_label, on_click=_execute, color=confirm_color)
+        dialog.open()
+
+    async def _handle_circuit_breaker_control_click() -> None:
+        _icon, _tone, _tooltip, enabled, action = resolve_workspace_circuit_breaker_control(
+            workspace_circuit_breaker_state,
+            can_trip=can_trip_circuit,
+            can_reset=can_reset_circuit,
+        )
+        if not enabled:
+            ui.notify(_tooltip, type="warning")
+            return
+        await _confirm_circuit_breaker_action(action)
+
+    def _render_circuit_breaker_header_action() -> None:
+        nonlocal circuit_breaker_control_btn, circuit_breaker_control_tooltip_label
+        circuit_breaker_control_btn = ui.button(
+            icon="help_outline",
+            on_click=_handle_circuit_breaker_control_click,
+        ).props("flat round dense").classes(
+            "workspace-v2-circuit-control workspace-v2-circuit-control-muted"
+        )
+        with circuit_breaker_control_btn:
+            with ui.tooltip():
+                circuit_breaker_control_tooltip_label = ui.label(
+                    "Breaker status unknown: check connection before changing state"
+                )
+        _update_workspace_circuit_breaker_control()
 
     # Unified Execution Workspace is the only supported trading layout.
     with ui.element("section").classes("workspace-v2 w-full mb-3") as _workspace_root:
@@ -945,7 +1190,14 @@ async def dashboard(client: Client) -> None:
                 strategy_context_widget.create()
                 order_context.set_strategy_context_widget(strategy_context_widget)
 
-                order_context.create_order_ticket(show_execution_context_ribbon=False)
+                order_context.create_order_ticket(
+                    show_execution_context_ribbon=False,
+                    header_actions=(
+                        _render_circuit_breaker_header_action
+                        if config.FEATURE_CIRCUIT_BREAKER
+                        else None
+                    ),
+                )
 
                 with ui.element("div").classes("workspace-v2-panel"):
                     ui.label("Execution Actions").classes("workspace-v2-panel-title mb-1")
@@ -1150,7 +1402,6 @@ async def dashboard(client: Client) -> None:
     grid_update_lock = asyncio.Lock()
     kill_switch_engaged: bool | None = None  # Real-time cached state for instant UI response
     workspace_kill_switch_state = "UNKNOWN"
-    workspace_circuit_breaker_state = "UNKNOWN"
     modify_dialog = OrderModifyDialog(
         trading_client=trading_client,
         user_id=user_id,
@@ -1239,6 +1490,7 @@ async def dashboard(client: Client) -> None:
             return
         text, tone = resolve_workspace_circuit_breaker_pill(workspace_circuit_breaker_state)
         circuit_breaker_status_pill.set_state(text, tone)
+        _update_workspace_circuit_breaker_control()
 
     def _update_workspace_clock_pill() -> None:
         if session_clock_pill is None:
@@ -1623,6 +1875,8 @@ async def dashboard(client: Client) -> None:
                 strategies=user_strategies,
             )
             workspace_circuit_breaker_state = str(cb_status.get("state", "")).upper() or "UNKNOWN"
+            if workspace_circuit_breaker_state == "QUIET_PERIOD":
+                workspace_circuit_breaker_state = "OPEN"
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             logger.warning(
                 "circuit_breaker_initial_check_failed",
@@ -1630,6 +1884,8 @@ async def dashboard(client: Client) -> None:
             )
             cached_state = str(app.storage.user.get("global_circuit_state", "")).upper()
             workspace_circuit_breaker_state = cached_state or "UNKNOWN"
+            if workspace_circuit_breaker_state == "QUIET_PERIOD":
+                workspace_circuit_breaker_state = "OPEN"
         _update_workspace_circuit_breaker_pill()
         app.storage.user["global_circuit_state"] = workspace_circuit_breaker_state
         dispatch_trading_state_event(

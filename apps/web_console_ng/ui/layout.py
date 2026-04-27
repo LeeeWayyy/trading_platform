@@ -161,7 +161,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_items = [
                     ("Trade", "/", "candlestick_chart", None),
                     ("Research Workspace", "/research", "hub", None),
-                    ("Circuit Breaker", "/circuit-breaker", "electric_bolt", None),
                     ("System Health", "/health", "monitor_heart", None),
                     ("Risk Analytics", "/risk", "trending_up", None),
                     ("Execution Quality", "/execution-quality", "analytics", None),  # P6T8
@@ -194,7 +193,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 nav_groups: list[tuple[str, list[str]]] = [
                     (
                         "Execute",
-                        ["/", "/circuit-breaker"],
+                        ["/"],
                     ),
                     ("Monitor", ["/health", "/alerts", "/journal", "/performance", "/reports"]),
                     (
@@ -476,7 +475,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     .props("id=kill-switch-disengage")
                 )
                 circuit_breaker_badge = (
-                    ui.label("Circuit: Unknown")
+                    ui.label("CIRCUIT: UNKNOWN")
                     .classes(
                         "h-8 px-3 py-1 rounded text-sm font-medium bg-slate-700 text-slate-100 flex items-center shrink-0"
                     )
@@ -558,6 +557,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             if not isinstance(raw_state, str):
                 return None
             normalized = raw_state.strip().upper()
+            if normalized == "QUIET_PERIOD":
+                return "OPEN"
             return normalized or None
 
         cached_kill_state = _normalize_cached_kill_state(
@@ -592,6 +593,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 circuit_breaker_badge.classes(
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
+                )
+            elif cached_cb_display in {"OPEN", "QUIET_PERIOD"}:
+                circuit_breaker_badge.set_text("CIRCUIT OK (STALE)")
+                circuit_breaker_badge.classes(
+                    "bg-slate-700 text-slate-100",
+                    remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                 )
             else:
                 circuit_breaker_badge.set_text(f"CIRCUIT: {cached_cb_display} (STALE)")
@@ -676,6 +683,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "bg-red-700 text-rose-100",
                         remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                     )
+                elif cb_state in {"OPEN", "QUIET_PERIOD"}:
+                    circuit_breaker_badge.set_text("CIRCUIT OK (STALE)")
+                    circuit_breaker_badge.classes(
+                        "bg-slate-700 text-slate-100",
+                        remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
+                    )
                 else:
                     circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state} (STALE)")
                     circuit_breaker_badge.classes(
@@ -690,17 +703,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                 )
-            elif cb_state == "OPEN":
+            elif cb_state in {"OPEN", "QUIET_PERIOD"}:
                 circuit_breaker_badge.set_text("CIRCUIT OK")
                 circuit_breaker_badge.classes(
                     "bg-slate-700 text-slate-100",
                     remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
-                )
-            elif cb_state == "QUIET_PERIOD":
-                circuit_breaker_badge.set_text("CIRCUIT QUIET PERIOD")
-                circuit_breaker_badge.classes(
-                    "bg-amber-500 text-black",
-                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
             else:
                 circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
@@ -856,14 +863,13 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         )
                     if header_metrics.is_stale():
                         header_metrics.mark_stale()
-                    if last_kill_switch_state is not None or last_circuit_state is not None:
-                        dispatch_trading_state(
-                            {
-                                "killSwitchState": last_kill_switch_state or "UNKNOWN",
-                                "circuitState": last_circuit_state or "UNKNOWN",
-                                "statusStale": True,
-                            }
-                        )
+                    dispatch_trading_state(
+                        {
+                            "killSwitchState": last_kill_switch_state or "UNKNOWN",
+                            "circuitState": last_circuit_state or "UNKNOWN",
+                            "statusStale": True,
+                        }
+                    )
                     sync_connection_state()
                     return
 
@@ -882,7 +888,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         cb_status = await client.fetch_circuit_breaker_status(
                             user_id, role=user_role, strategies=user_strategies
                         )
-                        cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
+                        cb_state = str(cb_status.get("state", "UNKNOWN")).upper() or "UNKNOWN"
+                        if cb_state == "QUIET_PERIOD":
+                            cb_state = "OPEN"
                     except (
                         httpx.HTTPStatusError,
                         httpx.RequestError,
@@ -955,7 +963,11 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                                     ),
                                     timeout=1.5,
                                 )
-                                fallback_cb_state = str(cb_status.get("state", "UNKNOWN")).upper()
+                                fallback_cb_state = (
+                                    str(cb_status.get("state", "UNKNOWN")).upper() or "UNKNOWN"
+                                )
+                                if fallback_cb_state == "QUIET_PERIOD":
+                                    fallback_cb_state = "OPEN"
                                 last_circuit_state = fallback_cb_state
                                 app.storage.user["global_circuit_state"] = fallback_cb_state
                             except (
@@ -967,19 +979,15 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                             ):
                                 fallback_cb_state = "UNKNOWN"
                         kill_switch_state = "UNKNOWN"
-                        kill_switch_button.set_text("STATUS UNKNOWN")
-                        kill_switch_button.classes(
-                            "bg-amber-500 text-black",
-                            remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                        )
-                        _update_status_bar("UNKNOWN", fallback_cb_state)
+                        _render_kill_switch_state("UNKNOWN", stale=True)
+                        _update_status_bar("UNKNOWN", fallback_cb_state, stale=True)
                         set_kill_switch_controls("UNKNOWN")
                         _render_circuit_breaker_state(fallback_cb_state)
                         dispatch_trading_state(
                             {
                                 "killSwitchState": "UNKNOWN",
                                 "circuitState": fallback_cb_state,
-                                "statusStale": fallback_cb_state != "UNKNOWN",
+                                "statusStale": True,
                             }
                         )
 

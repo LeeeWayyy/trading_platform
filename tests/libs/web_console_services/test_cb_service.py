@@ -39,6 +39,24 @@ def _mock_db_pool(rows: list[tuple[datetime, str, object, str | None]]) -> Magic
     return mock_pool
 
 
+def test_service_init_skips_legacy_migration_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        patch("libs.web_console_services.cb_service.CircuitBreaker") as breaker_class,
+        patch("libs.web_console_services.cb_service.CBRateLimiter"),
+    ):
+        breaker = MagicMock()
+        breaker.migrate_legacy_quiet_period_state.side_effect = RuntimeError("redis down")
+        breaker_class.return_value = breaker
+
+        with caplog.at_level("WARNING"):
+            service = CircuitBreakerService(MagicMock(), db_pool=None)
+
+    assert service.breaker is breaker
+    assert "circuit_breaker_legacy_state_migration_skipped" in caplog.text
+
+
 @patch("libs.web_console_services.cb_service.admin_action_total")
 def test_log_audit_without_db_pool_falls_back(
     admin_action_total: MagicMock, caplog: pytest.LogCaptureFixture
@@ -87,15 +105,18 @@ def test_log_audit_with_db_pool_writes(
     )
     cursor.execute.assert_called_once()
     _, params = cursor.execute.call_args[0]
-    # Params order: action, resource_type, resource_id, user_id, user_name, details_json, ip_address, outcome
-    assert params[0] == "CIRCUIT_BREAKER_RESET"
-    assert params[1] == "circuit_breaker"
-    assert params[2] == "global"
-    assert params[3] == "user-2"
-    assert params[4] == "operator"
+    # Params order: timestamp, action, resource_type, resource_id, user_id, details_json, reason, ip_address, outcome, event_type
+    assert isinstance(params[0], datetime)
+    assert params[0].tzinfo == UTC
+    assert params[1] == "CIRCUIT_BREAKER_RESET"
+    assert params[2] == "circuit_breaker"
+    assert params[3] == "global"
+    assert params[4] == "user-2"
     audit_details = json.loads(params[5])  # params[5] is json.dumps(audit_details)
     assert audit_details["reason"] == "Recovered"
     assert audit_details["reset_by"] == "user-2"
+    assert params[6] == "Recovered"
+    assert params[9] == "action"
     audit_write_latency_seconds.observe.assert_called_once()
 
 

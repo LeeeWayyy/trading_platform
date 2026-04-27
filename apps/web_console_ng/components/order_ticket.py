@@ -231,7 +231,12 @@ class OrderTicketComponent:
         # This ensures we don't start in false fail-closed state if already connected
         self._connection_read_only = self._connection_monitor.is_read_only()
 
-    def create(self, *, show_execution_context_ribbon: bool = True) -> ui.card:
+    def create(
+        self,
+        *,
+        show_execution_context_ribbon: bool = True,
+        header_actions: Callable[[], None] | None = None,
+    ) -> ui.card:
         """Create and return the order ticket UI."""
         with ui.card().classes("workspace-v2-panel workspace-v2-ticket") as card:
             self._root_card = card
@@ -242,7 +247,10 @@ class OrderTicketComponent:
 
             with ui.row().classes("w-full items-center justify-between gap-2"):
                 ui.label("Order Ticket").classes("workspace-v2-panel-title")
-                ui.label("EXECUTION").classes("workspace-v2-kv workspace-v2-data-mono")
+                with ui.row().classes("items-center gap-1"):
+                    ui.label("EXECUTION").classes("workspace-v2-kv workspace-v2-data-mono")
+                    if header_actions is not None:
+                        header_actions()
 
             with ui.row().classes("w-full gap-2 items-end"):
                 with ui.column().classes("flex-1 gap-1"):

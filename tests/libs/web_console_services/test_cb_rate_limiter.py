@@ -45,6 +45,18 @@ def test_check_global_limit_one_blocks(redis_client: MagicMock) -> None:
     redis_client.set_if_not_exists.assert_called_once_with(limiter.key, "1", ex=60)
 
 
+def test_check_global_limit_one_supports_redis_py_client() -> None:
+    redis_client = MagicMock(spec=["set", "eval", "delete"])
+    redis_client.set.return_value = True
+    limiter = CBRateLimiter(redis_client)
+
+    allowed = limiter.check_global(limit=1, window=60)
+
+    assert allowed is True
+    redis_client.set.assert_called_once_with(limiter.key, "1", ex=60, nx=True)
+    redis_client.eval.assert_not_called()
+
+
 def test_check_global_limit_multi_uses_lua(redis_client: MagicMock) -> None:
     redis_client.eval.return_value = "2"
     limiter = CBRateLimiter(redis_client)
