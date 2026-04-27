@@ -247,7 +247,7 @@ class CircuitBreaker:
         # remains read-only; cleanup of old Redis payloads belongs in an
         # explicit migration/maintenance path, not a getter.
         if state_data["state"] == CircuitBreakerState.QUIET_PERIOD.value:
-            logger.info("Treating legacy QUIET_PERIOD state as OPEN")
+            logger.debug("Treating legacy QUIET_PERIOD state as OPEN")
             return CircuitBreakerState.OPEN
 
         return CircuitBreakerState(state_data["state"])
