@@ -111,19 +111,12 @@ class CBRateLimiter:
         self, redis_client: RedisClient | redis.Redis
     ) -> Callable[[str, str, int], bool]:
         """Resolve the concrete SET NX EX operation once during construction."""
-        if isinstance(redis_client, RedisClient):
-            return lambda key, value, ex: redis_client.set_if_not_exists(key, value, ex=ex)
-
-        if isinstance(redis_client, redis.Redis):
-            return lambda key, value, ex: bool(redis_client.set(key, value, ex=ex, nx=True))
-
-        # Tests use MagicMock stand-ins. Keep this compatibility path explicit
-        # and fail fast for unsupported objects instead of probing every call.
         if isinstance(redis_client, RedisWrapperRateLimitClient):
             wrapper_client = cast(RedisWrapperRateLimitClient, redis_client)
             return lambda key, value, ex: wrapper_client.set_if_not_exists(
                 key, value, ex=ex
             )
+
         if isinstance(redis_client, RedisPyRateLimitClient):
             redis_py_client = cast(RedisPyRateLimitClient, redis_client)
             return lambda key, value, ex: bool(
