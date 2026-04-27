@@ -618,7 +618,7 @@ class OrderEntryContext:
             )
 
             cb_tripped = True  # Fail-closed default
-            cb_reason = "Initial state: Unknown/missing"
+            cb_reason: str | None = "Initial state: Unknown/missing"
             if cb_raw:
                 try:
                     cb_data = json.loads(cb_raw)
@@ -642,14 +642,14 @@ class OrderEntryContext:
 
                         if timestamp_valid:
                             cb_tripped = False
-                            cb_reason = None  # type: ignore[assignment]
+                            cb_reason = None
                         else:
                             cb_reason = "Initial state: OPEN but missing/invalid timestamp"
                     elif cb_state == "TRIPPED":
                         cb_reason = cb_data.get("trip_reason", "Initial state: TRIPPED")
                     elif cb_state == "QUIET_PERIOD":
                         cb_tripped = False
-                        cb_reason = None  # type: ignore[assignment]
+                        cb_reason = None
                     else:
                         cb_reason = f"Initial state: Unknown ({cb_state!r})"
                 except (json.JSONDecodeError, TypeError, AttributeError) as exc:
@@ -669,7 +669,7 @@ class OrderEntryContext:
             )
 
             ks_engaged = True  # Fail-closed default
-            ks_reason = "Initial state: Unknown/missing"
+            ks_reason: str | None = "Initial state: Unknown/missing"
             if ks_raw:
                 try:
                     ks_data = json.loads(ks_raw)
@@ -695,7 +695,7 @@ class OrderEntryContext:
 
                         if timestamp_valid:
                             ks_engaged = False
-                            ks_reason = None  # type: ignore[assignment]
+                            ks_reason = None
                         else:
                             ks_reason = "Initial state: ACTIVE but missing/invalid timestamp"
                     elif ks_state == "ENGAGED":
