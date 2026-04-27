@@ -87,7 +87,7 @@ def test_log_audit_with_db_pool_writes(
     )
     cursor.execute.assert_called_once()
     _, params = cursor.execute.call_args[0]
-    # Params order: timestamp, action, resource_type, resource_id, user_id, details_json, reason, ip_address, outcome
+    # Params order: timestamp, action, resource_type, resource_id, user_id, details_json, reason, ip_address, outcome, event_type
     assert isinstance(params[0], datetime)
     assert params[0].tzinfo == UTC
     assert params[1] == "CIRCUIT_BREAKER_RESET"
@@ -98,6 +98,7 @@ def test_log_audit_with_db_pool_writes(
     assert audit_details["reason"] == "Recovered"
     assert audit_details["reset_by"] == "user-2"
     assert params[6] == "Recovered"
+    assert params[9] == "action"
     audit_write_latency_seconds.observe.assert_called_once()
 
 
