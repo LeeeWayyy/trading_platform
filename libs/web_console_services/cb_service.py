@@ -508,7 +508,7 @@ class CircuitBreakerService:
                             timestamp, action, resource_type, resource_id,
                             user_id, details, reason, ip_address, outcome, event_type
                         ) VALUES (
-                            timezone('utc', now()), %s, %s, %s, %s, %s, %s, %s, %s, 'action'
+                            now(), %s, %s, %s, %s, %s, %s, %s, %s, 'action'
                         )
                         """,
                         (

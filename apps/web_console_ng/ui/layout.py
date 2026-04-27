@@ -571,12 +571,12 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             # Render stale cached state before heavy pages finish building so the
             # top banner does not start at UNKNOWN on first paint.
             _update_status_bar(
-                cached_kill_state or "DISENGAGED",
-                cached_circuit_state or "OPEN",
+                cached_kill_state or "UNKNOWN",
+                cached_circuit_state or "UNKNOWN",
                 stale=True,
             )
-            cached_kill_display = cached_kill_state or "DISENGAGED"
-            cached_cb_display = cached_circuit_state or "OPEN"
+            cached_kill_display = cached_kill_state or "UNKNOWN"
+            cached_cb_display = cached_circuit_state or "UNKNOWN"
             kill_switch_button.set_text(f"KILL SWITCH: {cached_kill_display} (STALE)")
             if cached_kill_display == "ENGAGED":
                 kill_switch_button.classes(
