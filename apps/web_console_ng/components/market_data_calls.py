@@ -92,16 +92,12 @@ async def call_market_data_client(
                 "market_data_client_call_failed",
                 extra={**context, "attempt_mode": mode, "error_type": type(exc).__name__},
             )
-            if index == 0:
-                continue
             raise
         except Exception as exc:
             logger.debug(
                 "market_data_client_call_failed",
                 extra={**context, "attempt_mode": mode, "error_type": type(exc).__name__},
             )
-            if index == 0:
-                continue
             raise
 
     return None

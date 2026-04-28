@@ -6,6 +6,7 @@ import asyncio
 import logging
 import math
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 try:
@@ -270,11 +271,11 @@ class MarketDataProvider:
         timestamp = self._normalize_bar_timestamp(ts_raw)
 
         try:
-            bid = float(bid_raw) if bid_raw is not None else None
-            ask = float(ask_raw) if ask_raw is not None else None
+            bid = Decimal(str(bid_raw)) if bid_raw is not None else None
+            ask = Decimal(str(ask_raw)) if ask_raw is not None else None
             bid_size = int(bid_size_raw) if bid_size_raw is not None else None
             ask_size = int(ask_size_raw) if ask_size_raw is not None else None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, InvalidOperation):
             return None
 
         if bid is None and ask is None:

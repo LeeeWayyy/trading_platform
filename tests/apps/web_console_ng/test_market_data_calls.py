@@ -11,8 +11,8 @@ from apps.web_console_ng.components.market_data_calls import call_market_data_cl
 
 
 @pytest.mark.asyncio()
-async def test_call_market_data_client_logs_strategy_context() -> None:
-    """Signature fallback logs include strategy_id context for traceability."""
+async def test_call_market_data_client_retries_type_error_with_legacy_signature() -> None:
+    """TypeError signature fallback retries legacy mode and logs strategy_id context."""
 
     async def client_call(**kwargs: object) -> dict[str, str]:
         if "user_id" in kwargs:
@@ -66,8 +66,8 @@ async def test_call_market_data_client_reraises_final_type_error() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_call_market_data_client_fallback_survives_first_unexpected_error() -> None:
-    """First-attempt client failures should not bypass the fallback signature mode."""
+async def test_call_market_data_client_reraises_first_unexpected_error() -> None:
+    """Non-signature client failures should not be retried as legacy calls."""
 
     async def client_call(**kwargs: object) -> dict[str, str]:
         if "user_id" in kwargs:
@@ -76,18 +76,18 @@ async def test_call_market_data_client_fallback_survives_first_unexpected_error(
 
     logger = MagicMock(spec=logging.Logger)
 
-    response = await call_market_data_client(
-        client_call,
-        request_kwargs={"symbol": "AAPL"},
-        user_id="user-1",
-        role="admin",
-        strategies=["alpha"],
-        logger=logger,
-        operation="test_operation",
-        symbol="AAPL",
-    )
+    with pytest.raises(RuntimeError, match="auth wrapper unavailable"):
+        await call_market_data_client(
+            client_call,
+            request_kwargs={"symbol": "AAPL"},
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+            logger=logger,
+            operation="test_operation",
+            symbol="AAPL",
+        )
 
-    assert response == {"symbol": "AAPL"}
     logger.debug.assert_called_once()
     _, kwargs = logger.debug.call_args
     assert kwargs["extra"]["strategy_id"] == "alpha"

@@ -578,8 +578,8 @@ class TestMarketContextSymbolChange:
         assert snapshot.timestamp == timestamp
 
     @pytest.mark.asyncio()
-    async def test_initial_seed_does_not_overwrite_newer_live_tick(self) -> None:
-        """Older API seed snapshots must not replace fresher live callback data."""
+    async def test_initial_seed_merges_without_overwriting_newer_live_tick(self) -> None:
+        """Older API seed fills gaps without replacing fresher live callback fields."""
         old_timestamp = datetime.now(UTC) - timedelta(minutes=1)
         new_timestamp = datetime.now(UTC)
         client = MagicMock()
@@ -587,7 +587,7 @@ class TestMarketContextSymbolChange:
         component._current_symbol = "AAPL"
         component._data = MarketDataSnapshot(
             symbol="AAPL",
-            last_price=Decimal("102.00"),
+            bid_price=Decimal("102.00"),
             timestamp=new_timestamp,
         )
 
@@ -599,7 +599,9 @@ class TestMarketContextSymbolChange:
                     None,
                     MarketDataSnapshot(
                         symbol="AAPL",
+                        bid_price=Decimal("101.00"),
                         last_price=Decimal("101.00"),
+                        volume=123456,
                         timestamp=old_timestamp,
                     ),
                 ),
@@ -609,9 +611,11 @@ class TestMarketContextSymbolChange:
             await component._fetch_initial_data("AAPL")
 
         assert component._data is not None
-        assert component._data.last_price == Decimal("102.00")
+        assert component._data.bid_price == Decimal("102.00")
+        assert component._data.last_price == Decimal("101.00")
+        assert component._data.volume == 123456
         assert component._data.timestamp == new_timestamp
-        mock_update_ui.assert_not_called()
+        mock_update_ui.assert_called_once()
 
 
 class TestMarketContextDispose:

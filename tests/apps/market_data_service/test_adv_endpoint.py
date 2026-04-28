@@ -4,6 +4,7 @@ Tests for ADV endpoint in Market Data Service.
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -200,8 +201,8 @@ def test_latest_quote_returns_top_of_book_payload(test_client, monkeypatch):
         lambda: DummyProvider(
             quote_data={
                 "symbol": "AAPL",
-                "bid_price": 180.1,
-                "ask_price": 180.2,
+                "bid_price": Decimal("180.1"),
+                "ask_price": Decimal("180.2"),
                 "bid_size": 100,
                 "ask_size": 200,
                 "timestamp": "2026-04-20T13:30:01+00:00",
@@ -213,8 +214,8 @@ def test_latest_quote_returns_top_of_book_payload(test_client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["symbol"] == "AAPL"
-    assert body["bid_price"] == 180.1
-    assert body["ask_price"] == 180.2
+    assert body["bid_price"] == "180.1"
+    assert body["ask_price"] == "180.2"
     assert body["bid_size"] == 100
     assert body["ask_size"] == 200
 

@@ -231,6 +231,8 @@ class MarketContextComponent:
         snapshot = self._merge_snapshots(symbol, quote_snapshot, bar_snapshot)
         if snapshot is not None and symbol == self._current_symbol:
             if self._should_keep_existing_snapshot(symbol, snapshot):
+                self._data = self._merge_seed_into_existing(symbol, snapshot)
+                self._update_ui()
                 return
             self._data = snapshot
             self._update_ui()
@@ -248,6 +250,29 @@ class MarketContextComponent:
         if existing.timestamp is not None and candidate.timestamp is not None:
             return existing.timestamp >= candidate.timestamp
         return False
+
+    def _merge_seed_into_existing(
+        self, symbol: str, candidate: MarketDataSnapshot
+    ) -> MarketDataSnapshot:
+        """Fill seed-only gaps without replacing a fresher live snapshot."""
+        existing = self._data
+        if existing is None or existing.symbol != symbol:
+            return candidate
+
+        def coalesce(existing_value: Any, candidate_value: Any) -> Any:
+            return existing_value if existing_value is not None else candidate_value
+
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid_price=coalesce(existing.bid_price, candidate.bid_price),
+            ask_price=coalesce(existing.ask_price, candidate.ask_price),
+            bid_size=coalesce(existing.bid_size, candidate.bid_size),
+            ask_size=coalesce(existing.ask_size, candidate.ask_size),
+            last_price=coalesce(existing.last_price, candidate.last_price),
+            prev_close=coalesce(existing.prev_close, candidate.prev_close),
+            volume=coalesce(existing.volume, candidate.volume),
+            timestamp=coalesce(existing.timestamp, candidate.timestamp),
+        )
 
     async def _fetch_initial_snapshots(
         self, symbol: str

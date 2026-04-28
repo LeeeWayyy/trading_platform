@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -119,8 +120,8 @@ def test_get_latest_quote_sync_normalizes_top_of_book(
     assert captured_kwargs["feed"] == "iex"
     assert quote == {
         "symbol": "AAPL",
-        "bid_price": 180.1,
-        "ask_price": 180.2,
+        "bid_price": Decimal("180.1"),
+        "ask_price": Decimal("180.2"),
         "bid_size": 100,
         "ask_size": 200,
         "timestamp": "2026-04-20T15:00:00+00:00",
@@ -160,8 +161,8 @@ def test_get_latest_quote_sync_reads_alpaca_response_data(
 
     assert quote == {
         "symbol": "AAPL",
-        "bid_price": 0.0,
-        "ask_price": 180.2,
+        "bid_price": Decimal("0.0"),
+        "ask_price": Decimal("180.2"),
         "bid_size": 0,
         "ask_size": 200,
         "timestamp": "2026-04-20T15:00:00+00:00",
@@ -199,8 +200,8 @@ def test_get_latest_quote_sync_reads_dict_quote_fields(
 
     assert quote == {
         "symbol": "AAPL",
-        "bid_price": 179.9,
-        "ask_price": 180.0,
+        "bid_price": Decimal("179.9"),
+        "ask_price": Decimal("180.0"),
         "bid_size": 10,
         "ask_size": 20,
         "timestamp": "2026-04-20T15:00:00+00:00",
