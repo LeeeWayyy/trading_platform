@@ -315,11 +315,23 @@ class MarketContextComponent:
             last_price=bar_snapshot.last_price if bar_snapshot is not None else None,
             prev_close=bar_snapshot.prev_close if bar_snapshot is not None else None,
             volume=bar_snapshot.volume if bar_snapshot is not None else None,
-            timestamp=(
-                (quote_snapshot.timestamp if quote_snapshot is not None else None)
-                or (bar_snapshot.timestamp if bar_snapshot is not None else None)
+            timestamp=MarketContextComponent._latest_timestamp(
+                quote_snapshot.timestamp if quote_snapshot is not None else None,
+                bar_snapshot.timestamp if bar_snapshot is not None else None,
             ),
         )
+
+    @staticmethod
+    def _latest_timestamp(*timestamps: datetime | None) -> datetime | None:
+        """Return the newest available timestamp after normalizing to UTC."""
+        normalized = [
+            timestamp
+            for timestamp in (
+                MarketContextComponent._ensure_utc_timestamp(value) for value in timestamps
+            )
+            if timestamp is not None
+        ]
+        return max(normalized) if normalized else None
 
     async def _fetch_latest_quote_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
         """Use latest real quote to seed bid/ask/spread before live ticks arrive."""
@@ -426,14 +438,13 @@ class MarketContextComponent:
             close, timestamp = self._parse_bar_price(intraday_bar, symbol)
             if close is None and daily_bar is not None:
                 close, timestamp = self._parse_bar_price(daily_bar, symbol)
-            volume_raw = daily_bar.get("volume") if daily_bar is not None else None
-            volume = int(volume_raw) if volume_raw is not None else None
         except (InvalidOperation, ValueError, TypeError) as exc:
             logger.debug(
                 "market_context_bar_parse_failed",
                 extra={"symbol": symbol, "error_type": type(exc).__name__},
             )
             return None
+        volume = self._parse_bar_volume(daily_bar, symbol)
 
         return MarketDataSnapshot(
             symbol=symbol,
@@ -488,6 +499,23 @@ class MarketContextComponent:
         return close, MarketContextComponent._ensure_utc_timestamp(
             parse_iso_timestamp(str(timestamp_raw))
         )
+
+    @staticmethod
+    def _parse_bar_volume(bar: dict[str, Any] | None, symbol: str) -> int | None:
+        """Parse daily volume without invalidating an otherwise useful price seed."""
+        if bar is None:
+            return None
+        volume_raw = bar.get("volume")
+        if volume_raw is None:
+            return None
+        try:
+            return int(volume_raw)
+        except (ValueError, TypeError) as exc:
+            logger.debug(
+                "market_context_bar_volume_parse_failed",
+                extra={"symbol": symbol, "error_type": type(exc).__name__},
+            )
+            return None
 
     # ================= Price Data Callbacks =================
 

@@ -578,6 +578,80 @@ class TestMarketContextSymbolChange:
         assert snapshot.timestamp == timestamp
 
     @pytest.mark.asyncio()
+    async def test_bar_seed_keeps_last_price_when_daily_volume_missing(self) -> None:
+        """Missing daily volume must not discard a valid last-price seed."""
+        timestamp = datetime.now(UTC)
+        client = MagicMock()
+
+        async def fetch_historical_bars(
+            *,
+            symbol: str,
+            timeframe: str,
+            limit: int,
+            user_id: str,
+            role: str,
+            strategies: list[str],
+        ) -> dict[str, list[dict[str, object]]]:
+            if timeframe == "1Day":
+                return {
+                    "bars": [
+                        {
+                            "timestamp": timestamp.isoformat(),
+                            "open": 100.0,
+                            "high": 102.0,
+                            "low": 99.0,
+                            "close": 101.25,
+                        }
+                    ]
+                }
+            return {
+                "bars": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.25,
+                        "volume": 123456,
+                    }
+                ]
+            }
+
+        client.fetch_historical_bars = AsyncMock(side_effect=fetch_historical_bars)
+        component = MarketContextComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+
+        snapshot = await component._fetch_latest_bar_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.last_price == Decimal("101.25")
+        assert snapshot.volume is None
+        assert snapshot.timestamp == timestamp
+
+    def test_merge_snapshots_uses_freshest_timestamp(self) -> None:
+        """Merged seed freshness should reflect the newest quote or bar timestamp."""
+        old_timestamp = datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+        new_timestamp = datetime(2026, 4, 20, 15, 5, tzinfo=UTC)
+
+        snapshot = MarketContextComponent._merge_snapshots(
+            "AAPL",
+            MarketDataSnapshot(symbol="AAPL", bid_price=Decimal("101.00"), timestamp=old_timestamp),
+            MarketDataSnapshot(
+                symbol="AAPL",
+                last_price=Decimal("101.25"),
+                volume=123456,
+                timestamp=new_timestamp,
+            ),
+        )
+
+        assert snapshot is not None
+        assert snapshot.timestamp == new_timestamp
+
+    @pytest.mark.asyncio()
     async def test_quote_seed_normalizes_naive_timestamp_to_utc(self) -> None:
         """Naive quote timestamps should not break aware staleness calculations."""
         client = MagicMock()
