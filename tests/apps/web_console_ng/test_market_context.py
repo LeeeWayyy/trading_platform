@@ -632,6 +632,38 @@ class TestMarketContextSymbolChange:
         assert snapshot.volume is None
         assert snapshot.timestamp == timestamp
 
+    @pytest.mark.asyncio()
+    async def test_quote_seed_allows_zero_prices(self) -> None:
+        """Zero quote prices are valid display data and should not be hidden."""
+        client = MagicMock()
+        client.fetch_latest_quote = AsyncMock(
+            return_value={
+                "symbol": "AAPL",
+                "bid_price": "0",
+                "ask_price": "0",
+                "bid_size": 10,
+                "ask_size": 20,
+                "timestamp": "2026-04-20T15:00:00Z",
+            }
+        )
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+
+        snapshot = await component._fetch_latest_quote_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.bid_price == Decimal("0")
+        assert snapshot.ask_price == Decimal("0")
+
+    def test_bar_parse_allows_zero_close(self) -> None:
+        """Zero close values are retained instead of being treated as missing."""
+        close, timestamp = MarketContextComponent._parse_bar_price(
+            {"close": "0", "timestamp": "2026-04-20T15:00:00Z"},
+            "AAPL",
+        )
+
+        assert close == Decimal("0")
+        assert timestamp == datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+
     def test_merge_snapshots_uses_freshest_timestamp(self) -> None:
         """Merged seed freshness should reflect the newest quote or bar timestamp."""
         old_timestamp = datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
@@ -716,6 +748,49 @@ class TestMarketContextSymbolChange:
         assert component._data is not None
         assert component._data.bid_price == Decimal("102.00")
         assert component._data.last_price == Decimal("101.00")
+        assert component._data.volume == 123456
+        assert component._data.timestamp == new_timestamp
+        mock_update_ui.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_sparse_newer_seed_preserves_existing_live_fields(self) -> None:
+        """A newer quote-only seed must not clear live last/volume fields."""
+        old_timestamp = datetime.now(UTC) - timedelta(seconds=10)
+        new_timestamp = datetime.now(UTC)
+        client = MagicMock()
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            bid_price=Decimal("101.00"),
+            ask_price=Decimal("101.10"),
+            last_price=Decimal("101.05"),
+            volume=123456,
+            timestamp=old_timestamp,
+        )
+
+        with (
+            patch.object(
+                component,
+                "_fetch_initial_snapshots",
+                return_value=(
+                    MarketDataSnapshot(
+                        symbol="AAPL",
+                        bid_price=Decimal("102.00"),
+                        ask_price=Decimal("102.10"),
+                        timestamp=new_timestamp,
+                    ),
+                    None,
+                ),
+            ),
+            patch.object(component, "_update_ui") as mock_update_ui,
+        ):
+            await component._fetch_initial_data("AAPL")
+
+        assert component._data is not None
+        assert component._data.bid_price == Decimal("102.00")
+        assert component._data.ask_price == Decimal("102.10")
+        assert component._data.last_price == Decimal("101.05")
         assert component._data.volume == 123456
         assert component._data.timestamp == new_timestamp
         mock_update_ui.assert_called_once()

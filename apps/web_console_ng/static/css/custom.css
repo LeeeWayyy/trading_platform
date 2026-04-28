@@ -558,14 +558,14 @@
     padding: 2px 8px;
 }
 
-.workspace-v2-chart-timeframe-button-active {
-    background: rgba(14, 165, 233, 0.22) !important;
-    color: #e0f2fe !important;
+.workspace-v2-chart-timeframe-toggle .workspace-v2-chart-timeframe-button-active {
+    background: rgba(14, 165, 233, 0.22);
+    color: #e0f2fe;
 }
 
-.workspace-v2-chart-timeframe-button-inactive {
-    background: transparent !important;
-    color: var(--workspace-text-muted) !important;
+.workspace-v2-chart-timeframe-toggle .workspace-v2-chart-timeframe-button-inactive {
+    background: transparent;
+    color: var(--workspace-text-muted);
 }
 
 .workspace-v2-microstructure {

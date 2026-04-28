@@ -230,8 +230,8 @@ class MarketContextComponent:
         quote_snapshot, bar_snapshot = await self._fetch_initial_snapshots(symbol)
         snapshot = self._merge_snapshots(symbol, quote_snapshot, bar_snapshot)
         if snapshot is not None and symbol == self._current_symbol:
-            if self._should_keep_existing_snapshot(symbol, snapshot):
-                self._data = self._merge_seed_into_existing(symbol, snapshot)
+            if self._data is not None and self._data.symbol == symbol:
+                self._data = self._merge_seed_with_existing(symbol, snapshot)
                 self._update_ui()
                 return
             self._data = snapshot
@@ -240,38 +240,40 @@ class MarketContextComponent:
 
         logger.debug(f"Waiting for price data for {symbol} via callback")
 
-    def _should_keep_existing_snapshot(self, symbol: str, candidate: MarketDataSnapshot) -> bool:
-        """Avoid overwriting a newer live tick with an older initial API seed."""
-        existing = self._data
-        if existing is None or existing.symbol != symbol:
-            return False
-        if existing.timestamp is not None and candidate.timestamp is None:
-            return True
-        if existing.timestamp is not None and candidate.timestamp is not None:
-            return existing.timestamp >= candidate.timestamp
-        return False
-
-    def _merge_seed_into_existing(
+    def _merge_seed_with_existing(
         self, symbol: str, candidate: MarketDataSnapshot
     ) -> MarketDataSnapshot:
-        """Fill seed-only gaps without replacing a fresher live snapshot."""
+        """Merge an API seed into an existing same-symbol live snapshot.
+
+        Seed fetches can complete after live ticks arrive. Prefer the fresher
+        source per field, but never let sparse seed payloads clear live values.
+        """
         existing = self._data
         if existing is None or existing.symbol != symbol:
             return candidate
 
-        def coalesce(existing_value: Any, candidate_value: Any) -> Any:
+        existing_ts = self._ensure_utc_timestamp(existing.timestamp)
+        candidate_ts = self._ensure_utc_timestamp(candidate.timestamp)
+        prefer_candidate = (
+            existing_ts is None
+            or (candidate_ts is not None and candidate_ts >= existing_ts)
+        )
+
+        def coalesce(candidate_value: Any, existing_value: Any) -> Any:
+            if prefer_candidate:
+                return candidate_value if candidate_value is not None else existing_value
             return existing_value if existing_value is not None else candidate_value
 
         return MarketDataSnapshot(
             symbol=symbol,
-            bid_price=coalesce(existing.bid_price, candidate.bid_price),
-            ask_price=coalesce(existing.ask_price, candidate.ask_price),
-            bid_size=coalesce(existing.bid_size, candidate.bid_size),
-            ask_size=coalesce(existing.ask_size, candidate.ask_size),
-            last_price=coalesce(existing.last_price, candidate.last_price),
-            prev_close=coalesce(existing.prev_close, candidate.prev_close),
-            volume=coalesce(existing.volume, candidate.volume),
-            timestamp=coalesce(existing.timestamp, candidate.timestamp),
+            bid_price=coalesce(candidate.bid_price, existing.bid_price),
+            ask_price=coalesce(candidate.ask_price, existing.ask_price),
+            bid_size=coalesce(candidate.bid_size, existing.bid_size),
+            ask_size=coalesce(candidate.ask_size, existing.ask_size),
+            last_price=coalesce(candidate.last_price, existing.last_price),
+            prev_close=coalesce(candidate.prev_close, existing.prev_close),
+            volume=coalesce(candidate.volume, existing.volume),
+            timestamp=self._latest_timestamp(existing_ts, candidate_ts),
         )
 
     async def _fetch_initial_snapshots(
@@ -360,9 +362,9 @@ class MarketContextComponent:
             ask_raw = self._mapping_value(response, "ask_price", "ask")
             bid = Decimal(str(bid_raw)) if bid_raw is not None else None
             ask = Decimal(str(ask_raw)) if ask_raw is not None else None
-            if bid is not None and (not bid.is_finite() or bid <= 0):
+            if bid is not None and (not bid.is_finite() or bid < 0):
                 bid = None
-            if ask is not None and (not ask.is_finite() or ask <= 0):
+            if ask is not None and (not ask.is_finite() or ask < 0):
                 ask = None
             if bid is None and ask is None:
                 return None
@@ -490,9 +492,9 @@ class MarketContextComponent:
         if close_raw is None or timestamp_raw is None:
             return None, None
         close = Decimal(str(close_raw))
-        if not close.is_finite() or close <= 0:
+        if not close.is_finite() or close < 0:
             logger.debug(
-                "market_context_bar_non_positive_close",
+                "market_context_bar_negative_close",
                 extra={"symbol": symbol},
             )
             return None, None
