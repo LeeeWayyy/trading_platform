@@ -26,8 +26,9 @@ def l2_channel(user_id: str, symbol: str) -> str:
 class Level2WebSocketService:
     """Manage Alpaca Level 2 WebSocket with Redis fanout.
 
-    NOTE: In environments without Alpaca credentials, the service runs in mock
-    mode and publishes synthetic orderbook snapshots.
+    NOTE: Mock depth is only enabled by explicit opt-in via ALPACA_L2_USE_MOCK.
+    Normal local development must not show synthetic order book data as if it
+    were live market data.
     """
 
     _instance: Level2WebSocketService | None = None
@@ -66,28 +67,26 @@ class Level2WebSocketService:
         """Return entitlement status for L2 data.
 
         Returns (entitled: bool, message: str).
-        When mock mode is active (explicit or fallback), message indicates this
-        to prevent misleading traders about data source.
+        When mock mode is active, message indicates this to prevent misleading
+        traders about data source.
         """
         # Explicit mock mode
         if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:
             return True, "Mock mode (synthetic data)"
-        enabled = os.getenv("ALPACA_L2_ENABLED", "false").lower() in {"1", "true", "yes"}
+        enabled_raw = os.getenv("ALPACA_L2_ENABLED")
+        enabled = str(enabled_raw or "").lower() in {"1", "true", "yes"}
         if not enabled:
             return False, "Level 2 data not enabled"
         api_key = os.getenv("ALPACA_PRO_API_KEY", "").strip()
         api_secret = os.getenv("ALPACA_PRO_API_SECRET", "").strip()
         if not api_key or not api_secret:
             return False, "Alpaca Pro credentials missing"
-        # Real connection not yet implemented - fall back to mock with clear warning
-        # TODO: Remove this when real Alpaca WebSocket is implemented
-        return True, "Mock mode (real connection not implemented)"
+        return False, "Real Level 2 provider not implemented"
 
     def _should_use_mock(self) -> bool:
         if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:
             return True
-        entitled, _ = self.entitlement_status()
-        return not entitled
+        return False
 
     async def subscribe(self, user_id: str, symbol: str) -> bool:
         symbol = symbol.upper()
@@ -252,18 +251,14 @@ class Level2WebSocketService:
                 await self.publish_update(symbol, payload)
 
     async def _connection_loop(self) -> None:
-        """Placeholder for real Alpaca connection - falls back to mock mode.
+        """Placeholder for real Alpaca L2 connection.
 
-        The real Alpaca WebSocket implementation will be added in a future PR.
-        For now, log a warning and fall back to mock mode to avoid crash loops.
+        Real L2 depth is intentionally not simulated here. Until a real provider
+        is implemented, subscription remains disabled unless explicit mock mode
+        is enabled for tests or demos.
         """
-        logger.warning(
-            "level2_real_connection_not_implemented",
-            extra={"action": "falling_back_to_mock_mode"},
-        )
-        # Fall back to mock mode instead of crash-looping
-        self._mock_mode = True
-        await self._mock_loop()
+        logger.warning("level2_real_connection_not_implemented")
+        self._running = False
 
     def _generate_mock_snapshot(self, symbol: str, now: float) -> dict[str, Any]:
         base = self._mock_prices.get(symbol)

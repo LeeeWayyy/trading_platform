@@ -382,6 +382,9 @@ class OrderEntryContext:
         # This avoids redundant double-dispatch of price updates.
         self._market_context = MarketContextComponent(
             trading_client=self._client,
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
         )
         return self._market_context.create()
 

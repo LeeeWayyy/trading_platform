@@ -8,6 +8,7 @@ Data Flow: Redis → RealtimeUpdater → OrderEntryContext → MarketContext.set
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
+from apps.web_console_ng.components.market_data_calls import call_market_data_client
 from apps.web_console_ng.utils.time import parse_iso_timestamp
 
 if TYPE_CHECKING:
@@ -89,6 +91,9 @@ class MarketContextComponent:
         on_price_updated: (
             Callable[[str, Decimal | None, datetime | None], Awaitable[None]] | None
         ) = None,
+        user_id: str | None = None,
+        role: str | None = None,
+        strategies: list[str] | None = None,
     ) -> None:
         """Initialize MarketContext.
 
@@ -98,6 +103,9 @@ class MarketContextComponent:
         """
         self._client = trading_client
         self._on_price_updated = on_price_updated
+        self._user_id = user_id
+        self._role = role
+        self._strategies = strategies or []
         self._current_symbol: str | None = None
         self._data: MarketDataSnapshot | None = None
         self._last_ui_update: float = 0
@@ -215,17 +223,301 @@ class MarketContextComponent:
         """Fetch initial market data from API.
 
         Called when symbol changes to populate UI before real-time updates arrive.
-
-        NOTE: Initial data fetch is optional - real-time updates via set_price_data()
-        will populate the data. This method is a placeholder for future API integration
-        when a quote endpoint is available.
         """
         if self._disposed:
             return
 
-        # Real-time updates will populate data via set_price_data() callback
-        # No direct API call needed - OrderEntryContext will provide initial data
+        quote_snapshot, bar_snapshot = await self._fetch_initial_snapshots(symbol)
+        snapshot = self._merge_snapshots(symbol, quote_snapshot, bar_snapshot)
+        if snapshot is not None and symbol == self._current_symbol:
+            if self._data is not None and self._data.symbol == symbol:
+                self._data = self._merge_seed_with_existing(symbol, snapshot)
+                self._update_ui()
+                return
+            self._data = snapshot
+            self._update_ui()
+            return
+
         logger.debug(f"Waiting for price data for {symbol} via callback")
+
+    def _merge_seed_with_existing(
+        self, symbol: str, candidate: MarketDataSnapshot
+    ) -> MarketDataSnapshot:
+        """Merge an API seed into an existing same-symbol live snapshot.
+
+        Seed fetches can complete after live ticks arrive. Prefer the fresher
+        source per field, but never let sparse seed payloads clear live values.
+        """
+        existing = self._data
+        if existing is None or existing.symbol != symbol:
+            return candidate
+
+        existing_ts = self._ensure_utc_timestamp(existing.timestamp)
+        candidate_ts = self._ensure_utc_timestamp(candidate.timestamp)
+        prefer_candidate = (
+            existing_ts is None
+            or (candidate_ts is not None and candidate_ts >= existing_ts)
+        )
+
+        def coalesce(candidate_value: Any, existing_value: Any) -> Any:
+            if prefer_candidate:
+                return candidate_value if candidate_value is not None else existing_value
+            return existing_value if existing_value is not None else candidate_value
+
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid_price=coalesce(candidate.bid_price, existing.bid_price),
+            ask_price=coalesce(candidate.ask_price, existing.ask_price),
+            bid_size=coalesce(candidate.bid_size, existing.bid_size),
+            ask_size=coalesce(candidate.ask_size, existing.ask_size),
+            last_price=coalesce(candidate.last_price, existing.last_price),
+            prev_close=coalesce(candidate.prev_close, existing.prev_close),
+            volume=coalesce(candidate.volume, existing.volume),
+            timestamp=self._latest_timestamp(existing_ts, candidate_ts),
+        )
+
+    async def _fetch_initial_snapshots(
+        self, symbol: str
+    ) -> tuple[MarketDataSnapshot | None, MarketDataSnapshot | None]:
+        """Fetch real top-of-book and OHLCV seeds without blocking on one source."""
+        quote_result, bar_result = await asyncio.gather(
+            self._fetch_latest_quote_snapshot(symbol),
+            self._fetch_latest_bar_snapshot(symbol),
+            return_exceptions=True,
+        )
+        if isinstance(quote_result, Exception):
+            logger.debug(
+                "market_context_quote_seed_failed",
+                extra={"symbol": symbol, "error_type": type(quote_result).__name__},
+            )
+        if isinstance(bar_result, Exception):
+            logger.debug(
+                "market_context_bar_seed_failed",
+                extra={"symbol": symbol, "error_type": type(bar_result).__name__},
+            )
+        quote_snapshot = quote_result if isinstance(quote_result, MarketDataSnapshot) else None
+        bar_snapshot = bar_result if isinstance(bar_result, MarketDataSnapshot) else None
+        return quote_snapshot, bar_snapshot
+
+    @staticmethod
+    def _merge_snapshots(
+        symbol: str,
+        quote_snapshot: MarketDataSnapshot | None,
+        bar_snapshot: MarketDataSnapshot | None,
+    ) -> MarketDataSnapshot | None:
+        """Merge quote and bar seeds into a single Level 1 display snapshot."""
+        if quote_snapshot is None and bar_snapshot is None:
+            return None
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid_price=quote_snapshot.bid_price if quote_snapshot is not None else None,
+            ask_price=quote_snapshot.ask_price if quote_snapshot is not None else None,
+            bid_size=quote_snapshot.bid_size if quote_snapshot is not None else None,
+            ask_size=quote_snapshot.ask_size if quote_snapshot is not None else None,
+            last_price=bar_snapshot.last_price if bar_snapshot is not None else None,
+            prev_close=bar_snapshot.prev_close if bar_snapshot is not None else None,
+            volume=bar_snapshot.volume if bar_snapshot is not None else None,
+            timestamp=MarketContextComponent._latest_timestamp(
+                quote_snapshot.timestamp if quote_snapshot is not None else None,
+                bar_snapshot.timestamp if bar_snapshot is not None else None,
+            ),
+        )
+
+    @staticmethod
+    def _latest_timestamp(*timestamps: datetime | None) -> datetime | None:
+        """Return the newest available timestamp after normalizing to UTC."""
+        normalized = [
+            timestamp
+            for timestamp in (
+                MarketContextComponent._ensure_utc_timestamp(value) for value in timestamps
+            )
+            if timestamp is not None
+        ]
+        return max(normalized) if normalized else None
+
+    async def _fetch_latest_quote_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
+        """Use latest real quote to seed bid/ask/spread before live ticks arrive."""
+        fetch_latest_quote = getattr(self._client, "fetch_latest_quote", None)
+        if fetch_latest_quote is None or not self._user_id:
+            return None
+
+        response = await call_market_data_client(
+            fetch_latest_quote,
+            request_kwargs={"symbol": symbol},
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
+            logger=logger,
+            operation="market_context_latest_quote",
+            symbol=symbol,
+        )
+        if response is None:
+            return None
+
+        if not isinstance(response, dict):
+            return None
+
+        try:
+            bid_raw = self._mapping_value(response, "bid_price", "bid")
+            ask_raw = self._mapping_value(response, "ask_price", "ask")
+            bid = Decimal(str(bid_raw)) if bid_raw is not None else None
+            ask = Decimal(str(ask_raw)) if ask_raw is not None else None
+            if bid is not None and (not bid.is_finite() or bid < 0):
+                bid = None
+            if ask is not None and (not ask.is_finite() or ask < 0):
+                ask = None
+            if bid is None and ask is None:
+                return None
+            bid_size_raw = response.get("bid_size")
+            ask_size_raw = response.get("ask_size")
+            timestamp_raw = response.get("timestamp")
+            timestamp = self._ensure_utc_timestamp(
+                parse_iso_timestamp(str(timestamp_raw)) if timestamp_raw else None
+            )
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            logger.debug(
+                "market_context_quote_parse_failed",
+                extra={"symbol": symbol, "error_type": type(exc).__name__},
+            )
+            return None
+
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid_price=bid,
+            ask_price=ask,
+            bid_size=int(bid_size_raw) if bid_size_raw is not None else None,
+            ask_size=int(ask_size_raw) if ask_size_raw is not None else None,
+            last_price=None,
+            timestamp=timestamp,
+        )
+
+    @staticmethod
+    def _mapping_value(data: dict[str, Any], primary_key: str, fallback_key: str) -> Any:
+        """Return primary mapping value, preserving valid falsy numeric values."""
+        value = data.get(primary_key)
+        return value if value is not None else data.get(fallback_key)
+
+    @staticmethod
+    def _ensure_utc_timestamp(timestamp: datetime | None) -> datetime | None:
+        """Normalize parsed market-data timestamps to UTC-aware datetimes."""
+        if timestamp is None:
+            return None
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=UTC)
+        return timestamp.astimezone(UTC)
+
+    async def _fetch_latest_bar_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
+        """Use bars to seed last traded price and daily volume before live ticks arrive."""
+        intraday_result: Any
+        daily_result: Any
+        intraday_result, daily_result = await asyncio.gather(
+            self._fetch_latest_bar_response(symbol, "5Min"),
+            self._fetch_latest_bar_response(symbol, "1Day"),
+            return_exceptions=True,
+        )
+        if isinstance(intraday_result, Exception):
+            logger.debug(
+                "market_context_intraday_bar_seed_failed",
+                extra={"symbol": symbol, "error_type": type(intraday_result).__name__},
+            )
+            intraday_response = None
+        else:
+            intraday_response = intraday_result
+        if isinstance(daily_result, Exception):
+            logger.debug(
+                "market_context_daily_bar_seed_failed",
+                extra={"symbol": symbol, "error_type": type(daily_result).__name__},
+            )
+            daily_response = None
+        else:
+            daily_response = daily_result
+        intraday_bar = self._latest_bar_from_response(intraday_response)
+        daily_bar = self._latest_bar_from_response(daily_response)
+        if intraday_bar is None and daily_bar is None:
+            return None
+
+        try:
+            close, timestamp = self._parse_bar_price(intraday_bar, symbol)
+            if close is None and daily_bar is not None:
+                close, timestamp = self._parse_bar_price(daily_bar, symbol)
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            logger.debug(
+                "market_context_bar_parse_failed",
+                extra={"symbol": symbol, "error_type": type(exc).__name__},
+            )
+            return None
+        volume = self._parse_bar_volume(daily_bar, symbol)
+
+        return MarketDataSnapshot(
+            symbol=symbol,
+            last_price=close,
+            volume=volume,
+            timestamp=timestamp,
+        )
+
+    async def _fetch_latest_bar_response(self, symbol: str, timeframe: str) -> dict[str, Any] | None:
+        """Fetch one latest bar for a timeframe using shared auth fallback."""
+        fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
+        if fetch_historical_bars is None or not self._user_id:
+            return None
+        response = await call_market_data_client(
+            fetch_historical_bars,
+            request_kwargs={"symbol": symbol, "timeframe": timeframe, "limit": 1},
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
+            logger=logger,
+            operation="market_context_latest_bar",
+            symbol=symbol,
+            extra={"timeframe": timeframe},
+        )
+        return response if isinstance(response, dict) else None
+
+    @staticmethod
+    def _latest_bar_from_response(response: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Extract the latest bar dict from a web-console bars response."""
+        bars = response.get("bars") if isinstance(response, dict) else None
+        if not isinstance(bars, list) or not bars:
+            return None
+        latest = bars[-1]
+        return latest if isinstance(latest, dict) else None
+
+    @staticmethod
+    def _parse_bar_price(bar: dict[str, Any] | None, symbol: str) -> tuple[Decimal | None, datetime | None]:
+        """Parse last trade proxy from an intraday bar."""
+        if bar is None:
+            return None, None
+        close_raw = bar.get("close")
+        timestamp_raw = bar.get("timestamp")
+        if close_raw is None or timestamp_raw is None:
+            return None, None
+        close = Decimal(str(close_raw))
+        if not close.is_finite() or close < 0:
+            logger.debug(
+                "market_context_bar_negative_close",
+                extra={"symbol": symbol},
+            )
+            return None, None
+        return close, MarketContextComponent._ensure_utc_timestamp(
+            parse_iso_timestamp(str(timestamp_raw))
+        )
+
+    @staticmethod
+    def _parse_bar_volume(bar: dict[str, Any] | None, symbol: str) -> int | None:
+        """Parse daily volume without invalidating an otherwise useful price seed."""
+        if bar is None:
+            return None
+        volume_raw = bar.get("volume")
+        if volume_raw is None:
+            return None
+        try:
+            return int(volume_raw)
+        except (ValueError, TypeError) as exc:
+            logger.debug(
+                "market_context_bar_volume_parse_failed",
+                extra={"symbol": symbol, "error_type": type(exc).__name__},
+            )
+            return None
 
     # ================= Price Data Callbacks =================
 
@@ -294,23 +586,48 @@ class MarketContextComponent:
             if raw is None:
                 return None
             try:
-                return parse_iso_timestamp(str(raw))
+                return self._ensure_utc_timestamp(parse_iso_timestamp(str(raw)))
             except (ValueError, TypeError):
                 logger.warning(f"MarketContext: Invalid {key}: {raw!r}")
                 return None
 
         # Build snapshot with safe parsing
         symbol = data.get("symbol") or self._current_symbol or ""
+        existing = self._data
+        def first_decimal(primary_key: str, fallback_key: str) -> Decimal | None:
+            value = safe_decimal(primary_key)
+            return value if value is not None else safe_decimal(fallback_key)
+
+        bid_price = first_decimal("bid", "bid_price")
+        ask_price = first_decimal("ask", "ask_price")
+        bid_size = safe_int("bid_size")
+        ask_size = safe_int("ask_size")
+        has_quote_fields = any(
+            data.get(key) is not None for key in ("bid", "bid_price", "ask", "ask_price")
+        )
+        last_price = safe_decimal("last_price") if has_quote_fields else first_decimal("price", "last_price")
+        prev_close = safe_decimal("prev_close")
+        parsed_volume = safe_int("volume")
+        timestamp = safe_timestamp("timestamp")
+        same_symbol_existing = existing if existing is not None and existing.symbol == symbol else None
+
+        def coalesce(new_value: Any, field_name: str) -> Any:
+            if new_value is not None:
+                return new_value
+            if same_symbol_existing is None:
+                return None
+            return getattr(same_symbol_existing, field_name, None)
+
         self._data = MarketDataSnapshot(
             symbol=symbol,
-            bid_price=safe_decimal("bid") or safe_decimal("bid_price"),
-            ask_price=safe_decimal("ask") or safe_decimal("ask_price"),
-            bid_size=safe_int("bid_size"),
-            ask_size=safe_int("ask_size"),
-            last_price=safe_decimal("price") or safe_decimal("last_price"),
-            prev_close=safe_decimal("prev_close"),
-            volume=safe_int("volume"),
-            timestamp=safe_timestamp("timestamp"),
+            bid_price=coalesce(bid_price, "bid_price"),
+            ask_price=coalesce(ask_price, "ask_price"),
+            bid_size=coalesce(bid_size, "bid_size"),
+            ask_size=coalesce(ask_size, "ask_size"),
+            last_price=coalesce(last_price, "last_price"),
+            prev_close=coalesce(prev_close, "prev_close"),
+            volume=coalesce(parsed_volume, "volume"),
+            timestamp=coalesce(timestamp, "timestamp"),
         )
 
     def _notify_price_updated(self) -> None:

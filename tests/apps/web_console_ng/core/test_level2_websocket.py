@@ -96,6 +96,13 @@ def test_entitlement_status_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Mock mode" in reason
 
     monkeypatch.delenv("ALPACA_L2_USE_MOCK", raising=False)
+    monkeypatch.delenv("ALPACA_L2_ENABLED", raising=False)
+    monkeypatch.setenv("WEB_CONSOLE_NG_DEBUG", "true")
+    entitled, reason = Level2WebSocketService.entitlement_status()
+    assert entitled is False
+    assert "not enabled" in reason
+
+    monkeypatch.setenv("WEB_CONSOLE_NG_DEBUG", "false")
     monkeypatch.setenv("ALPACA_L2_ENABLED", "false")
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False
@@ -107,6 +114,12 @@ def test_entitlement_status_env(monkeypatch: pytest.MonkeyPatch) -> None:
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False
     assert "credentials missing" in reason
+
+    monkeypatch.setenv("ALPACA_PRO_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_PRO_API_SECRET", "secret")
+    entitled, reason = Level2WebSocketService.entitlement_status()
+    assert entitled is False
+    assert "not implemented" in reason
 
 
 @pytest.mark.asyncio()
@@ -122,13 +135,19 @@ async def test_stop_if_idle_cancels_task() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_connection_loop_falls_back_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_connection_loop_does_not_fall_back_to_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service = Level2WebSocketService(max_symbols=1, mock_mode=False)
     mock_loop = AsyncMock()
     monkeypatch.setattr(service, "_mock_loop", mock_loop)
+    service._running = True
+
     await service._connection_loop()
-    assert service._mock_mode is True
-    mock_loop.assert_awaited_once()
+
+    assert service._running is False
+    assert service._mock_mode is False
+    mock_loop.assert_not_awaited()
 
 
 def test_generate_mock_snapshot_shape() -> None:

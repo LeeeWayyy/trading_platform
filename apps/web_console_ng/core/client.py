@@ -499,6 +499,30 @@ class AsyncTradingClient:
         resp.raise_for_status()
         return self._json_dict(resp)
 
+    @with_retry(max_attempts=3, backoff_base=1.0, method="GET")
+    async def fetch_latest_quote(
+        self,
+        symbol: str,
+        user_id: str,
+        role: str | None = None,
+        strategies: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch latest top-of-book quote for a symbol from market-data-service."""
+        safe_symbol = url_quote(symbol.upper(), safe="")
+        path = f"/api/v1/market-data/{safe_symbol}/latest-quote"
+        headers = self._get_market_data_auth_headers(
+            method="GET",
+            path=path,
+            query="",
+            body=None,
+            user_id=user_id,
+            role=role,
+            strategies=strategies,
+        )
+        resp = await self._market_client.get(path, headers=headers)
+        resp.raise_for_status()
+        return self._json_dict(resp)
+
     @with_retry(max_attempts=3, backoff_base=1.0, method="POST")
     async def subscribe_market_data_symbols(
         self,

@@ -644,6 +644,28 @@ class TestPriceChartSymbolChange:
         mock_show.assert_not_called()
 
     @pytest.mark.asyncio()
+    async def test_stale_timeframe_reload_does_not_update_chart(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Older timeframe reloads must not overwrite the currently selected interval."""
+        component._selected_timeframe = "1Day"
+        component._live_bucket_interval_seconds = 86400
+        candles = [CandleData(time=1, open=100, high=100, low=100, close=100, volume=1)]
+        with (
+            patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
+            patch.object(component, "_fetch_candle_data", return_value=candles),
+            patch.object(component, "_fetch_execution_markers", return_value=[]),
+            patch.object(component, "_update_chart_data", new_callable=AsyncMock) as mock_update,
+            patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
+        ):
+            await component.on_symbol_changed("AAPL", expected_timeframe="5Min")
+
+        assert component._candles == []
+        assert component._live_bucket_interval_seconds == 86400
+        mock_hide.assert_not_called()
+        mock_update.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_symbol_change_to_none_clears_symbol_changed_at(
         self, component: PriceChartComponent
     ) -> None:
@@ -744,33 +766,14 @@ class TestPriceChartHistoricalBars:
         assert candles == []
         assert component._client.calls == [  # type: ignore[attr-defined]
             ("MSFT", "5Min", 240),
-            ("MSFT", "15Min", 240),
-            ("MSFT", "1Hour", 200),
-            ("MSFT", "1Day", 120),
         ]
-        assert component._live_bucket_interval_seconds == component.CANDLE_INTERVAL_SECONDS
+        assert component._live_bucket_interval_seconds == 300
 
     @pytest.mark.asyncio()
-    async def test_fetch_candle_data_tracks_fallback_interval_for_live_bucketing(self) -> None:
-        """Fallback historical interval should drive subsequent realtime bucket sizing."""
+    async def test_fetch_candle_data_degrades_on_market_data_failure(self) -> None:
+        """Historical API failures should render no-data instead of aborting symbol loads."""
         client = MagicMock()
-        client.fetch_historical_bars = AsyncMock(
-            side_effect=[
-                {"bars": []},  # 5Min unavailable
-                {
-                    "bars": [
-                        {
-                            "timestamp": "2026-04-20T13:30:00Z",
-                            "open": 180.1,
-                            "high": 181.0,
-                            "low": 179.9,
-                            "close": 180.6,
-                            "volume": 1200,
-                        },
-                    ]
-                },
-            ]
-        )
+        client.fetch_historical_bars = AsyncMock(side_effect=RuntimeError("market data down"))
         component = PriceChartComponent(
             trading_client=client,
             user_id="user-1",
@@ -780,9 +783,55 @@ class TestPriceChartHistoricalBars:
 
         candles = await component._fetch_candle_data("AAPL")
 
+        assert candles == []
+        client.fetch_historical_bars.assert_awaited_once()
+
+    @pytest.mark.asyncio()
+    async def test_fetch_candle_data_uses_selected_timeframe_for_live_bucketing(self) -> None:
+        """Selected chart interval should drive historical request and realtime buckets."""
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(
+            return_value={
+                "bars": [
+                    {
+                        "timestamp": "2026-04-20T13:30:00Z",
+                        "open": 180.1,
+                        "high": 181.0,
+                        "low": 179.9,
+                        "close": 180.6,
+                        "volume": 1200,
+                    },
+                ]
+            }
+        )
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+        component._selected_timeframe = "1Min"
+
+        candles = await component._fetch_candle_data("AAPL")
+
         assert len(candles) == 1
-        assert component._live_bucket_interval_seconds == 900
-        assert client.fetch_historical_bars.await_count == 2
+        assert component._live_bucket_interval_seconds == 60
+        client.fetch_historical_bars.assert_awaited_once_with(
+            symbol="AAPL",
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+            timeframe="1Min",
+            limit=390,
+        )
+
+    def test_chart_header_text_includes_symbol_and_timeframe(self) -> None:
+        component = PriceChartComponent(trading_client=MagicMock())
+        component._current_symbol = "SPY"
+        component._selected_timeframe = "15Min"
+
+        assert component._chart_title_text() == "SPY Price Chart"
+        assert component._chart_subtitle_text() == "Alpaca · 15-minute bars"
 
 
 class TestPriceChartExecutionMarkers:

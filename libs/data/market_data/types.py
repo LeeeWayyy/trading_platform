@@ -113,6 +113,17 @@ class PriceUpdateEvent(BaseModel):
     symbol: str = Field(..., description="Stock symbol")
     price: Decimal = Field(..., description="Mid price", ge=0)
     timestamp: str = Field(..., description="ISO format timestamp")
+    bid: Decimal | None = Field(default=None, description="Best bid price")
+    ask: Decimal | None = Field(default=None, description="Best ask price")
+    bid_price: Decimal | None = Field(default=None, description="Best bid price alias")
+    ask_price: Decimal | None = Field(default=None, description="Best ask price alias")
+    bid_size: int | None = Field(default=None, description="Best bid size in shares")
+    ask_size: int | None = Field(default=None, description="Best ask size in shares")
+    exchange: str | None = Field(default=None, description="Quote exchange code")
+    volume: int | None = Field(
+        default=None,
+        description="Latest traded volume when available from the data source",
+    )
 
     @classmethod
     def from_quote(cls, quote: QuoteData) -> PriceUpdateEvent:
@@ -121,6 +132,13 @@ class PriceUpdateEvent(BaseModel):
             symbol=quote.symbol,
             price=quote.mid_price,
             timestamp=quote.timestamp.isoformat(),
+            bid=quote.bid_price,
+            ask=quote.ask_price,
+            bid_price=quote.bid_price,
+            ask_price=quote.ask_price,
+            bid_size=quote.bid_size,
+            ask_size=quote.ask_size,
+            exchange=quote.exchange,
         )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -156,7 +156,7 @@ class TestMarketContextPriceData:
                 "symbol": "AAPL",
                 "bid": "100.00",
                 "ask": "100.10",
-                "price": "100.05",
+                "last_price": "100.05",
                 "bid_size": 100,
                 "ask_size": 200,
             }
@@ -230,6 +230,29 @@ class TestMarketContextPriceData:
         assert component._data is not None
         assert component._data.bid_price is None
 
+    def test_set_price_data_does_not_reuse_previous_symbol_fields(
+        self, component: MarketContextComponent
+    ) -> None:
+        """Partial ticks must not carry stale fields across symbols."""
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="MSFT",
+            bid_price=Decimal("300.00"),
+            ask_price=Decimal("300.10"),
+            last_price=Decimal("300.05"),
+            volume=100,
+        )
+        component._last_ui_update = 0
+
+        component.set_price_data({"symbol": "AAPL", "bid": "101.00"})
+
+        assert component._data is not None
+        assert component._data.symbol == "AAPL"
+        assert component._data.bid_price == Decimal("101.00")
+        assert component._data.ask_price is None
+        assert component._data.last_price is None
+        assert component._data.volume is None
+
     def test_set_price_data_throttled(self, component: MarketContextComponent) -> None:
         """UI updates are throttled but data is always updated."""
         import time
@@ -252,6 +275,55 @@ class TestMarketContextPriceData:
 
         # UI update timestamp was NOT changed (UI was skipped)
         assert component._last_ui_update == initial_update_time
+
+    def test_set_price_data_preserves_seeded_volume(
+        self, component: MarketContextComponent
+    ) -> None:
+        """Quote-only live ticks preserve the most recent bar volume."""
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            last_price=Decimal("100.00"),
+            volume=123456,
+        )
+
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "100.00",
+                "ask": "100.10",
+                "price": "100.05",
+            }
+        )
+
+        assert component._data is not None
+        assert component._data.volume == 123456
+        assert component._data.last_price == Decimal("100.00")
+
+    def test_quote_payload_mid_price_does_not_overwrite_last_trade(
+        self, component: MarketContextComponent
+    ) -> None:
+        """Quote mid-price payloads must not overwrite Last trade display."""
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            last_price=Decimal("100.00"),
+            volume=123456,
+        )
+
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "100.00",
+                "ask": "100.10",
+                "price": "100.05",
+            }
+        )
+
+        assert component._data is not None
+        assert component._data.last_price == Decimal("100.00")
+        assert component._data.bid_price == Decimal("100.00")
+        assert component._data.ask_price == Decimal("100.10")
 
 
 class TestMarketContextStaleness:
@@ -370,6 +442,358 @@ class TestMarketContextSymbolChange:
         await component.on_symbol_changed("AAPL")
 
         assert component._current_symbol == "AAPL"
+
+    @pytest.mark.asyncio()
+    async def test_symbol_change_seeds_l1_quote_and_recent_bar(self) -> None:
+        """Real quote and bars seed bid/ask/spread plus last/volume."""
+        timestamp = datetime.now(UTC)
+        client = MagicMock()
+        client.fetch_latest_quote = AsyncMock(
+            return_value={
+                "symbol": "AAPL",
+                "bid_price": 101.2,
+                "ask_price": 101.3,
+                "bid_size": 10,
+                "ask_size": 20,
+                "timestamp": timestamp.isoformat(),
+            }
+        )
+        async def fetch_historical_bars(
+            *,
+            symbol: str,
+            timeframe: str,
+            limit: int,
+            user_id: str,
+            role: str,
+            strategies: list[str],
+        ) -> dict[str, list[dict[str, object]]]:
+            assert symbol == "AAPL"
+            assert limit == 1
+            assert user_id == "user-1"
+            assert role == "admin"
+            assert strategies == ["alpha"]
+            volume = 987654 if timeframe == "1Day" else 123456
+            return {
+                "bars": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.25,
+                        "volume": volume,
+                    }
+                ]
+            }
+
+        client.fetch_historical_bars = AsyncMock(side_effect=fetch_historical_bars)
+        component = MarketContextComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+
+        await component.on_symbol_changed("AAPL")
+
+        assert component._data is not None
+        assert component._data.symbol == "AAPL"
+        assert component._data.bid_price == Decimal("101.2")
+        assert component._data.ask_price == Decimal("101.3")
+        assert component._data.bid_size == 10
+        assert component._data.ask_size == 20
+        assert component._data.last_price == Decimal("101.25")
+        assert component._data.volume == 987654
+        client.fetch_latest_quote.assert_awaited_once_with(
+            symbol="AAPL",
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+        client.fetch_historical_bars.assert_has_awaits(
+            [
+                call(
+                    symbol="AAPL",
+                    timeframe="5Min",
+                    limit=1,
+                    user_id="user-1",
+                    role="admin",
+                    strategies=["alpha"],
+                ),
+                call(
+                    symbol="AAPL",
+                    timeframe="1Day",
+                    limit=1,
+                    user_id="user-1",
+                    role="admin",
+                    strategies=["alpha"],
+                ),
+            ],
+            any_order=True,
+        )
+
+    @pytest.mark.asyncio()
+    async def test_bar_seed_uses_daily_close_when_intraday_missing(self) -> None:
+        """Daily bar close should seed Last when intraday bars are unavailable."""
+        timestamp = datetime.now(UTC)
+        client = MagicMock()
+
+        async def fetch_historical_bars(
+            *,
+            symbol: str,
+            timeframe: str,
+            limit: int,
+            user_id: str,
+            role: str,
+            strategies: list[str],
+        ) -> dict[str, list[dict[str, object]]]:
+            if timeframe == "5Min":
+                return {"bars": []}
+            return {
+                "bars": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.25,
+                        "volume": 987654,
+                    }
+                ]
+            }
+
+        client.fetch_historical_bars = AsyncMock(side_effect=fetch_historical_bars)
+        component = MarketContextComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+
+        snapshot = await component._fetch_latest_bar_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.last_price == Decimal("101.25")
+        assert snapshot.volume == 987654
+        assert snapshot.timestamp == timestamp
+
+    @pytest.mark.asyncio()
+    async def test_bar_seed_keeps_last_price_when_daily_volume_missing(self) -> None:
+        """Missing daily volume must not discard a valid last-price seed."""
+        timestamp = datetime.now(UTC)
+        client = MagicMock()
+
+        async def fetch_historical_bars(
+            *,
+            symbol: str,
+            timeframe: str,
+            limit: int,
+            user_id: str,
+            role: str,
+            strategies: list[str],
+        ) -> dict[str, list[dict[str, object]]]:
+            if timeframe == "1Day":
+                return {
+                    "bars": [
+                        {
+                            "timestamp": timestamp.isoformat(),
+                            "open": 100.0,
+                            "high": 102.0,
+                            "low": 99.0,
+                            "close": 101.25,
+                        }
+                    ]
+                }
+            return {
+                "bars": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.25,
+                        "volume": 123456,
+                    }
+                ]
+            }
+
+        client.fetch_historical_bars = AsyncMock(side_effect=fetch_historical_bars)
+        component = MarketContextComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+
+        snapshot = await component._fetch_latest_bar_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.last_price == Decimal("101.25")
+        assert snapshot.volume is None
+        assert snapshot.timestamp == timestamp
+
+    @pytest.mark.asyncio()
+    async def test_quote_seed_allows_zero_prices(self) -> None:
+        """Zero quote prices are valid display data and should not be hidden."""
+        client = MagicMock()
+        client.fetch_latest_quote = AsyncMock(
+            return_value={
+                "symbol": "AAPL",
+                "bid_price": "0",
+                "ask_price": "0",
+                "bid_size": 10,
+                "ask_size": 20,
+                "timestamp": "2026-04-20T15:00:00Z",
+            }
+        )
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+
+        snapshot = await component._fetch_latest_quote_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.bid_price == Decimal("0")
+        assert snapshot.ask_price == Decimal("0")
+
+    def test_bar_parse_allows_zero_close(self) -> None:
+        """Zero close values are retained instead of being treated as missing."""
+        close, timestamp = MarketContextComponent._parse_bar_price(
+            {"close": "0", "timestamp": "2026-04-20T15:00:00Z"},
+            "AAPL",
+        )
+
+        assert close == Decimal("0")
+        assert timestamp == datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+
+    def test_merge_snapshots_uses_freshest_timestamp(self) -> None:
+        """Merged seed freshness should reflect the newest quote or bar timestamp."""
+        old_timestamp = datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+        new_timestamp = datetime(2026, 4, 20, 15, 5, tzinfo=UTC)
+
+        snapshot = MarketContextComponent._merge_snapshots(
+            "AAPL",
+            MarketDataSnapshot(symbol="AAPL", bid_price=Decimal("101.00"), timestamp=old_timestamp),
+            MarketDataSnapshot(
+                symbol="AAPL",
+                last_price=Decimal("101.25"),
+                volume=123456,
+                timestamp=new_timestamp,
+            ),
+        )
+
+        assert snapshot is not None
+        assert snapshot.timestamp == new_timestamp
+
+    @pytest.mark.asyncio()
+    async def test_quote_seed_normalizes_naive_timestamp_to_utc(self) -> None:
+        """Naive quote timestamps should not break aware staleness calculations."""
+        client = MagicMock()
+        client.fetch_latest_quote = AsyncMock(
+            return_value={
+                "symbol": "AAPL",
+                "bid_price": 101.2,
+                "ask_price": 101.3,
+                "timestamp": "2026-04-20T15:00:00",
+            }
+        )
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+
+        snapshot = await component._fetch_latest_quote_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.timestamp == datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+
+    def test_bar_parse_normalizes_naive_timestamp_to_utc(self) -> None:
+        """Naive bar timestamps should be normalized before staleness math."""
+        close, timestamp = MarketContextComponent._parse_bar_price(
+            {"close": "101.25", "timestamp": "2026-04-20T15:00:00"},
+            "AAPL",
+        )
+
+        assert close == Decimal("101.25")
+        assert timestamp == datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio()
+    async def test_initial_seed_merges_without_overwriting_newer_live_tick(self) -> None:
+        """Older API seed fills gaps without replacing fresher live callback fields."""
+        old_timestamp = datetime.now(UTC) - timedelta(minutes=1)
+        new_timestamp = datetime.now(UTC)
+        client = MagicMock()
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            bid_price=Decimal("102.00"),
+            timestamp=new_timestamp,
+        )
+
+        with (
+            patch.object(
+                component,
+                "_fetch_initial_snapshots",
+                return_value=(
+                    None,
+                    MarketDataSnapshot(
+                        symbol="AAPL",
+                        bid_price=Decimal("101.00"),
+                        last_price=Decimal("101.00"),
+                        volume=123456,
+                        timestamp=old_timestamp,
+                    ),
+                ),
+            ),
+            patch.object(component, "_update_ui") as mock_update_ui,
+        ):
+            await component._fetch_initial_data("AAPL")
+
+        assert component._data is not None
+        assert component._data.bid_price == Decimal("102.00")
+        assert component._data.last_price == Decimal("101.00")
+        assert component._data.volume == 123456
+        assert component._data.timestamp == new_timestamp
+        mock_update_ui.assert_called_once()
+
+    @pytest.mark.asyncio()
+    async def test_sparse_newer_seed_preserves_existing_live_fields(self) -> None:
+        """A newer quote-only seed must not clear live last/volume fields."""
+        old_timestamp = datetime.now(UTC) - timedelta(seconds=10)
+        new_timestamp = datetime.now(UTC)
+        client = MagicMock()
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            bid_price=Decimal("101.00"),
+            ask_price=Decimal("101.10"),
+            last_price=Decimal("101.05"),
+            volume=123456,
+            timestamp=old_timestamp,
+        )
+
+        with (
+            patch.object(
+                component,
+                "_fetch_initial_snapshots",
+                return_value=(
+                    MarketDataSnapshot(
+                        symbol="AAPL",
+                        bid_price=Decimal("102.00"),
+                        ask_price=Decimal("102.10"),
+                        timestamp=new_timestamp,
+                    ),
+                    None,
+                ),
+            ),
+            patch.object(component, "_update_ui") as mock_update_ui,
+        ):
+            await component._fetch_initial_data("AAPL")
+
+        assert component._data is not None
+        assert component._data.bid_price == Decimal("102.00")
+        assert component._data.ask_price == Decimal("102.10")
+        assert component._data.last_price == Decimal("101.05")
+        assert component._data.volume == 123456
+        assert component._data.timestamp == new_timestamp
+        mock_update_ui.assert_called_once()
 
 
 class TestMarketContextDispose:

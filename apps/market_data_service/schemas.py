@@ -5,6 +5,7 @@ Defines request/response models used by HTTP API routes.
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -38,3 +39,14 @@ class BarsResponse(BaseModel):
     symbol: str = Field(..., description="Stock symbol")
     timeframe: str = Field(..., description="Requested timeframe")
     bars: list[BarPoint] = Field(..., description="Historical bars in ascending time order")
+
+
+class LatestQuoteResponse(BaseModel):
+    """Latest top-of-book quote response payload."""
+
+    symbol: str = Field(..., description="Stock symbol")
+    bid_price: Decimal | None = Field(default=None, description="Best bid price")
+    ask_price: Decimal | None = Field(default=None, description="Best ask price")
+    bid_size: int | None = Field(default=None, description="Best bid size")
+    ask_size: int | None = Field(default=None, description="Best ask size")
+    timestamp: datetime | None = Field(default=None, description="Quote timestamp (UTC)")
