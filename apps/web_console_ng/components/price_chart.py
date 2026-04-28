@@ -9,7 +9,6 @@ Data Flow: Redis → RealtimeUpdater → OrderEntryContext → PriceChart.set_pr
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import math
@@ -19,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nicegui import ui
 
+from apps.web_console_ng.components.market_data_calls import call_market_data_client
 from apps.web_console_ng.ui.lightweight_charts import (
     CHART_INIT_JS,
     LIGHTWEIGHT_CHARTS_CDN,
@@ -130,7 +130,7 @@ class PriceChartComponent:
         self._client = trading_client
         self._user_id = user_id
         self._role = role
-        self._strategies = strategies
+        self._strategies = strategies or []
         self._current_symbol: str | None = None
         self._chart_id: str = f"chart_{id(self)}"
         self._container_id: str = f"container_{id(self)}"
@@ -783,25 +783,11 @@ class PriceChartComponent:
 
         fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
         if fetch_historical_bars is None:
-            logger.debug(f"Historical bars client API unavailable for {symbol}")
+            logger.debug("historical_bars_client_api_unavailable", extra={"symbol": symbol})
             return []
         if not self._user_id:
-            logger.debug("Historical bars fetch skipped: user_id unavailable")
+            logger.debug("historical_bars_fetch_skipped", extra={"symbol": symbol, "reason": "missing_user"})
             return []
-
-        supports_auth_kwargs = True
-        try:
-            signature = inspect.signature(fetch_historical_bars)
-            parameters = signature.parameters
-            has_var_keyword = any(
-                param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
-            )
-            supports_auth_kwargs = has_var_keyword or all(
-                key in parameters for key in ("user_id", "role", "strategies")
-            )
-        except (TypeError, ValueError):
-            # Builtins/decorated callables may not expose a reliable signature.
-            supports_auth_kwargs = True
 
         timeframe = self._selected_timeframe
         _, limit, _ = self.TIMEFRAME_OPTIONS[timeframe]
@@ -810,36 +796,18 @@ class PriceChartComponent:
             "timeframe": timeframe,
             "limit": limit,
         }
-        authenticated_request_kwargs: dict[str, Any] = {
-            **request_kwargs,
-            "user_id": self._user_id,
-            "role": self._role,
-            "strategies": self._strategies,
-        }
-
-        try:
-            primary_kwargs = authenticated_request_kwargs if supports_auth_kwargs else request_kwargs
-            response = await fetch_historical_bars(**primary_kwargs)
-        except TypeError:
-            # Signature introspection may be wrong for decorated/wrapped callables.
-            fallback_kwargs = request_kwargs if supports_auth_kwargs else authenticated_request_kwargs
-            try:
-                response = await fetch_historical_bars(**fallback_kwargs)
-            except Exception as fallback_exc:
-                logger.debug(
-                    "Historical bars fetch failed for %s (%s): %s",
-                    symbol,
-                    timeframe,
-                    fallback_exc,
-                )
-                return []
-        except Exception as exc:
-            logger.debug(
-                "Historical bars fetch failed for %s (%s): %s",
-                symbol,
-                timeframe,
-                exc,
-            )
+        response = await call_market_data_client(
+            fetch_historical_bars,
+            request_kwargs=request_kwargs,
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
+            logger=logger,
+            operation="price_chart_historical_bars",
+            symbol=symbol,
+            extra={"timeframe": timeframe, "limit": limit},
+        )
+        if not isinstance(response, dict):
             return []
 
         candles = self._parse_historical_bars(response.get("bars", []))
@@ -850,7 +818,10 @@ class PriceChartComponent:
             )
             return candles
 
-        logger.debug("Historical bars unavailable for %s (%s)", symbol, timeframe)
+        logger.debug(
+            "historical_bars_unavailable",
+            extra={"symbol": symbol, "timeframe": timeframe},
+        )
         return []
 
     async def _fetch_execution_markers(self, symbol: str) -> list[ExecutionMarker]:

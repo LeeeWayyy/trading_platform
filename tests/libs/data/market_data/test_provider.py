@@ -127,6 +127,86 @@ def test_get_latest_quote_sync_normalizes_top_of_book(
     }
 
 
+def test_get_latest_quote_sync_reads_alpaca_response_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = MarketDataProvider.__new__(MarketDataProvider)
+    provider._data_feed = None
+
+    def fake_latest_quote_request(**kwargs: object) -> dict[str, object]:
+        return kwargs
+
+    class FakeClient:
+        def get_stock_latest_quote(self, request: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                data={
+                    "AAPL": SimpleNamespace(
+                        bid_price=0.0,
+                        ask_price=180.2,
+                        bid_size=0,
+                        ask_size=200,
+                        timestamp="2026-04-20T15:00:00+00:00",
+                    )
+                }
+            )
+
+    provider._client = FakeClient()
+    monkeypatch.setattr(
+        "libs.data.market_data.provider.StockLatestQuoteRequest",
+        fake_latest_quote_request,
+    )
+
+    quote = provider._get_latest_quote_sync("AAPL")
+
+    assert quote == {
+        "symbol": "AAPL",
+        "bid_price": 0.0,
+        "ask_price": 180.2,
+        "bid_size": 0,
+        "ask_size": 200,
+        "timestamp": "2026-04-20T15:00:00+00:00",
+    }
+
+
+def test_get_latest_quote_sync_reads_dict_quote_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = MarketDataProvider.__new__(MarketDataProvider)
+    provider._data_feed = None
+
+    def fake_latest_quote_request(**kwargs: object) -> dict[str, object]:
+        return kwargs
+
+    class FakeClient:
+        def get_stock_latest_quote(self, request: object) -> dict[str, dict[str, object]]:
+            return {
+                "AAPL": {
+                    "bid_price": 179.9,
+                    "ask_price": 180.0,
+                    "bid_size": 10,
+                    "ask_size": 20,
+                    "timestamp": "2026-04-20T15:00:00+00:00",
+                }
+            }
+
+    provider._client = FakeClient()
+    monkeypatch.setattr(
+        "libs.data.market_data.provider.StockLatestQuoteRequest",
+        fake_latest_quote_request,
+    )
+
+    quote = provider._get_latest_quote_sync("AAPL")
+
+    assert quote == {
+        "symbol": "AAPL",
+        "bid_price": 179.9,
+        "ask_price": 180.0,
+        "bid_size": 10,
+        "ask_size": 20,
+        "timestamp": "2026-04-20T15:00:00+00:00",
+    }
+
+
 def test_get_bars_sync_sorts_results_chronologically(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = MarketDataProvider.__new__(MarketDataProvider)
     provider._data_feed = None

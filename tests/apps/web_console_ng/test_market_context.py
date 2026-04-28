@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -409,8 +409,22 @@ class TestMarketContextSymbolChange:
                 "timestamp": timestamp.isoformat(),
             }
         )
-        client.fetch_historical_bars = AsyncMock(
-            return_value={
+        async def fetch_historical_bars(
+            *,
+            symbol: str,
+            timeframe: str,
+            limit: int,
+            user_id: str,
+            role: str,
+            strategies: list[str],
+        ) -> dict[str, list[dict[str, object]]]:
+            assert symbol == "AAPL"
+            assert limit == 1
+            assert user_id == "user-1"
+            assert role == "admin"
+            assert strategies == ["alpha"]
+            volume = 987654 if timeframe == "1Day" else 123456
+            return {
                 "bars": [
                     {
                         "timestamp": timestamp.isoformat(),
@@ -418,11 +432,12 @@ class TestMarketContextSymbolChange:
                         "high": 102.0,
                         "low": 99.0,
                         "close": 101.25,
-                        "volume": 123456,
+                        "volume": volume,
                     }
                 ]
             }
-        )
+
+        client.fetch_historical_bars = AsyncMock(side_effect=fetch_historical_bars)
         component = MarketContextComponent(
             trading_client=client,
             user_id="user-1",
@@ -439,20 +454,33 @@ class TestMarketContextSymbolChange:
         assert component._data.bid_size == 10
         assert component._data.ask_size == 20
         assert component._data.last_price == Decimal("101.25")
-        assert component._data.volume == 123456
+        assert component._data.volume == 987654
         client.fetch_latest_quote.assert_awaited_once_with(
             symbol="AAPL",
             user_id="user-1",
             role="admin",
             strategies=["alpha"],
         )
-        client.fetch_historical_bars.assert_awaited_once_with(
-            symbol="AAPL",
-            timeframe="5Min",
-            limit=1,
-            user_id="user-1",
-            role="admin",
-            strategies=["alpha"],
+        client.fetch_historical_bars.assert_has_awaits(
+            [
+                call(
+                    symbol="AAPL",
+                    timeframe="5Min",
+                    limit=1,
+                    user_id="user-1",
+                    role="admin",
+                    strategies=["alpha"],
+                ),
+                call(
+                    symbol="AAPL",
+                    timeframe="1Day",
+                    limit=1,
+                    user_id="user-1",
+                    role="admin",
+                    strategies=["alpha"],
+                ),
+            ],
+            any_order=True,
         )
 
 

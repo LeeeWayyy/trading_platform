@@ -8,7 +8,7 @@ Data Flow: Redis → RealtimeUpdater → OrderEntryContext → MarketContext.set
 
 from __future__ import annotations
 
-import inspect
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
+from apps.web_console_ng.components.market_data_calls import call_market_data_client
 from apps.web_console_ng.utils.time import parse_iso_timestamp
 
 if TYPE_CHECKING:
@@ -239,13 +240,21 @@ class MarketContextComponent:
         self, symbol: str
     ) -> tuple[MarketDataSnapshot | None, MarketDataSnapshot | None]:
         """Fetch real top-of-book and OHLCV seeds without blocking on one source."""
-        import asyncio
-
         quote_result, bar_result = await asyncio.gather(
             self._fetch_latest_quote_snapshot(symbol),
             self._fetch_latest_bar_snapshot(symbol),
             return_exceptions=True,
         )
+        if isinstance(quote_result, Exception):
+            logger.debug(
+                "market_context_quote_seed_failed",
+                extra={"symbol": symbol, "error_type": type(quote_result).__name__},
+            )
+        if isinstance(bar_result, Exception):
+            logger.debug(
+                "market_context_bar_seed_failed",
+                extra={"symbol": symbol, "error_type": type(bar_result).__name__},
+            )
         quote_snapshot = quote_result if isinstance(quote_result, MarketDataSnapshot) else None
         bar_snapshot = bar_result if isinstance(bar_result, MarketDataSnapshot) else None
         return quote_snapshot, bar_snapshot
@@ -289,37 +298,25 @@ class MarketContextComponent:
         if fetch_latest_quote is None or not self._user_id:
             return None
 
-        request_kwargs: dict[str, Any] = {"symbol": symbol}
-        authenticated_kwargs: dict[str, Any] = {
-            **request_kwargs,
-            "user_id": self._user_id,
-            "role": self._role,
-            "strategies": self._strategies,
-        }
-        supports_auth_kwargs = self._call_supports_auth_kwargs(fetch_latest_quote)
-
-        try:
-            response = await fetch_latest_quote(
-                **(authenticated_kwargs if supports_auth_kwargs else request_kwargs)
-            )
-        except TypeError:
-            try:
-                response = await fetch_latest_quote(
-                    **(request_kwargs if supports_auth_kwargs else authenticated_kwargs)
-                )
-            except Exception as exc:
-                logger.debug("Initial market context quote fetch failed for %s: %s", symbol, exc)
-                return None
-        except Exception as exc:
-            logger.debug("Initial market context quote fetch failed for %s: %s", symbol, exc)
+        response = await call_market_data_client(
+            fetch_latest_quote,
+            request_kwargs={"symbol": symbol},
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
+            logger=logger,
+            operation="market_context_latest_quote",
+            symbol=symbol,
+        )
+        if response is None:
             return None
 
         if not isinstance(response, dict):
             return None
 
         try:
-            bid_raw = response.get("bid_price") or response.get("bid")
-            ask_raw = response.get("ask_price") or response.get("ask")
+            bid_raw = self._mapping_value(response, "bid_price", "bid")
+            ask_raw = self._mapping_value(response, "ask_price", "ask")
             bid = Decimal(str(bid_raw)) if bid_raw is not None else None
             ask = Decimal(str(ask_raw)) if ask_raw is not None else None
             if bid is not None and (not bid.is_finite() or bid <= 0):
@@ -332,7 +329,11 @@ class MarketContextComponent:
             ask_size_raw = response.get("ask_size")
             timestamp_raw = response.get("timestamp")
             timestamp = parse_iso_timestamp(str(timestamp_raw)) if timestamp_raw else None
-        except (InvalidOperation, ValueError, TypeError):
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            logger.debug(
+                "market_context_quote_parse_failed",
+                extra={"symbol": symbol, "error_type": type(exc).__name__},
+            )
             return None
 
         return MarketDataSnapshot(
@@ -341,79 +342,36 @@ class MarketContextComponent:
             ask_price=ask,
             bid_size=int(bid_size_raw) if bid_size_raw is not None else None,
             ask_size=int(ask_size_raw) if ask_size_raw is not None else None,
-            last_price=(bid + ask) / 2 if bid is not None and ask is not None else bid or ask,
+            last_price=None,
             timestamp=timestamp,
         )
 
     @staticmethod
-    def _call_supports_auth_kwargs(callable_obj: Any) -> bool:
-        """Detect whether a client method accepts web-console auth kwargs."""
-        try:
-            signature = inspect.signature(callable_obj)
-            parameters = signature.parameters
-            has_var_keyword = any(
-                param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
-            )
-            return has_var_keyword or all(
-                key in parameters for key in ("user_id", "role", "strategies")
-            )
-        except (TypeError, ValueError):
-            return True
+    def _mapping_value(data: dict[str, Any], primary_key: str, fallback_key: str) -> Any:
+        """Return primary mapping value, preserving valid falsy numeric values."""
+        value = data.get(primary_key)
+        return value if value is not None else data.get(fallback_key)
 
     async def _fetch_latest_bar_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
-        """Use recent OHLCV bars to seed last/volume before live quote ticks arrive."""
-        fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
-        if fetch_historical_bars is None or not self._user_id:
-            return None
-
-        request_kwargs: dict[str, Any] = {
-            "symbol": symbol,
-            "timeframe": "5Min",
-            "limit": 1,
-        }
-        authenticated_kwargs: dict[str, Any] = {
-            **request_kwargs,
-            "user_id": self._user_id,
-            "role": self._role,
-            "strategies": self._strategies,
-        }
-        supports_auth_kwargs = self._call_supports_auth_kwargs(fetch_historical_bars)
-
-        try:
-            response = await fetch_historical_bars(
-                **(authenticated_kwargs if supports_auth_kwargs else request_kwargs)
-            )
-        except TypeError:
-            try:
-                response = await fetch_historical_bars(
-                    **(request_kwargs if supports_auth_kwargs else authenticated_kwargs)
-                )
-            except Exception as exc:
-                logger.debug("Initial market context bar fetch failed for %s: %s", symbol, exc)
-                return None
-        except Exception as exc:
-            logger.debug("Initial market context bar fetch failed for %s: %s", symbol, exc)
-            return None
-
-        bars = response.get("bars") if isinstance(response, dict) else None
-        if not isinstance(bars, list) or not bars:
-            return None
-        latest = bars[-1]
-        if not isinstance(latest, dict):
+        """Use bars to seed last traded price and daily volume before live ticks arrive."""
+        intraday_response, daily_response = await asyncio.gather(
+            self._fetch_latest_bar_response(symbol, "5Min"),
+            self._fetch_latest_bar_response(symbol, "1Day"),
+        )
+        intraday_bar = self._latest_bar_from_response(intraday_response)
+        daily_bar = self._latest_bar_from_response(daily_response)
+        if intraday_bar is None and daily_bar is None:
             return None
 
         try:
-            close_raw = latest.get("close")
-            timestamp_raw = latest.get("timestamp")
-            if close_raw is None or timestamp_raw is None:
-                return None
-            close = Decimal(str(close_raw))
-            if not close.is_finite() or close <= 0:
-                return None
-            volume_raw = latest.get("volume")
+            close, timestamp = self._parse_bar_price(intraday_bar, symbol)
+            volume_raw = daily_bar.get("volume") if daily_bar is not None else None
             volume = int(volume_raw) if volume_raw is not None else None
-            timestamp = parse_iso_timestamp(str(timestamp_raw))
-        except (InvalidOperation, ValueError, TypeError):
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            logger.debug(
+                "market_context_bar_parse_failed",
+                extra={"symbol": symbol, "error_type": type(exc).__name__},
+            )
             return None
 
         return MarketDataSnapshot(
@@ -422,6 +380,51 @@ class MarketContextComponent:
             volume=volume,
             timestamp=timestamp,
         )
+
+    async def _fetch_latest_bar_response(self, symbol: str, timeframe: str) -> dict[str, Any] | None:
+        """Fetch one latest bar for a timeframe using shared auth fallback."""
+        fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
+        if fetch_historical_bars is None or not self._user_id:
+            return None
+        response = await call_market_data_client(
+            fetch_historical_bars,
+            request_kwargs={"symbol": symbol, "timeframe": timeframe, "limit": 1},
+            user_id=self._user_id,
+            role=self._role,
+            strategies=self._strategies,
+            logger=logger,
+            operation="market_context_latest_bar",
+            symbol=symbol,
+            extra={"timeframe": timeframe},
+        )
+        return response if isinstance(response, dict) else None
+
+    @staticmethod
+    def _latest_bar_from_response(response: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Extract the latest bar dict from a web-console bars response."""
+        bars = response.get("bars") if isinstance(response, dict) else None
+        if not isinstance(bars, list) or not bars:
+            return None
+        latest = bars[-1]
+        return latest if isinstance(latest, dict) else None
+
+    @staticmethod
+    def _parse_bar_price(bar: dict[str, Any] | None, symbol: str) -> tuple[Decimal | None, datetime | None]:
+        """Parse last trade proxy from an intraday bar."""
+        if bar is None:
+            return None, None
+        close_raw = bar.get("close")
+        timestamp_raw = bar.get("timestamp")
+        if close_raw is None or timestamp_raw is None:
+            return None, None
+        close = Decimal(str(close_raw))
+        if not close.is_finite() or close <= 0:
+            logger.debug(
+                "market_context_bar_non_positive_close",
+                extra={"symbol": symbol},
+            )
+            return None, None
+        return close, parse_iso_timestamp(str(timestamp_raw))
 
     # ================= Price Data Callbacks =================
 
@@ -498,11 +501,15 @@ class MarketContextComponent:
         # Build snapshot with safe parsing
         symbol = data.get("symbol") or self._current_symbol or ""
         existing = self._data
-        bid_price = safe_decimal("bid") or safe_decimal("bid_price")
-        ask_price = safe_decimal("ask") or safe_decimal("ask_price")
+        def first_decimal(primary_key: str, fallback_key: str) -> Decimal | None:
+            value = safe_decimal(primary_key)
+            return value if value is not None else safe_decimal(fallback_key)
+
+        bid_price = first_decimal("bid", "bid_price")
+        ask_price = first_decimal("ask", "ask_price")
         bid_size = safe_int("bid_size")
         ask_size = safe_int("ask_size")
-        last_price = safe_decimal("price") or safe_decimal("last_price")
+        last_price = first_decimal("price", "last_price")
         prev_close = safe_decimal("prev_close")
         parsed_volume = safe_int("volume")
         timestamp = safe_timestamp("timestamp")

@@ -258,15 +258,15 @@ class MarketDataProvider:
             )
             raise MarketDataError(str(exc)) from exc
 
-        quote = quotes.get(symbol) if isinstance(quotes, dict) else None
+        quote = self._extract_latest_quote(quotes, symbol)
         if quote is None:
             return None
 
-        bid_raw = getattr(quote, "bid_price", None) or getattr(quote, "bp", None)
-        ask_raw = getattr(quote, "ask_price", None) or getattr(quote, "ap", None)
-        bid_size_raw = getattr(quote, "bid_size", None) or getattr(quote, "bs", None)
-        ask_size_raw = getattr(quote, "ask_size", None) or getattr(quote, "as", None)
-        ts_raw = getattr(quote, "timestamp", None) or getattr(quote, "t", None)
+        bid_raw = self._quote_field(quote, "bid_price", "bp")
+        ask_raw = self._quote_field(quote, "ask_price", "ap")
+        bid_size_raw = self._quote_field(quote, "bid_size", "bs")
+        ask_size_raw = self._quote_field(quote, "ask_size", "as")
+        ts_raw = self._quote_field(quote, "timestamp", "t")
         timestamp = self._normalize_bar_timestamp(ts_raw)
 
         try:
@@ -288,6 +288,25 @@ class MarketDataProvider:
             "ask_size": ask_size,
             "timestamp": timestamp.isoformat() if timestamp is not None else None,
         }
+
+    @staticmethod
+    def _extract_latest_quote(quotes: Any, symbol: str) -> Any | None:
+        """Extract a symbol quote from Alpaca SDK or test-double response shapes."""
+        data = getattr(quotes, "data", None)
+        if isinstance(data, dict):
+            return data.get(symbol)
+        if isinstance(quotes, dict):
+            return quotes.get(symbol)
+        return None
+
+    @staticmethod
+    def _quote_field(quote: Any, primary_name: str, fallback_name: str) -> Any:
+        """Read a quote field from dict/object response shapes without treating 0 as missing."""
+        if isinstance(quote, dict):
+            value = quote.get(primary_name)
+            return value if value is not None else quote.get(fallback_name)
+        value = getattr(quote, primary_name, None)
+        return value if value is not None else getattr(quote, fallback_name, None)
 
     def _get_adv_sync(self, symbol: str) -> ADVData | None:
         symbol = symbol.upper().strip()
