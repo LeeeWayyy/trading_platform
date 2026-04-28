@@ -506,6 +506,51 @@ class TestMarketContextSymbolChange:
             any_order=True,
         )
 
+    @pytest.mark.asyncio()
+    async def test_bar_seed_uses_daily_close_when_intraday_missing(self) -> None:
+        """Daily bar close should seed Last when intraday bars are unavailable."""
+        timestamp = datetime.now(UTC)
+        client = MagicMock()
+
+        async def fetch_historical_bars(
+            *,
+            symbol: str,
+            timeframe: str,
+            limit: int,
+            user_id: str,
+            role: str,
+            strategies: list[str],
+        ) -> dict[str, list[dict[str, object]]]:
+            if timeframe == "5Min":
+                return {"bars": []}
+            return {
+                "bars": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.25,
+                        "volume": 987654,
+                    }
+                ]
+            }
+
+        client.fetch_historical_bars = AsyncMock(side_effect=fetch_historical_bars)
+        component = MarketContextComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
+
+        snapshot = await component._fetch_latest_bar_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.last_price == Decimal("101.25")
+        assert snapshot.volume == 987654
+        assert snapshot.timestamp == timestamp
+
 
 class TestMarketContextDispose:
     """Tests for dispose/cleanup."""

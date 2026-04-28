@@ -420,14 +420,7 @@ class PriceChartComponent:
         candles = await self._fetch_candle_data(symbol, timeframe=requested_timeframe)
 
         # RACE CHECK: Ensure symbol hasn't changed during candle fetch
-        if (
-            symbol != self._current_symbol
-            or requested_timeframe != self._selected_timeframe
-            or (
-                reload_generation is not None
-                and reload_generation != self._timeframe_reload_generation
-            )
-        ):
+        if self._is_request_stale(symbol, requested_timeframe, reload_generation):
             return  # Stale - symbol changed during fetch
 
         self._candles = candles
@@ -442,14 +435,7 @@ class PriceChartComponent:
         markers = await self._fetch_execution_markers(symbol)
 
         # RACE CHECK: Ensure symbol hasn't changed during marker fetch
-        if (
-            symbol != self._current_symbol
-            or requested_timeframe != self._selected_timeframe
-            or (
-                reload_generation is not None
-                and reload_generation != self._timeframe_reload_generation
-            )
-        ):
+        if self._is_request_stale(symbol, requested_timeframe, reload_generation):
             return  # Stale - symbol changed during fetch
 
         self._markers = markers
@@ -459,6 +445,22 @@ class PriceChartComponent:
 
         # NOTE: No direct Redis subscription here!
         # Real-time updates come via set_price_data() callback from OrderEntryContext
+
+    def _is_request_stale(
+        self,
+        symbol: str,
+        requested_timeframe: str,
+        reload_generation: int | None,
+    ) -> bool:
+        """Return whether an async chart reload no longer matches current UI state."""
+        return (
+            symbol != self._current_symbol
+            or requested_timeframe != self._selected_timeframe
+            or (
+                reload_generation is not None
+                and reload_generation != self._timeframe_reload_generation
+            )
+        )
 
     # ================= Price Data Callbacks =================
 

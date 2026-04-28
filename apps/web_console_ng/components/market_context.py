@@ -278,11 +278,8 @@ class MarketContextComponent:
             prev_close=bar_snapshot.prev_close if bar_snapshot is not None else None,
             volume=bar_snapshot.volume if bar_snapshot is not None else None,
             timestamp=(
-                quote_snapshot.timestamp
-                if quote_snapshot is not None and quote_snapshot.timestamp is not None
-                else bar_snapshot.timestamp
-                if bar_snapshot is not None
-                else None
+                (quote_snapshot.timestamp if quote_snapshot is not None else None)
+                or (bar_snapshot.timestamp if bar_snapshot is not None else None)
             ),
         )
 
@@ -359,6 +356,8 @@ class MarketContextComponent:
 
         try:
             close, timestamp = self._parse_bar_price(intraday_bar, symbol)
+            if close is None and daily_bar is not None:
+                close, timestamp = self._parse_bar_price(daily_bar, symbol)
             volume_raw = daily_bar.get("volume") if daily_bar is not None else None
             volume = int(volume_raw) if volume_raw is not None else None
         except (InvalidOperation, ValueError, TypeError) as exc:
@@ -508,48 +507,24 @@ class MarketContextComponent:
         parsed_volume = safe_int("volume")
         timestamp = safe_timestamp("timestamp")
         same_symbol_existing = existing if existing is not None and existing.symbol == symbol else None
+
+        def coalesce(new_value: Any, field_name: str) -> Any:
+            if new_value is not None:
+                return new_value
+            if same_symbol_existing is None:
+                return None
+            return getattr(same_symbol_existing, field_name, None)
+
         self._data = MarketDataSnapshot(
             symbol=symbol,
-            bid_price=(
-                bid_price
-                if bid_price is not None
-                else (same_symbol_existing.bid_price if same_symbol_existing else None)
-            ),
-            ask_price=(
-                ask_price
-                if ask_price is not None
-                else (same_symbol_existing.ask_price if same_symbol_existing else None)
-            ),
-            bid_size=(
-                bid_size
-                if bid_size is not None
-                else (same_symbol_existing.bid_size if same_symbol_existing else None)
-            ),
-            ask_size=(
-                ask_size
-                if ask_size is not None
-                else (same_symbol_existing.ask_size if same_symbol_existing else None)
-            ),
-            last_price=(
-                last_price
-                if last_price is not None
-                else (same_symbol_existing.last_price if same_symbol_existing else None)
-            ),
-            prev_close=(
-                prev_close
-                if prev_close is not None
-                else (same_symbol_existing.prev_close if same_symbol_existing else None)
-            ),
-            volume=(
-                parsed_volume
-                if parsed_volume is not None
-                else (same_symbol_existing.volume if same_symbol_existing else None)
-            ),
-            timestamp=(
-                timestamp
-                if timestamp is not None
-                else (same_symbol_existing.timestamp if same_symbol_existing else None)
-            ),
+            bid_price=coalesce(bid_price, "bid_price"),
+            ask_price=coalesce(ask_price, "ask_price"),
+            bid_size=coalesce(bid_size, "bid_size"),
+            ask_size=coalesce(ask_size, "ask_size"),
+            last_price=coalesce(last_price, "last_price"),
+            prev_close=coalesce(prev_close, "prev_close"),
+            volume=coalesce(parsed_volume, "volume"),
+            timestamp=coalesce(timestamp, "timestamp"),
         )
 
     def _notify_price_updated(self) -> None:
