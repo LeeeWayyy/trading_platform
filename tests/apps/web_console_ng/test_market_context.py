@@ -230,6 +230,29 @@ class TestMarketContextPriceData:
         assert component._data is not None
         assert component._data.bid_price is None
 
+    def test_set_price_data_does_not_reuse_previous_symbol_fields(
+        self, component: MarketContextComponent
+    ) -> None:
+        """Partial ticks must not carry stale fields across symbols."""
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="MSFT",
+            bid_price=Decimal("300.00"),
+            ask_price=Decimal("300.10"),
+            last_price=Decimal("300.05"),
+            volume=100,
+        )
+        component._last_ui_update = 0
+
+        component.set_price_data({"symbol": "AAPL", "bid": "101.00"})
+
+        assert component._data is not None
+        assert component._data.symbol == "AAPL"
+        assert component._data.bid_price == Decimal("101.00")
+        assert component._data.ask_price is None
+        assert component._data.last_price is None
+        assert component._data.volume is None
+
     def test_set_price_data_throttled(self, component: MarketContextComponent) -> None:
         """UI updates are throttled but data is always updated."""
         import time

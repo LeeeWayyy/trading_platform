@@ -159,6 +159,8 @@ class PriceChartComponent:
         self._title_label: ui.label | None = None
         self._subtitle_label: ui.label | None = None
         self._timeframe_buttons: dict[str, Any] = {}
+        self._timeframe_reload_generation: int = 0
+        self._timeframe_reload_task: asyncio.Task[None] | None = None
         try:
             # Bind to originating NiceGUI client so JS calls from background tasks
             # execute in the correct browser context.
@@ -287,14 +289,23 @@ class PriceChartComponent:
         self._update_header_labels()
         if self._disposed or not self._current_symbol:
             return
-        task = asyncio.create_task(self._reload_selected_symbol())
+        self._timeframe_reload_generation += 1
+        generation = self._timeframe_reload_generation
+        if self._timeframe_reload_task is not None and not self._timeframe_reload_task.done():
+            self._timeframe_reload_task.cancel()
+        task = asyncio.create_task(self._reload_selected_symbol(timeframe, generation))
+        self._timeframe_reload_task = task
         self._pending_update_tasks.add(task)
         task.add_done_callback(lambda t: self._pending_update_tasks.discard(t))
 
-    async def _reload_selected_symbol(self) -> None:
+    async def _reload_selected_symbol(self, timeframe: str, generation: int) -> None:
         symbol = self._current_symbol
         if symbol:
-            await self.on_symbol_changed(symbol)
+            await self.on_symbol_changed(
+                symbol,
+                expected_timeframe=timeframe,
+                reload_generation=generation,
+            )
 
     async def _run_javascript(
         self,
@@ -361,7 +372,13 @@ class PriceChartComponent:
 
     # ================= Symbol Management =================
 
-    async def on_symbol_changed(self, symbol: str | None) -> None:
+    async def on_symbol_changed(
+        self,
+        symbol: str | None,
+        *,
+        expected_timeframe: str | None = None,
+        reload_generation: int | None = None,
+    ) -> None:
         """Called by OrderEntryContext when selected symbol changes.
 
         NOTE: PriceChart does NOT subscribe to Redis directly.
@@ -376,8 +393,9 @@ class PriceChartComponent:
         before updating state/UI to prevent stale fetches from overwriting newer data.
         """
         self._current_symbol = symbol
+        requested_timeframe = expected_timeframe or self._selected_timeframe
         self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
-            self._selected_timeframe.strip().lower(),
+            requested_timeframe.strip().lower(),
             self.CANDLE_INTERVAL_SECONDS,
         )
         self._update_header_labels()
@@ -399,10 +417,17 @@ class PriceChartComponent:
             logger.warning(f"Failed to ensure chart initialized: {exc}")
 
         # Fetch historical data
-        candles = await self._fetch_candle_data(symbol)
+        candles = await self._fetch_candle_data(symbol, timeframe=requested_timeframe)
 
         # RACE CHECK: Ensure symbol hasn't changed during candle fetch
-        if symbol != self._current_symbol:
+        if (
+            symbol != self._current_symbol
+            or requested_timeframe != self._selected_timeframe
+            or (
+                reload_generation is not None
+                and reload_generation != self._timeframe_reload_generation
+            )
+        ):
             return  # Stale - symbol changed during fetch
 
         self._candles = candles
@@ -417,7 +442,14 @@ class PriceChartComponent:
         markers = await self._fetch_execution_markers(symbol)
 
         # RACE CHECK: Ensure symbol hasn't changed during marker fetch
-        if symbol != self._current_symbol:
+        if (
+            symbol != self._current_symbol
+            or requested_timeframe != self._selected_timeframe
+            or (
+                reload_generation is not None
+                and reload_generation != self._timeframe_reload_generation
+            )
+        ):
             return  # Stale - symbol changed during fetch
 
         self._markers = markers
@@ -772,12 +804,17 @@ class PriceChartComponent:
             parsed = parsed[-self.MAX_CHART_CANDLES :]
         return parsed
 
-    async def _fetch_candle_data(self, symbol: str) -> list[CandleData]:
+    async def _fetch_candle_data(
+        self,
+        symbol: str,
+        *,
+        timeframe: str | None = None,
+    ) -> list[CandleData]:
         """Fetch historical candle data for the selected symbol."""
         if self._disposed:
             return []
         self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
-            self._selected_timeframe.strip().lower(),
+            (timeframe or self._selected_timeframe).strip().lower(),
             self.CANDLE_INTERVAL_SECONDS,
         )
 
@@ -789,11 +826,11 @@ class PriceChartComponent:
             logger.debug("historical_bars_fetch_skipped", extra={"symbol": symbol, "reason": "missing_user"})
             return []
 
-        timeframe = self._selected_timeframe
-        _, limit, _ = self.TIMEFRAME_OPTIONS[timeframe]
+        selected_timeframe = timeframe or self._selected_timeframe
+        _, limit, _ = self.TIMEFRAME_OPTIONS[selected_timeframe]
         request_kwargs: dict[str, Any] = {
             "symbol": symbol,
-            "timeframe": timeframe,
+            "timeframe": selected_timeframe,
             "limit": limit,
         }
         response = await call_market_data_client(
@@ -805,7 +842,7 @@ class PriceChartComponent:
             logger=logger,
             operation="price_chart_historical_bars",
             symbol=symbol,
-            extra={"timeframe": timeframe, "limit": limit},
+            extra={"timeframe": selected_timeframe, "limit": limit},
         )
         if not isinstance(response, dict):
             return []
@@ -813,14 +850,14 @@ class PriceChartComponent:
         candles = self._parse_historical_bars(response.get("bars", []))
         if candles:
             self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
-                timeframe.strip().lower(),
+                selected_timeframe.strip().lower(),
                 self.CANDLE_INTERVAL_SECONDS,
             )
             return candles
 
         logger.debug(
             "historical_bars_unavailable",
-            extra={"symbol": symbol, "timeframe": timeframe},
+            extra={"symbol": symbol, "timeframe": selected_timeframe},
         )
         return []
 
@@ -1370,6 +1407,7 @@ class PriceChartComponent:
                 except asyncio.CancelledError:
                     pass
         self._pending_update_tasks.clear()
+        self._timeframe_reload_task = None
         self._price_update_task = None
         self._pending_price_update = None
 

@@ -644,6 +644,26 @@ class TestPriceChartSymbolChange:
         mock_show.assert_not_called()
 
     @pytest.mark.asyncio()
+    async def test_stale_timeframe_reload_does_not_update_chart(
+        self, component: PriceChartComponent
+    ) -> None:
+        """Older timeframe reloads must not overwrite the currently selected interval."""
+        component._selected_timeframe = "1Day"
+        candles = [CandleData(time=1, open=100, high=100, low=100, close=100, volume=1)]
+        with (
+            patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
+            patch.object(component, "_fetch_candle_data", return_value=candles),
+            patch.object(component, "_fetch_execution_markers", return_value=[]),
+            patch.object(component, "_update_chart_data", new_callable=AsyncMock) as mock_update,
+            patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
+        ):
+            await component.on_symbol_changed("AAPL", expected_timeframe="5Min")
+
+        assert component._candles == []
+        mock_hide.assert_not_called()
+        mock_update.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_symbol_change_to_none_clears_symbol_changed_at(
         self, component: PriceChartComponent
     ) -> None:

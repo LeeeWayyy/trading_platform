@@ -274,13 +274,7 @@ class MarketContextComponent:
             ask_price=quote_snapshot.ask_price if quote_snapshot is not None else None,
             bid_size=quote_snapshot.bid_size if quote_snapshot is not None else None,
             ask_size=quote_snapshot.ask_size if quote_snapshot is not None else None,
-            last_price=(
-                bar_snapshot.last_price
-                if bar_snapshot is not None
-                else quote_snapshot.last_price
-                if quote_snapshot is not None
-                else None
-            ),
+            last_price=bar_snapshot.last_price if bar_snapshot is not None else None,
             prev_close=bar_snapshot.prev_close if bar_snapshot is not None else None,
             volume=bar_snapshot.volume if bar_snapshot is not None else None,
             timestamp=(
@@ -513,16 +507,49 @@ class MarketContextComponent:
         prev_close = safe_decimal("prev_close")
         parsed_volume = safe_int("volume")
         timestamp = safe_timestamp("timestamp")
+        same_symbol_existing = existing if existing is not None and existing.symbol == symbol else None
         self._data = MarketDataSnapshot(
             symbol=symbol,
-            bid_price=bid_price if bid_price is not None else (existing.bid_price if existing else None),
-            ask_price=ask_price if ask_price is not None else (existing.ask_price if existing else None),
-            bid_size=bid_size if bid_size is not None else (existing.bid_size if existing else None),
-            ask_size=ask_size if ask_size is not None else (existing.ask_size if existing else None),
-            last_price=last_price if last_price is not None else (existing.last_price if existing else None),
-            prev_close=prev_close if prev_close is not None else (existing.prev_close if existing else None),
-            volume=parsed_volume if parsed_volume is not None else (existing.volume if existing else None),
-            timestamp=timestamp if timestamp is not None else (existing.timestamp if existing else None),
+            bid_price=(
+                bid_price
+                if bid_price is not None
+                else (same_symbol_existing.bid_price if same_symbol_existing else None)
+            ),
+            ask_price=(
+                ask_price
+                if ask_price is not None
+                else (same_symbol_existing.ask_price if same_symbol_existing else None)
+            ),
+            bid_size=(
+                bid_size
+                if bid_size is not None
+                else (same_symbol_existing.bid_size if same_symbol_existing else None)
+            ),
+            ask_size=(
+                ask_size
+                if ask_size is not None
+                else (same_symbol_existing.ask_size if same_symbol_existing else None)
+            ),
+            last_price=(
+                last_price
+                if last_price is not None
+                else (same_symbol_existing.last_price if same_symbol_existing else None)
+            ),
+            prev_close=(
+                prev_close
+                if prev_close is not None
+                else (same_symbol_existing.prev_close if same_symbol_existing else None)
+            ),
+            volume=(
+                parsed_volume
+                if parsed_volume is not None
+                else (same_symbol_existing.volume if same_symbol_existing else None)
+            ),
+            timestamp=(
+                timestamp
+                if timestamp is not None
+                else (same_symbol_existing.timestamp if same_symbol_existing else None)
+            ),
         )
 
     def _notify_price_updated(self) -> None:
