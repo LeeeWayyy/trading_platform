@@ -45,9 +45,10 @@ class DummyCache:
 
 
 class DummyProvider:
-    def __init__(self, adv_data=None, bars_data=None, error=None):
+    def __init__(self, adv_data=None, bars_data=None, quote_data=None, error=None):
         self._adv_data = adv_data
         self._bars_data = bars_data or []
+        self._quote_data = quote_data
         self._error = error
 
     async def get_adv(self, symbol: str):
@@ -61,6 +62,11 @@ class DummyProvider:
         if self._error:
             raise self._error
         return list(self._bars_data)
+
+    async def get_latest_quote(self, symbol: str):
+        if self._error:
+            raise self._error
+        return self._quote_data
 
 
 def test_adv_returns_404_for_unknown_symbol(test_client, monkeypatch):
@@ -183,6 +189,43 @@ def test_bars_returns_historical_payload(test_client, monkeypatch):
         "2026-04-20T13:30:00Z",
         "2026-04-20T13:30:00+00:00",
     }
+
+
+def test_latest_quote_returns_top_of_book_payload(test_client, monkeypatch):
+    from apps.market_data_service.routes import market_data
+
+    monkeypatch.setattr(
+        market_data,
+        "_get_provider",
+        lambda: DummyProvider(
+            quote_data={
+                "symbol": "AAPL",
+                "bid_price": 180.1,
+                "ask_price": 180.2,
+                "bid_size": 100,
+                "ask_size": 200,
+                "timestamp": "2026-04-20T13:30:01+00:00",
+            }
+        ),
+    )
+
+    response = test_client.get("/api/v1/market-data/aapl/latest-quote")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == "AAPL"
+    assert body["bid_price"] == 180.1
+    assert body["ask_price"] == 180.2
+    assert body["bid_size"] == 100
+    assert body["ask_size"] == 200
+
+
+def test_latest_quote_returns_404_when_quote_missing(test_client, monkeypatch):
+    from apps.market_data_service.routes import market_data
+
+    monkeypatch.setattr(market_data, "_get_provider", lambda: DummyProvider(quote_data=None))
+
+    response = test_client.get("/api/v1/market-data/AAPL/latest-quote")
+    assert response.status_code == 404
 
 
 def test_bars_returns_400_for_invalid_limit(test_client):

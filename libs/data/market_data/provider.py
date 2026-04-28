@@ -10,7 +10,7 @@ from typing import Any
 
 try:
     from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
     from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
     ALPACA_AVAILABLE = True
@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - optional dependency
     ALPACA_AVAILABLE = False
     StockHistoricalDataClient = None  # type: ignore[assignment,misc]
     StockBarsRequest = None  # type: ignore[assignment,misc]
+    StockLatestQuoteRequest = None  # type: ignore[assignment,misc]
     TimeFrame = None  # type: ignore[assignment,misc]
     TimeFrameUnit = None  # type: ignore[assignment,misc]
 
@@ -54,6 +55,10 @@ class MarketDataProvider:
             timeframe,
             limit,
         )
+
+    async def get_latest_quote(self, symbol: str) -> dict[str, Any] | None:
+        """Get latest top-of-book quote for a symbol."""
+        return await asyncio.to_thread(self._get_latest_quote_sync, symbol)
 
     def _resolve_timeframe(self, timeframe: str) -> Any:
         """Resolve supported timeframe strings to Alpaca TimeFrame."""
@@ -234,6 +239,55 @@ class MarketDataProvider:
 
         normalized.sort(key=self._normalized_bar_sort_key)
         return normalized
+
+    def _get_latest_quote_sync(self, symbol: str) -> dict[str, Any] | None:
+        symbol = symbol.upper().strip()
+        if not symbol:
+            return None
+
+        try:
+            request_kwargs: dict[str, Any] = {"symbol_or_symbols": symbol}
+            if self._data_feed:
+                request_kwargs["feed"] = self._data_feed
+            request = StockLatestQuoteRequest(**request_kwargs)
+            quotes = self._client.get_stock_latest_quote(request)
+        except Exception as exc:  # pragma: no cover - provider errors
+            logger.warning(
+                "latest_quote_provider_error",
+                extra={"symbol": symbol, "error": type(exc).__name__},
+            )
+            raise MarketDataError(str(exc)) from exc
+
+        quote = quotes.get(symbol) if isinstance(quotes, dict) else None
+        if quote is None:
+            return None
+
+        bid_raw = getattr(quote, "bid_price", None) or getattr(quote, "bp", None)
+        ask_raw = getattr(quote, "ask_price", None) or getattr(quote, "ap", None)
+        bid_size_raw = getattr(quote, "bid_size", None) or getattr(quote, "bs", None)
+        ask_size_raw = getattr(quote, "ask_size", None) or getattr(quote, "as", None)
+        ts_raw = getattr(quote, "timestamp", None) or getattr(quote, "t", None)
+        timestamp = self._normalize_bar_timestamp(ts_raw)
+
+        try:
+            bid = float(bid_raw) if bid_raw is not None else None
+            ask = float(ask_raw) if ask_raw is not None else None
+            bid_size = int(bid_size_raw) if bid_size_raw is not None else None
+            ask_size = int(ask_size_raw) if ask_size_raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+        if bid is None and ask is None:
+            return None
+
+        return {
+            "symbol": symbol,
+            "bid_price": bid,
+            "ask_price": ask,
+            "bid_size": bid_size,
+            "ask_size": ask_size,
+            "timestamp": timestamp.isoformat() if timestamp is not None else None,
+        }
 
     def _get_adv_sync(self, symbol: str) -> ADVData | None:
         symbol = symbol.upper().strip()

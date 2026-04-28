@@ -11,7 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.market_data_service.api.dependencies import build_market_data_authenticator
 from apps.market_data_service.config import settings
-from apps.market_data_service.schemas import ADVResponse, BarPoint, BarsResponse
+from apps.market_data_service.schemas import (
+    ADVResponse,
+    BarPoint,
+    BarsResponse,
+    LatestQuoteResponse,
+)
 from libs.core.common.api_auth_dependency import APIAuthConfig, AuthContext, api_auth
 from libs.core.common.rate_limit_dependency import RateLimitConfig, rate_limit
 from libs.core.redis_client import RedisClient
@@ -275,3 +280,32 @@ async def get_historical_bars(
         timeframe=timeframe,
         bars=[BarPoint.model_validate(bar) for bar in bars],
     )
+
+
+@router.get("/api/v1/market-data/{symbol}/latest-quote", response_model=LatestQuoteResponse)
+async def get_latest_quote(
+    symbol: str,
+    _auth: AuthContext = Depends(market_data_auth),
+    _rl: int = Depends(market_data_rl),
+) -> LatestQuoteResponse:
+    """Get latest best bid/ask quote for a symbol."""
+    normalized_symbol = symbol.upper()
+    provider = _get_provider()
+    try:
+        quote = await provider.get_latest_quote(normalized_symbol)
+    except MarketDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Latest quote unavailable: {exc}",
+        ) from exc
+
+    if quote is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "symbol_not_found",
+                "detail": f"Latest quote data not available for {normalized_symbol}",
+            },
+        )
+
+    return LatestQuoteResponse.model_validate(quote)

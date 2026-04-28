@@ -226,13 +226,139 @@ class MarketContextComponent:
         if self._disposed:
             return
 
-        snapshot = await self._fetch_latest_bar_snapshot(symbol)
+        quote_snapshot, bar_snapshot = await self._fetch_initial_snapshots(symbol)
+        snapshot = self._merge_snapshots(symbol, quote_snapshot, bar_snapshot)
         if snapshot is not None and symbol == self._current_symbol:
             self._data = snapshot
             self._update_ui()
             return
 
         logger.debug(f"Waiting for price data for {symbol} via callback")
+
+    async def _fetch_initial_snapshots(
+        self, symbol: str
+    ) -> tuple[MarketDataSnapshot | None, MarketDataSnapshot | None]:
+        """Fetch real top-of-book and OHLCV seeds without blocking on one source."""
+        import asyncio
+
+        quote_result, bar_result = await asyncio.gather(
+            self._fetch_latest_quote_snapshot(symbol),
+            self._fetch_latest_bar_snapshot(symbol),
+            return_exceptions=True,
+        )
+        quote_snapshot = quote_result if isinstance(quote_result, MarketDataSnapshot) else None
+        bar_snapshot = bar_result if isinstance(bar_result, MarketDataSnapshot) else None
+        return quote_snapshot, bar_snapshot
+
+    @staticmethod
+    def _merge_snapshots(
+        symbol: str,
+        quote_snapshot: MarketDataSnapshot | None,
+        bar_snapshot: MarketDataSnapshot | None,
+    ) -> MarketDataSnapshot | None:
+        """Merge quote and bar seeds into a single Level 1 display snapshot."""
+        if quote_snapshot is None and bar_snapshot is None:
+            return None
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid_price=quote_snapshot.bid_price if quote_snapshot is not None else None,
+            ask_price=quote_snapshot.ask_price if quote_snapshot is not None else None,
+            bid_size=quote_snapshot.bid_size if quote_snapshot is not None else None,
+            ask_size=quote_snapshot.ask_size if quote_snapshot is not None else None,
+            last_price=(
+                bar_snapshot.last_price
+                if bar_snapshot is not None
+                else quote_snapshot.last_price
+                if quote_snapshot is not None
+                else None
+            ),
+            prev_close=bar_snapshot.prev_close if bar_snapshot is not None else None,
+            volume=bar_snapshot.volume if bar_snapshot is not None else None,
+            timestamp=(
+                quote_snapshot.timestamp
+                if quote_snapshot is not None and quote_snapshot.timestamp is not None
+                else bar_snapshot.timestamp
+                if bar_snapshot is not None
+                else None
+            ),
+        )
+
+    async def _fetch_latest_quote_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
+        """Use latest real quote to seed bid/ask/spread before live ticks arrive."""
+        fetch_latest_quote = getattr(self._client, "fetch_latest_quote", None)
+        if fetch_latest_quote is None or not self._user_id:
+            return None
+
+        request_kwargs: dict[str, Any] = {"symbol": symbol}
+        authenticated_kwargs: dict[str, Any] = {
+            **request_kwargs,
+            "user_id": self._user_id,
+            "role": self._role,
+            "strategies": self._strategies,
+        }
+        supports_auth_kwargs = self._call_supports_auth_kwargs(fetch_latest_quote)
+
+        try:
+            response = await fetch_latest_quote(
+                **(authenticated_kwargs if supports_auth_kwargs else request_kwargs)
+            )
+        except TypeError:
+            try:
+                response = await fetch_latest_quote(
+                    **(request_kwargs if supports_auth_kwargs else authenticated_kwargs)
+                )
+            except Exception as exc:
+                logger.debug("Initial market context quote fetch failed for %s: %s", symbol, exc)
+                return None
+        except Exception as exc:
+            logger.debug("Initial market context quote fetch failed for %s: %s", symbol, exc)
+            return None
+
+        if not isinstance(response, dict):
+            return None
+
+        try:
+            bid_raw = response.get("bid_price") or response.get("bid")
+            ask_raw = response.get("ask_price") or response.get("ask")
+            bid = Decimal(str(bid_raw)) if bid_raw is not None else None
+            ask = Decimal(str(ask_raw)) if ask_raw is not None else None
+            if bid is not None and (not bid.is_finite() or bid <= 0):
+                bid = None
+            if ask is not None and (not ask.is_finite() or ask <= 0):
+                ask = None
+            if bid is None and ask is None:
+                return None
+            bid_size_raw = response.get("bid_size")
+            ask_size_raw = response.get("ask_size")
+            timestamp_raw = response.get("timestamp")
+            timestamp = parse_iso_timestamp(str(timestamp_raw)) if timestamp_raw else None
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+
+        return MarketDataSnapshot(
+            symbol=symbol,
+            bid_price=bid,
+            ask_price=ask,
+            bid_size=int(bid_size_raw) if bid_size_raw is not None else None,
+            ask_size=int(ask_size_raw) if ask_size_raw is not None else None,
+            last_price=(bid + ask) / 2 if bid is not None and ask is not None else bid or ask,
+            timestamp=timestamp,
+        )
+
+    @staticmethod
+    def _call_supports_auth_kwargs(callable_obj: Any) -> bool:
+        """Detect whether a client method accepts web-console auth kwargs."""
+        try:
+            signature = inspect.signature(callable_obj)
+            parameters = signature.parameters
+            has_var_keyword = any(
+                param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+            )
+            return has_var_keyword or all(
+                key in parameters for key in ("user_id", "role", "strategies")
+            )
+        except (TypeError, ValueError):
+            return True
 
     async def _fetch_latest_bar_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
         """Use recent OHLCV bars to seed last/volume before live quote ticks arrive."""
@@ -251,18 +377,7 @@ class MarketContextComponent:
             "role": self._role,
             "strategies": self._strategies,
         }
-        supports_auth_kwargs = True
-        try:
-            signature = inspect.signature(fetch_historical_bars)
-            parameters = signature.parameters
-            has_var_keyword = any(
-                param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
-            )
-            supports_auth_kwargs = has_var_keyword or all(
-                key in parameters for key in ("user_id", "role", "strategies")
-            )
-        except (TypeError, ValueError):
-            supports_auth_kwargs = True
+        supports_auth_kwargs = self._call_supports_auth_kwargs(fetch_historical_bars)
 
         try:
             response = await fetch_historical_bars(

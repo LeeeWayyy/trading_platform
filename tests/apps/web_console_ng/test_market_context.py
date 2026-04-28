@@ -395,10 +395,20 @@ class TestMarketContextSymbolChange:
         assert component._current_symbol == "AAPL"
 
     @pytest.mark.asyncio()
-    async def test_symbol_change_seeds_last_and_volume_from_recent_bar(self) -> None:
-        """Recent bars populate last/volume while live bid/ask quote ticks warm up."""
+    async def test_symbol_change_seeds_l1_quote_and_recent_bar(self) -> None:
+        """Real quote and bars seed bid/ask/spread plus last/volume."""
         timestamp = datetime.now(UTC)
         client = MagicMock()
+        client.fetch_latest_quote = AsyncMock(
+            return_value={
+                "symbol": "AAPL",
+                "bid_price": 101.2,
+                "ask_price": 101.3,
+                "bid_size": 10,
+                "ask_size": 20,
+                "timestamp": timestamp.isoformat(),
+            }
+        )
         client.fetch_historical_bars = AsyncMock(
             return_value={
                 "bars": [
@@ -424,8 +434,18 @@ class TestMarketContextSymbolChange:
 
         assert component._data is not None
         assert component._data.symbol == "AAPL"
+        assert component._data.bid_price == Decimal("101.2")
+        assert component._data.ask_price == Decimal("101.3")
+        assert component._data.bid_size == 10
+        assert component._data.ask_size == 20
         assert component._data.last_price == Decimal("101.25")
         assert component._data.volume == 123456
+        client.fetch_latest_quote.assert_awaited_once_with(
+            symbol="AAPL",
+            user_id="user-1",
+            role="admin",
+            strategies=["alpha"],
+        )
         client.fetch_historical_bars.assert_awaited_once_with(
             symbol="AAPL",
             timeframe="5Min",

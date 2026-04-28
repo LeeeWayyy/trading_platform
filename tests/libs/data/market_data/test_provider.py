@@ -83,6 +83,50 @@ def test_get_bars_sync_requests_latest_window_with_desc_sort(monkeypatch: pytest
     assert bars[0]["timestamp"] == "2026-04-20T15:00:00+00:00"
 
 
+def test_get_latest_quote_sync_normalizes_top_of_book(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = MarketDataProvider.__new__(MarketDataProvider)
+    provider._data_feed = "iex"
+
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_latest_quote_request(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return kwargs
+
+    class FakeClient:
+        def get_stock_latest_quote(self, request: object) -> dict[str, SimpleNamespace]:
+            return {
+                "AAPL": SimpleNamespace(
+                    bp=180.1,
+                    ap=180.2,
+                    bs=100,
+                    **{"as": 200},
+                    timestamp="2026-04-20T15:00:00+00:00",
+                )
+            }
+
+    provider._client = FakeClient()
+    monkeypatch.setattr(
+        "libs.data.market_data.provider.StockLatestQuoteRequest",
+        fake_latest_quote_request,
+    )
+
+    quote = provider._get_latest_quote_sync("aapl")
+
+    assert captured_kwargs["symbol_or_symbols"] == "AAPL"
+    assert captured_kwargs["feed"] == "iex"
+    assert quote == {
+        "symbol": "AAPL",
+        "bid_price": 180.1,
+        "ask_price": 180.2,
+        "bid_size": 100,
+        "ask_size": 200,
+        "timestamp": "2026-04-20T15:00:00+00:00",
+    }
+
+
 def test_get_bars_sync_sorts_results_chronologically(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = MarketDataProvider.__new__(MarketDataProvider)
     provider._data_feed = None
