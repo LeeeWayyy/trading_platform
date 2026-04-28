@@ -578,6 +578,35 @@ class TestMarketContextSymbolChange:
         assert snapshot.timestamp == timestamp
 
     @pytest.mark.asyncio()
+    async def test_quote_seed_normalizes_naive_timestamp_to_utc(self) -> None:
+        """Naive quote timestamps should not break aware staleness calculations."""
+        client = MagicMock()
+        client.fetch_latest_quote = AsyncMock(
+            return_value={
+                "symbol": "AAPL",
+                "bid_price": 101.2,
+                "ask_price": 101.3,
+                "timestamp": "2026-04-20T15:00:00",
+            }
+        )
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+
+        snapshot = await component._fetch_latest_quote_snapshot("AAPL")
+
+        assert snapshot is not None
+        assert snapshot.timestamp == datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+
+    def test_bar_parse_normalizes_naive_timestamp_to_utc(self) -> None:
+        """Naive bar timestamps should be normalized before staleness math."""
+        close, timestamp = MarketContextComponent._parse_bar_price(
+            {"close": "101.25", "timestamp": "2026-04-20T15:00:00"},
+            "AAPL",
+        )
+
+        assert close == Decimal("101.25")
+        assert timestamp == datetime(2026, 4, 20, 15, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio()
     async def test_initial_seed_merges_without_overwriting_newer_live_tick(self) -> None:
         """Older API seed fills gaps without replacing fresher live callback fields."""
         old_timestamp = datetime.now(UTC) - timedelta(minutes=1)

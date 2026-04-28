@@ -357,7 +357,9 @@ class MarketContextComponent:
             bid_size_raw = response.get("bid_size")
             ask_size_raw = response.get("ask_size")
             timestamp_raw = response.get("timestamp")
-            timestamp = parse_iso_timestamp(str(timestamp_raw)) if timestamp_raw else None
+            timestamp = self._ensure_utc_timestamp(
+                parse_iso_timestamp(str(timestamp_raw)) if timestamp_raw else None
+            )
         except (InvalidOperation, ValueError, TypeError) as exc:
             logger.debug(
                 "market_context_quote_parse_failed",
@@ -380,6 +382,15 @@ class MarketContextComponent:
         """Return primary mapping value, preserving valid falsy numeric values."""
         value = data.get(primary_key)
         return value if value is not None else data.get(fallback_key)
+
+    @staticmethod
+    def _ensure_utc_timestamp(timestamp: datetime | None) -> datetime | None:
+        """Normalize parsed market-data timestamps to UTC-aware datetimes."""
+        if timestamp is None:
+            return None
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=UTC)
+        return timestamp.astimezone(UTC)
 
     async def _fetch_latest_bar_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
         """Use bars to seed last traded price and daily volume before live ticks arrive."""
@@ -474,7 +485,9 @@ class MarketContextComponent:
                 extra={"symbol": symbol},
             )
             return None, None
-        return close, parse_iso_timestamp(str(timestamp_raw))
+        return close, MarketContextComponent._ensure_utc_timestamp(
+            parse_iso_timestamp(str(timestamp_raw))
+        )
 
     # ================= Price Data Callbacks =================
 
@@ -543,7 +556,7 @@ class MarketContextComponent:
             if raw is None:
                 return None
             try:
-                return parse_iso_timestamp(str(raw))
+                return self._ensure_utc_timestamp(parse_iso_timestamp(str(raw)))
             except (ValueError, TypeError):
                 logger.warning(f"MarketContext: Invalid {key}: {raw!r}")
                 return None
