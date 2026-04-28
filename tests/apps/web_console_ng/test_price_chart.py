@@ -770,6 +770,23 @@ class TestPriceChartHistoricalBars:
         assert component._live_bucket_interval_seconds == 300
 
     @pytest.mark.asyncio()
+    async def test_fetch_candle_data_degrades_on_market_data_failure(self) -> None:
+        """Historical API failures should render no-data instead of aborting symbol loads."""
+        client = MagicMock()
+        client.fetch_historical_bars = AsyncMock(side_effect=RuntimeError("market data down"))
+        component = PriceChartComponent(
+            trading_client=client,
+            user_id="user-1",
+            role="trader",
+            strategies=["alpha"],
+        )
+
+        candles = await component._fetch_candle_data("AAPL")
+
+        assert candles == []
+        client.fetch_historical_bars.assert_awaited_once()
+
+    @pytest.mark.asyncio()
     async def test_fetch_candle_data_uses_selected_timeframe_for_live_bucketing(self) -> None:
         """Selected chart interval should drive historical request and realtime buckets."""
         client = MagicMock()

@@ -847,17 +847,30 @@ class PriceChartComponent:
             "timeframe": selected_timeframe,
             "limit": limit,
         }
-        response = await call_market_data_client(
-            fetch_historical_bars,
-            request_kwargs=request_kwargs,
-            user_id=self._user_id,
-            role=self._role,
-            strategies=self._strategies,
-            logger=logger,
-            operation="price_chart_historical_bars",
-            symbol=symbol,
-            extra={"timeframe": selected_timeframe, "limit": limit},
-        )
+        try:
+            response = await call_market_data_client(
+                fetch_historical_bars,
+                request_kwargs=request_kwargs,
+                user_id=self._user_id,
+                role=self._role,
+                strategies=self._strategies,
+                logger=logger,
+                operation="price_chart_historical_bars",
+                symbol=symbol,
+                extra={"timeframe": selected_timeframe, "limit": limit},
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug(
+                "historical_bars_fetch_failed",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": selected_timeframe,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return []
         if not isinstance(response, dict):
             return []
 

@@ -7,6 +7,7 @@ not pay a TypeError fallback cost on every refresh.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
@@ -92,6 +93,8 @@ async def call_market_data_client(
                 "market_data_client_call_failed",
                 extra={**context, "attempt_mode": mode, "error_type": type(exc).__name__},
             )
+            raise
+        except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.debug(
