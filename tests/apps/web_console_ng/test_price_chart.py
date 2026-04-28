@@ -649,6 +649,7 @@ class TestPriceChartSymbolChange:
     ) -> None:
         """Older timeframe reloads must not overwrite the currently selected interval."""
         component._selected_timeframe = "1Day"
+        component._live_bucket_interval_seconds = 86400
         candles = [CandleData(time=1, open=100, high=100, low=100, close=100, volume=1)]
         with (
             patch.object(component, "_ensure_chart_initialized", new_callable=AsyncMock),
@@ -660,6 +661,7 @@ class TestPriceChartSymbolChange:
             await component.on_symbol_changed("AAPL", expected_timeframe="5Min")
 
         assert component._candles == []
+        assert component._live_bucket_interval_seconds == 86400
         mock_hide.assert_not_called()
         mock_update.assert_not_called()
 

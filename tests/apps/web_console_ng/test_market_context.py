@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -156,7 +156,7 @@ class TestMarketContextPriceData:
                 "symbol": "AAPL",
                 "bid": "100.00",
                 "ask": "100.10",
-                "price": "100.05",
+                "last_price": "100.05",
                 "bid_size": 100,
                 "ask_size": 200,
             }
@@ -298,6 +298,32 @@ class TestMarketContextPriceData:
 
         assert component._data is not None
         assert component._data.volume == 123456
+        assert component._data.last_price == Decimal("100.00")
+
+    def test_quote_payload_mid_price_does_not_overwrite_last_trade(
+        self, component: MarketContextComponent
+    ) -> None:
+        """Quote mid-price payloads must not overwrite Last trade display."""
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            last_price=Decimal("100.00"),
+            volume=123456,
+        )
+
+        component.set_price_data(
+            {
+                "symbol": "AAPL",
+                "bid": "100.00",
+                "ask": "100.10",
+                "price": "100.05",
+            }
+        )
+
+        assert component._data is not None
+        assert component._data.last_price == Decimal("100.00")
+        assert component._data.bid_price == Decimal("100.00")
+        assert component._data.ask_price == Decimal("100.10")
 
 
 class TestMarketContextStaleness:
@@ -550,6 +576,42 @@ class TestMarketContextSymbolChange:
         assert snapshot.last_price == Decimal("101.25")
         assert snapshot.volume == 987654
         assert snapshot.timestamp == timestamp
+
+    @pytest.mark.asyncio()
+    async def test_initial_seed_does_not_overwrite_newer_live_tick(self) -> None:
+        """Older API seed snapshots must not replace fresher live callback data."""
+        old_timestamp = datetime.now(UTC) - timedelta(minutes=1)
+        new_timestamp = datetime.now(UTC)
+        client = MagicMock()
+        component = MarketContextComponent(trading_client=client, user_id="user-1")
+        component._current_symbol = "AAPL"
+        component._data = MarketDataSnapshot(
+            symbol="AAPL",
+            last_price=Decimal("102.00"),
+            timestamp=new_timestamp,
+        )
+
+        with (
+            patch.object(
+                component,
+                "_fetch_initial_snapshots",
+                return_value=(
+                    None,
+                    MarketDataSnapshot(
+                        symbol="AAPL",
+                        last_price=Decimal("101.00"),
+                        timestamp=old_timestamp,
+                    ),
+                ),
+            ),
+            patch.object(component, "_update_ui") as mock_update_ui,
+        ):
+            await component._fetch_initial_data("AAPL")
+
+        assert component._data is not None
+        assert component._data.last_price == Decimal("102.00")
+        assert component._data.timestamp == new_timestamp
+        mock_update_ui.assert_not_called()
 
 
 class TestMarketContextDispose:

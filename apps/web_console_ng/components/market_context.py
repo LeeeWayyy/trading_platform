@@ -230,11 +230,24 @@ class MarketContextComponent:
         quote_snapshot, bar_snapshot = await self._fetch_initial_snapshots(symbol)
         snapshot = self._merge_snapshots(symbol, quote_snapshot, bar_snapshot)
         if snapshot is not None and symbol == self._current_symbol:
+            if self._should_keep_existing_snapshot(symbol, snapshot):
+                return
             self._data = snapshot
             self._update_ui()
             return
 
         logger.debug(f"Waiting for price data for {symbol} via callback")
+
+    def _should_keep_existing_snapshot(self, symbol: str, candidate: MarketDataSnapshot) -> bool:
+        """Avoid overwriting a newer live tick with an older initial API seed."""
+        existing = self._data
+        if existing is None or existing.symbol != symbol:
+            return False
+        if existing.timestamp is not None and candidate.timestamp is None:
+            return True
+        if existing.timestamp is not None and candidate.timestamp is not None:
+            return existing.timestamp >= candidate.timestamp
+        return False
 
     async def _fetch_initial_snapshots(
         self, symbol: str
@@ -345,10 +358,29 @@ class MarketContextComponent:
 
     async def _fetch_latest_bar_snapshot(self, symbol: str) -> MarketDataSnapshot | None:
         """Use bars to seed last traded price and daily volume before live ticks arrive."""
-        intraday_response, daily_response = await asyncio.gather(
+        intraday_result: Any
+        daily_result: Any
+        intraday_result, daily_result = await asyncio.gather(
             self._fetch_latest_bar_response(symbol, "5Min"),
             self._fetch_latest_bar_response(symbol, "1Day"),
+            return_exceptions=True,
         )
+        if isinstance(intraday_result, Exception):
+            logger.debug(
+                "market_context_intraday_bar_seed_failed",
+                extra={"symbol": symbol, "error_type": type(intraday_result).__name__},
+            )
+            intraday_response = None
+        else:
+            intraday_response = intraday_result
+        if isinstance(daily_result, Exception):
+            logger.debug(
+                "market_context_daily_bar_seed_failed",
+                extra={"symbol": symbol, "error_type": type(daily_result).__name__},
+            )
+            daily_response = None
+        else:
+            daily_response = daily_result
         intraday_bar = self._latest_bar_from_response(intraday_response)
         daily_bar = self._latest_bar_from_response(daily_response)
         if intraday_bar is None and daily_bar is None:
@@ -502,7 +534,10 @@ class MarketContextComponent:
         ask_price = first_decimal("ask", "ask_price")
         bid_size = safe_int("bid_size")
         ask_size = safe_int("ask_size")
-        last_price = first_decimal("price", "last_price")
+        has_quote_fields = any(
+            data.get(key) is not None for key in ("bid", "bid_price", "ask", "ask_price")
+        )
+        last_price = safe_decimal("last_price") if has_quote_fields else first_decimal("price", "last_price")
         prev_close = safe_decimal("prev_close")
         parsed_volume = safe_int("volume")
         timestamp = safe_timestamp("timestamp")

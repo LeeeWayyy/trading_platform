@@ -394,10 +394,6 @@ class PriceChartComponent:
         """
         self._current_symbol = symbol
         requested_timeframe = expected_timeframe or self._selected_timeframe
-        self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
-            requested_timeframe.strip().lower(),
-            self.CANDLE_INTERVAL_SECONDS,
-        )
         self._update_header_labels()
 
         # CRITICAL: Reset realtime update timestamp for staleness tracking
@@ -417,17 +413,33 @@ class PriceChartComponent:
             logger.warning(f"Failed to ensure chart initialized: {exc}")
 
         # Fetch historical data
-        candles = await self._fetch_candle_data(symbol, timeframe=requested_timeframe)
+        candles = await self._fetch_candle_data(
+            symbol,
+            timeframe=requested_timeframe,
+            apply_interval=False,
+        )
 
         # RACE CHECK: Ensure symbol hasn't changed during candle fetch
         if self._is_request_stale(symbol, requested_timeframe, reload_generation):
             return  # Stale - symbol changed during fetch
 
-        self._candles = candles
-        if candles:
+        live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
+            requested_timeframe.strip().lower(),
+            self.CANDLE_INTERVAL_SECONDS,
+        )
+        async with self._get_price_update_lock():
+            if self._is_request_stale(symbol, requested_timeframe, reload_generation):
+                return
+            self._live_bucket_interval_seconds = live_bucket_interval_seconds
+            self._candles = candles
+        has_candles = bool(candles)
+        if has_candles:
             await self._hide_no_data_overlay()
         else:
-            self._markers = []
+            async with self._get_price_update_lock():
+                if self._is_request_stale(symbol, requested_timeframe, reload_generation):
+                    return
+                self._markers = []
             await self._clear_chart_series()
             await self._show_no_data_overlay(symbol)
 
@@ -438,7 +450,10 @@ class PriceChartComponent:
         if self._is_request_stale(symbol, requested_timeframe, reload_generation):
             return  # Stale - symbol changed during fetch
 
-        self._markers = markers
+        async with self._get_price_update_lock():
+            if self._is_request_stale(symbol, requested_timeframe, reload_generation):
+                return
+            self._markers = markers
 
         # Update chart (only if symbol still current)
         await self._update_chart_data()
@@ -811,14 +826,11 @@ class PriceChartComponent:
         symbol: str,
         *,
         timeframe: str | None = None,
+        apply_interval: bool = True,
     ) -> list[CandleData]:
         """Fetch historical candle data for the selected symbol."""
         if self._disposed:
             return []
-        self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
-            (timeframe or self._selected_timeframe).strip().lower(),
-            self.CANDLE_INTERVAL_SECONDS,
-        )
 
         fetch_historical_bars = getattr(self._client, "fetch_historical_bars", None)
         if fetch_historical_bars is None:
@@ -851,10 +863,11 @@ class PriceChartComponent:
 
         candles = self._parse_historical_bars(response.get("bars", []))
         if candles:
-            self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
-                selected_timeframe.strip().lower(),
-                self.CANDLE_INTERVAL_SECONDS,
-            )
+            if apply_interval:
+                self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
+                    selected_timeframe.strip().lower(),
+                    self.CANDLE_INTERVAL_SECONDS,
+                )
             return candles
 
         logger.debug(
