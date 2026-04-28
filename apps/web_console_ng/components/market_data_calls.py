@@ -68,7 +68,11 @@ async def call_market_data_client(
         (preferred_mode, "legacy" if preferred_mode == "auth" else "auth")
     )
 
-    context: dict[str, Any] = {"operation": operation, "symbol": symbol}
+    context: dict[str, Any] = {
+        "operation": operation,
+        "symbol": symbol,
+        "strategy_id": ",".join(str(strategy) for strategy in strategies) if strategies else None,
+    }
     if extra:
         context.update(extra)
 
@@ -88,12 +92,16 @@ async def call_market_data_client(
                 "market_data_client_call_failed",
                 extra={**context, "attempt_mode": mode, "error_type": type(exc).__name__},
             )
-            return None
+            if index == 0:
+                continue
+            raise
         except Exception as exc:
             logger.debug(
                 "market_data_client_call_failed",
                 extra={**context, "attempt_mode": mode, "error_type": type(exc).__name__},
             )
-            return None
+            if index == 0:
+                continue
+            raise
 
     return None

@@ -864,10 +864,12 @@ class PriceChartComponent:
         candles = self._parse_historical_bars(response.get("bars", []))
         if candles:
             if apply_interval:
-                self._live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
+                live_bucket_interval_seconds = self.HISTORICAL_TIMEFRAME_SECONDS.get(
                     selected_timeframe.strip().lower(),
                     self.CANDLE_INTERVAL_SECONDS,
                 )
+                async with self._get_price_update_lock():
+                    self._live_bucket_interval_seconds = live_bucket_interval_seconds
             return candles
 
         logger.debug(
