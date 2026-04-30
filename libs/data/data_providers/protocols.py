@@ -1,7 +1,7 @@
 """Data Provider Protocol and Adapters.
 
 This module defines the common DataProvider protocol interface and adapter
-implementations for yfinance, CRSP, and Alpaca SIP providers.
+implementations for yfinance, CRSP, Alpaca SIP, and hybrid providers.
 
 The protocol enables seamless switching between data sources (yfinance for
 development, CRSP for production) via configuration.
@@ -10,6 +10,7 @@ Classes:
     DataProvider: Protocol defining the common interface for all data providers.
     YFinanceDataProviderAdapter: Adapter for YFinanceProvider.
     AlpacaSIPDataProviderAdapter: Adapter for AlpacaSIPLocalProvider.
+    HybridDataProviderAdapter: CRSP universe + Alpaca SIP prices adapter.
     CRSPDataProviderAdapter: Adapter for CRSPLocalProvider.
 
 Exceptions:
@@ -491,6 +492,61 @@ class AlpacaSIPDataProviderAdapter:
             provider_name="alpaca_sip",
             operation="get_universe",
         )
+
+
+class HybridDataProviderAdapter:
+    """Hybrid adapter: CRSP universe with Alpaca SIP price history.
+
+    This adapter is intentionally explicit-only. It provides point-in-time
+    universe construction from CRSP while routing price queries to local Alpaca
+    SIP bars for execution-feed parity. It does not attempt PERMNO-to-ticker
+    reconciliation or pre-SIP fallback.
+    """
+
+    SIP_START_DATE = date(2016, 1, 1)
+
+    def __init__(self, universe_provider: DataProvider, price_provider: DataProvider) -> None:
+        """Initialize with separate universe and price providers."""
+        if not universe_provider.supports_universe:
+            raise ValueError("Hybrid universe_provider must support universe queries")
+        self._universe_provider = universe_provider
+        self._price_provider = price_provider
+
+    @property
+    def name(self) -> str:
+        """Provider identifier."""
+        return "hybrid_crsp_universe_sip_prices"
+
+    @property
+    def is_production_ready(self) -> bool:
+        """Hybrid remains research-only until strategy harnesses are migrated."""
+        return False
+
+    @property
+    def supports_universe(self) -> bool:
+        """Universe queries are served by CRSP."""
+        return True
+
+    def get_daily_prices(
+        self,
+        symbols: list[str],
+        start_date: date,
+        end_date: date,
+    ) -> pl.DataFrame:
+        """Fetch price data from Alpaca SIP, with explicit pre-SIP rejection."""
+        if start_date < self.SIP_START_DATE:
+            raise ProviderNotSupportedError(
+                "Hybrid provider cannot serve dates before Alpaca SIP coverage "
+                f"({self.SIP_START_DATE.isoformat()}). Use CRSP provider for long-history "
+                "research.",
+                provider_name=self.name,
+                operation="get_daily_prices",
+            )
+        return self._price_provider.get_daily_prices(symbols, start_date, end_date)
+
+    def get_universe(self, as_of_date: date) -> list[str]:
+        """Get the point-in-time universe from CRSP."""
+        return self._universe_provider.get_universe(as_of_date)
 
 
 class CRSPDataProviderAdapter:

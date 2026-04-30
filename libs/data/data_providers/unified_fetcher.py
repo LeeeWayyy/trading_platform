@@ -2,7 +2,7 @@
 
 This module provides a unified interface for fetching market data from
 different providers (yfinance for development, CRSP for production, Alpaca SIP
-for explicit execution-feed-parity research).
+for explicit execution-feed-parity research, and hybrid CRSP/SIP research).
 
 Classes:
     ProviderType: Enum of available provider types.
@@ -43,6 +43,7 @@ from libs.data.data_providers.protocols import (
     ConfigurationError,
     CRSPDataProviderAdapter,
     DataProvider,
+    HybridDataProviderAdapter,
     ProductionProviderRequiredError,
     ProviderNotSupportedError,
     ProviderUnavailableError,
@@ -64,12 +65,14 @@ class ProviderType(str, Enum):
         YFINANCE: Free data for development (NOT for production).
         CRSP: Production-ready academic data from WRDS.
         ALPACA_SIP: Local Alpaca SIP bars for explicit research/backtests.
+        HYBRID_CRSP_UNIVERSE_SIP_PRICES: CRSP universe + Alpaca SIP prices.
         AUTO: Automatically select based on environment and availability.
     """
 
     YFINANCE = "yfinance"
     CRSP = "crsp"
     ALPACA_SIP = "alpaca_sip"
+    HYBRID_CRSP_UNIVERSE_SIP_PRICES = "hybrid_crsp_universe_sip_prices"
     AUTO = "auto"
 
 
@@ -82,7 +85,7 @@ class FetcherConfig:
     """Configuration for UnifiedDataFetcher.
 
     Attributes:
-        provider: Which provider to use (AUTO, YFINANCE, or CRSP).
+        provider: Which provider to use.
         environment: Current environment (development, test, staging, production).
         yfinance_storage_path: Path to yfinance cache directory.
         crsp_storage_path: Path to CRSP data directory.
@@ -92,7 +95,8 @@ class FetcherConfig:
             CRITICAL: Forced to False in production environment.
 
     Environment Variables:
-        DATA_PROVIDER: auto|yfinance|crsp|alpaca_sip (default: auto)
+        DATA_PROVIDER: auto|yfinance|crsp|alpaca_sip|hybrid_crsp_universe_sip_prices
+            (default: auto)
         ENVIRONMENT: development|test|staging|production (default: development)
         YFINANCE_STORAGE_PATH: Path to yfinance cache
         CRSP_STORAGE_PATH: Path to CRSP data
@@ -167,7 +171,8 @@ class FetcherConfig:
         """Load config from environment variables.
 
         Environment Variables:
-            DATA_PROVIDER: auto|yfinance|crsp|alpaca_sip (default: auto)
+            DATA_PROVIDER: auto|yfinance|crsp|alpaca_sip|hybrid_crsp_universe_sip_prices
+                (default: auto)
             ENVIRONMENT: development|test|staging|production (default: development)
             YFINANCE_STORAGE_PATH: Path to yfinance cache
             CRSP_STORAGE_PATH: Path to CRSP data
@@ -239,7 +244,7 @@ class UnifiedDataFetcher:
        - Production: CRSP required, NO fallback, error if unavailable
        - Development/Test: CRSP preferred, fallback to yfinance if enabled
 
-    2. Explicit mode (YFINANCE, CRSP, or ALPACA_SIP):
+    2. Explicit mode (YFINANCE, CRSP, ALPACA_SIP, or HYBRID):
        - Use specified provider
        - Error if unavailable (no fallback)
 
@@ -293,6 +298,13 @@ class UnifiedDataFetcher:
         if alpaca_sip_provider is not None:
             self._adapters[ProviderType.ALPACA_SIP] = AlpacaSIPDataProviderAdapter(
                 alpaca_sip_provider
+            )
+        if ProviderType.CRSP in self._adapters and ProviderType.ALPACA_SIP in self._adapters:
+            self._adapters[ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES] = (
+                HybridDataProviderAdapter(
+                    universe_provider=self._adapters[ProviderType.CRSP],
+                    price_provider=self._adapters[ProviderType.ALPACA_SIP],
+                )
             )
 
         logger.info(
@@ -358,7 +370,8 @@ class UnifiedDataFetcher:
             return crsp
 
         # Development/Test: prefer CRSP, then yfinance fallback if enabled.
-        # Alpaca SIP is explicit-only because it is ticker-based and non-PIT.
+        # Alpaca SIP and hybrid are explicit-only because they are research-only
+        # execution-feed parity modes, not safe automatic fallbacks.
         if ProviderType.CRSP in self._adapters:
             return self._adapters[ProviderType.CRSP]
 

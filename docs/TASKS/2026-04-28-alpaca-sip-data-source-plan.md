@@ -2,7 +2,7 @@
 
 Date: 2026-04-28
 Owner: Codex
-Status: IN PROGRESS (Phase 2 daily-bar sync foundation)
+Status: IN PROGRESS (Phase 3 provider-layer hybrid foundation)
 
 ## 2026-04-29 Tuning Notes
 
@@ -39,6 +39,11 @@ constraints made explicit before implementation:
   expose a corporate-actions request/client method in the installed SDK, so this
   should be implemented only after choosing either a direct REST wrapper or an
   SDK upgrade.
+- Phase 3 provider-layer hybrid foundation is implemented:
+  `HybridDataProviderAdapter` routes CRSP universe queries and Alpaca SIP price
+  queries, remains explicit-only/research-only, and rejects pre-SIP history
+  without silent fallback. Backtest UI/worker wiring remains deferred until a
+  strategy harness consumes provider `get_universe()` output.
 
 ## Scope
 
@@ -243,8 +248,9 @@ not the goal, so delisted coverage is not the gate.
 
 ### Phase 3 — Hybrid provider (3–5 days)
 
-- `HybridDataProviderAdapter` per D3.
-- `ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES`.
+- `HybridDataProviderAdapter` per D3. **Provider-layer foundation implemented.**
+- `ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES`. **Implemented in
+  `UnifiedDataFetcher`; not exposed in backtest job/UI yet.**
 - Dedicated tests covering: universe queries route to CRSP, price queries
   route to SIP, schema unification, delisted-symbol behavior (price gap when
   SIP lacks the ticker — explicit error or empty rows, not silent fill).

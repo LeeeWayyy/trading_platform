@@ -255,6 +255,17 @@ class TestFetcherConfigFromEnv:
 
         assert config.provider == ProviderType.ALPACA_SIP
 
+    def test_from_env_hybrid_provider(self) -> None:
+        """Config parses explicit hybrid provider."""
+        with patch.dict(
+            os.environ,
+            {"DATA_PROVIDER": "hybrid_crsp_universe_sip_prices"},
+            clear=True,
+        ):
+            config = FetcherConfig.from_env()
+
+        assert config.provider == ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+
     def test_from_env_invalid_provider_defaults_to_auto(self) -> None:
         """Invalid DATA_PROVIDER defaults to AUTO with warning."""
         with patch.dict(os.environ, {"DATA_PROVIDER": "invalid"}, clear=True):
@@ -480,6 +491,24 @@ class TestProviderSelectionExplicit:
         provider = fetcher.get_active_provider()
         assert provider == "alpaca_sip"
 
+    def test_explicit_hybrid_provider(
+        self,
+        mock_crsp_provider: MagicMock,
+        mock_alpaca_sip_provider: MagicMock,
+    ) -> None:
+        """Explicit HYBRID selection uses CRSP universe + Alpaca SIP prices."""
+        config = FetcherConfig(
+            provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            environment="development",
+        )
+        fetcher = UnifiedDataFetcher(
+            config=config,
+            crsp_provider=mock_crsp_provider,
+            alpaca_sip_provider=mock_alpaca_sip_provider,
+        )
+
+        assert fetcher.get_active_provider() == "hybrid_crsp_universe_sip_prices"
+
     def test_explicit_provider_unavailable_error(
         self,
         mock_yfinance_provider: MagicMock,
@@ -565,6 +594,27 @@ class TestProviderSelectionExplicit:
             fetcher.get_active_provider()
 
         assert "alpaca_sip" in str(exc_info.value)
+
+    def test_explicit_hybrid_in_production_raises(
+        self,
+        mock_crsp_provider: MagicMock,
+        mock_alpaca_sip_provider: MagicMock,
+    ) -> None:
+        """Explicit hybrid provider remains blocked in production."""
+        config = FetcherConfig(
+            provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            environment="production",
+        )
+        fetcher = UnifiedDataFetcher(
+            config=config,
+            crsp_provider=mock_crsp_provider,
+            alpaca_sip_provider=mock_alpaca_sip_provider,
+        )
+
+        with pytest.raises(ProductionProviderRequiredError) as exc_info:
+            fetcher.get_active_provider()
+
+        assert "hybrid_crsp_universe_sip_prices" in str(exc_info.value)
 
 
 class TestFallbackBehavior:
@@ -695,6 +745,25 @@ class TestUniverseOperations:
         with pytest.raises(ProviderNotSupportedError):
             fetcher.get_universe(date(2024, 1, 15))
 
+    def test_explicit_hybrid_universe_routes_to_crsp(
+        self,
+        mock_crsp_provider: MagicMock,
+        mock_alpaca_sip_provider: MagicMock,
+    ) -> None:
+        """Hybrid universe queries route to CRSP."""
+        config = FetcherConfig(
+            provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            environment="development",
+        )
+        fetcher = UnifiedDataFetcher(
+            config=config,
+            crsp_provider=mock_crsp_provider,
+            alpaca_sip_provider=mock_alpaca_sip_provider,
+        )
+
+        assert fetcher.get_universe(date(2024, 1, 15)) == ["AAPL", "MSFT", "GOOGL"]
+        mock_crsp_provider.get_universe.assert_called_once()
+
 
 # =============================================================================
 # Data Fetching Tests
@@ -764,6 +833,50 @@ class TestGetDailyPrices:
         assert list(df.columns) == UNIFIED_COLUMNS
         assert df["symbol"].to_list() == ["AAPL", "AAPL"]
 
+    def test_get_daily_prices_explicit_hybrid_routes_to_alpaca_sip(
+        self,
+        mock_crsp_provider: MagicMock,
+        mock_alpaca_sip_provider: MagicMock,
+    ) -> None:
+        """Hybrid price queries route to Alpaca SIP, not CRSP."""
+        config = FetcherConfig(
+            provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            environment="development",
+        )
+        fetcher = UnifiedDataFetcher(
+            config=config,
+            crsp_provider=mock_crsp_provider,
+            alpaca_sip_provider=mock_alpaca_sip_provider,
+        )
+
+        df = fetcher.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
+
+        assert not df.is_empty()
+        assert list(df.columns) == UNIFIED_COLUMNS
+        mock_alpaca_sip_provider.get_daily_prices.assert_called_once()
+        mock_crsp_provider.get_daily_prices.assert_not_called()
+
+    def test_get_daily_prices_explicit_hybrid_rejects_pre_sip_history(
+        self,
+        mock_crsp_provider: MagicMock,
+        mock_alpaca_sip_provider: MagicMock,
+    ) -> None:
+        """Hybrid provider fails explicitly before Alpaca SIP coverage."""
+        config = FetcherConfig(
+            provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            environment="development",
+        )
+        fetcher = UnifiedDataFetcher(
+            config=config,
+            crsp_provider=mock_crsp_provider,
+            alpaca_sip_provider=mock_alpaca_sip_provider,
+        )
+
+        with pytest.raises(ProviderNotSupportedError, match="before Alpaca SIP coverage"):
+            fetcher.get_daily_prices(["AAPL"], date(2015, 12, 31), date(2016, 1, 5))
+
+        mock_alpaca_sip_provider.get_daily_prices.assert_not_called()
+
 
 # =============================================================================
 # Provider Availability Tests
@@ -791,6 +904,7 @@ class TestIsAvailable:
         assert fetcher.is_available(ProviderType.YFINANCE) is True
         assert fetcher.is_available(ProviderType.CRSP) is True
         assert fetcher.is_available(ProviderType.ALPACA_SIP) is True
+        assert fetcher.is_available(ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES) is True
 
     def test_is_available_returns_false_for_unconfigured(
         self,
@@ -807,6 +921,7 @@ class TestIsAvailable:
         assert fetcher.is_available(ProviderType.YFINANCE) is True
         assert fetcher.is_available(ProviderType.CRSP) is False
         assert fetcher.is_available(ProviderType.ALPACA_SIP) is False
+        assert fetcher.is_available(ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES) is False
 
 
 # =============================================================================
@@ -873,6 +988,9 @@ class TestProviderTypeEnum:
         assert ProviderType.YFINANCE.value == "yfinance"
         assert ProviderType.CRSP.value == "crsp"
         assert ProviderType.ALPACA_SIP.value == "alpaca_sip"
+        assert (
+            ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES.value == "hybrid_crsp_universe_sip_prices"
+        )
         assert ProviderType.AUTO.value == "auto"
 
     def test_provider_type_from_string(self) -> None:
@@ -880,4 +998,8 @@ class TestProviderTypeEnum:
         assert ProviderType("yfinance") == ProviderType.YFINANCE
         assert ProviderType("crsp") == ProviderType.CRSP
         assert ProviderType("alpaca_sip") == ProviderType.ALPACA_SIP
+        assert (
+            ProviderType("hybrid_crsp_universe_sip_prices")
+            == ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
         assert ProviderType("auto") == ProviderType.AUTO

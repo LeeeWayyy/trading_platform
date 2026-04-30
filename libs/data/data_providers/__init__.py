@@ -10,6 +10,7 @@ This module provides:
 - FamaFrenchLocalProvider: Read-only Fama-French factor data access
 - YFinanceProvider: Free market data for development (NOT for production)
 - AlpacaSIPLocalProvider: Local Alpaca SIP daily bars for explicit research
+- HybridDataProviderAdapter: CRSP universe + Alpaca SIP prices for explicit research
 - UnifiedDataFetcher: Unified interface for data access with provider switching
 - DataProvider: Protocol for data provider implementations
 """
@@ -61,6 +62,7 @@ from libs.data.data_providers.protocols import (
     CRSPDataProviderAdapter,
     DataProvider,
     DataProviderError,
+    HybridDataProviderAdapter,
     ProductionProviderRequiredError,
     ProviderNotSupportedError,
     ProviderUnavailableError,
@@ -178,6 +180,7 @@ __all__ = [
     "ProductionProviderRequiredError",
     "ConfigurationError",
     "AlpacaSIPDataProviderAdapter",
+    "HybridDataProviderAdapter",
     "CRSPDataProviderAdapter",
     "YFinanceDataProviderAdapter",
     "UNIFIED_COLUMNS",
