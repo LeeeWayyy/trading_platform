@@ -82,6 +82,7 @@ class HealthResponse(BaseModel):
     subscribed_symbols: int
     reconnect_attempts: int
     max_reconnect_attempts: int
+    data_feed: str
 
 
 SOURCE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
@@ -198,6 +199,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             price_ttl=settings.price_cache_ttl,
             messages_received_counter=websocket_messages_received_total,
             reconnect_attempts_counter=reconnect_attempts_total,
+            data_feed=settings.alpaca_data_feed,
         )
 
         # Start WebSocket in background task
@@ -376,18 +378,24 @@ async def health_check() -> HealthResponse:
         )
 
     stats = stream.get_connection_stats()
+    is_connected = bool(stats["is_connected"])
+    subscribed_symbols = int(stats["subscribed_symbols"])
+    reconnect_attempts = int(stats["reconnect_attempts"])
+    max_reconnect_attempts = int(stats["max_reconnect_attempts"])
+    data_feed = str(stats["data_feed"])
 
     # Update health metrics
-    websocket_connection_status.set(1 if stats["is_connected"] else 0)
-    subscribed_symbols_current.set(stats["subscribed_symbols"])
+    websocket_connection_status.set(1 if is_connected else 0)
+    subscribed_symbols_current.set(subscribed_symbols)
 
     return HealthResponse(
-        status="healthy" if stats["is_connected"] else "degraded",
+        status="healthy" if is_connected else "degraded",
         service=settings.service_name,
-        websocket_connected=bool(stats["is_connected"]),
-        subscribed_symbols=stats["subscribed_symbols"],
-        reconnect_attempts=stats["reconnect_attempts"],
-        max_reconnect_attempts=stats["max_reconnect_attempts"],
+        websocket_connected=is_connected,
+        subscribed_symbols=subscribed_symbols,
+        reconnect_attempts=reconnect_attempts,
+        max_reconnect_attempts=max_reconnect_attempts,
+        data_feed=data_feed,
     )
 
 

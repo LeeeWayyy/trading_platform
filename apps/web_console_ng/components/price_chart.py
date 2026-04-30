@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
@@ -95,14 +96,14 @@ class PriceChartComponent:
     DEFAULT_TIMEFRAME = "1D"  # 1 day of data
     CANDLE_INTERVAL = "5m"  # 5-minute candles
     CANDLE_INTERVAL_SECONDS = _parse_interval_seconds(CANDLE_INTERVAL)
-    MAX_CHART_CANDLES = 500
-    CHART_TRIM_HIGH_WATER_MARK = 600
+    MAX_CHART_CANDLES = 10_000
+    CHART_TRIM_HIGH_WATER_MARK = 10_500
     TIMEFRAME_OPTIONS: dict[str, tuple[str, int, str]] = {
-        "1Min": ("1m", 390, "1-minute bars"),
-        "5Min": ("5m", 240, "5-minute bars"),
-        "15Min": ("15m", 240, "15-minute bars"),
-        "1Hour": ("1h", 200, "1-hour bars"),
-        "1Day": ("1d", 120, "Daily bars"),
+        "1Min": ("1m", 10_000, "1-minute bars"),
+        "5Min": ("5m", 10_000, "5-minute bars"),
+        "15Min": ("15m", 10_000, "15-minute bars"),
+        "1Hour": ("1h", 5_000, "1-hour bars"),
+        "1Day": ("1d", 3_000, "Daily bars"),
     }
     DEFAULT_HISTORICAL_TIMEFRAME = "5Min"
     HISTORICAL_TIMEFRAME_SECONDS: dict[str, int] = {
@@ -224,9 +225,7 @@ class PriceChartComponent:
         self._fill_parent = fill_parent
         height_style = "100%" if fill_parent else f"{height}px"
 
-        with ui.element("div").classes(
-            "workspace-v2-chart-shell w-full h-full"
-        ) as shell:
+        with ui.element("div").classes("workspace-v2-chart-shell w-full h-full") as shell:
             with ui.row().classes("workspace-v2-chart-header w-full items-center justify-between"):
                 with ui.column().classes("gap-0"):
                     self._title_label = ui.label(self._chart_title_text()).classes(
@@ -259,7 +258,8 @@ class PriceChartComponent:
 
     def _chart_subtitle_text(self) -> str:
         _, _, description = self.TIMEFRAME_OPTIONS[self._selected_timeframe]
-        return f"Alpaca · {description}"
+        feed = os.getenv("ALPACA_DATA_FEED", "iex").strip().upper() or "IEX"
+        return f"Alpaca {feed} · {description}"
 
     def _update_header_labels(self) -> None:
         if self._title_label is not None:
@@ -837,7 +837,9 @@ class PriceChartComponent:
             logger.debug("historical_bars_client_api_unavailable", extra={"symbol": symbol})
             return []
         if not self._user_id:
-            logger.debug("historical_bars_fetch_skipped", extra={"symbol": symbol, "reason": "missing_user"})
+            logger.debug(
+                "historical_bars_fetch_skipped", extra={"symbol": symbol, "reason": "missing_user"}
+            )
             return []
 
         selected_timeframe = timeframe or self._selected_timeframe

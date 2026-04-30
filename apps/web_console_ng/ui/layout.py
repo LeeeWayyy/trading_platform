@@ -62,9 +62,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         ui.add_head_html('<link rel="stylesheet" href="/static/css/custom.css">')
 
         raw_degrade_threshold = os.environ.get("GRID_DEGRADE_THRESHOLD", "120")
-        degrade_threshold = (
-            raw_degrade_threshold if raw_degrade_threshold.isdigit() else "120"
-        )
+        degrade_threshold = raw_degrade_threshold if raw_degrade_threshold.isdigit() else "120"
         debug_mode = os.environ.get("GRID_DEBUG", "false").lower() == "true"
         ui.add_body_html(
             "<script>"
@@ -152,6 +150,66 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         client = AsyncTradingClient.get()
 
+        def normalize_kill_switch_display_state(raw_state: Any) -> str | None:
+            if not isinstance(raw_state, str):
+                return None
+            normalized = raw_state.strip().upper()
+            if not normalized:
+                return None
+            if normalized == "ACTIVE":
+                return "DISENGAGED"
+            return normalized
+
+        def normalize_circuit_display_state(raw_state: Any) -> str | None:
+            if not isinstance(raw_state, str):
+                return None
+            normalized = raw_state.strip().upper()
+            if normalized == "QUIET_PERIOD":
+                return "OPEN"
+            return normalized or None
+
+        async def fetch_initial_global_safety_state() -> tuple[str | None, str | None]:
+            """Fetch safety state before first paint so cached stale badges do not stick."""
+            kill_state: str | None = None
+            circuit_state: str | None = None
+            try:
+                status = await asyncio.wait_for(
+                    client.fetch_kill_switch_status(
+                        user_id,
+                        role=user_role,
+                        strategies=user_strategies,
+                    ),
+                    timeout=2.0,
+                )
+                kill_state = normalize_kill_switch_display_state(status.get("state"))
+            except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                logger.debug(
+                    "initial_kill_switch_status_fetch_failed",
+                    extra={"user_id": user_id, "error": type(exc).__name__},
+                )
+
+            try:
+                cb_status = await asyncio.wait_for(
+                    client.fetch_circuit_breaker_status(
+                        user_id,
+                        role=user_role,
+                        strategies=user_strategies,
+                    ),
+                    timeout=2.0,
+                )
+                circuit_state = normalize_circuit_display_state(cb_status.get("state"))
+            except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                logger.debug(
+                    "initial_circuit_breaker_status_fetch_failed",
+                    extra={"user_id": user_id, "error": type(exc).__name__},
+                )
+            return kill_state, circuit_state
+
+        initial_kill_switch_state, initial_circuit_state = await fetch_initial_global_safety_state()
+        initial_global_status_live = (
+            initial_kill_switch_state is not None and initial_circuit_state is not None
+        )
+
         # Left drawer (sidebar)
         drawer = ui.left_drawer(value=True).classes("bg-surface-1 w-64 h-screen overflow-y-auto")
         with drawer:
@@ -230,7 +288,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     ("Governance", ["/admin"]),
                 ]
 
-                nav_lookup = {path: (label, path, icon, role) for label, path, icon, role in nav_items}
+                nav_lookup = {
+                    path: (label, path, icon, role) for label, path, icon, role in nav_items
+                }
 
                 def is_nav_item_visible(path: str) -> bool:
                     # Admin link requires MANAGE_API_KEYS or MANAGE_SYSTEM_CONFIG or VIEW_AUDIT
@@ -245,27 +305,19 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         return False
 
                     # Tax Lots link requires VIEW_TAX_LOTS
-                    if path == "/tax-lots" and not has_permission(
-                        user, Permission.VIEW_TAX_LOTS
-                    ):
+                    if path == "/tax-lots" and not has_permission(user, Permission.VIEW_TAX_LOTS):
                         return False
 
                     # Research workspace is visible when any consolidated tab permission exists.
                     if path == "/research":
-                        can_view_discover = (
-                            config.FEATURE_ALPHA_EXPLORER
-                            and has_permission(user, Permission.VIEW_ALPHA_SIGNALS)
+                        can_view_discover = config.FEATURE_ALPHA_EXPLORER and has_permission(
+                            user, Permission.VIEW_ALPHA_SIGNALS
                         )
                         can_view_validate = has_permission(user, Permission.VIEW_PNL)
-                        can_view_promote = (
-                            config.FEATURE_MODEL_REGISTRY
-                            and has_permission(user, Permission.VIEW_MODELS)
+                        can_view_promote = config.FEATURE_MODEL_REGISTRY and has_permission(
+                            user, Permission.VIEW_MODELS
                         )
-                        if not (
-                            can_view_discover
-                            or can_view_validate
-                            or can_view_promote
-                        ):
+                        if not (can_view_discover or can_view_validate or can_view_promote):
                             return False
 
                     # Exposure link requires VIEW_STRATEGY_EXPOSURE
@@ -376,9 +428,7 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "bg-blue-100 text-blue-700" if is_active else "hover:bg-slate-200"
                     )
 
-                    with ui.link(target=path).classes(
-                        f"nav-link w-full rounded {active_classes}"
-                    ):
+                    with ui.link(target=path).classes(f"nav-link w-full rounded {active_classes}"):
                         with ui.row().classes("items-center gap-3 p-2"):
                             ui.icon(icon).classes("text-blue-600" if is_active else "text-gray-600")
                             ui.label(label).classes("text-sm")
@@ -544,44 +594,44 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 )
 
         def _normalize_cached_kill_state(raw_state: Any) -> str | None:
-            if not isinstance(raw_state, str):
-                return None
-            normalized = raw_state.strip().upper()
-            if not normalized:
-                return None
-            if normalized == "ACTIVE":
-                return "DISENGAGED"
-            return normalized
+            return normalize_kill_switch_display_state(raw_state)
 
         def _normalize_cached_circuit_state(raw_state: Any) -> str | None:
-            if not isinstance(raw_state, str):
-                return None
-            normalized = raw_state.strip().upper()
-            if normalized == "QUIET_PERIOD":
-                return "OPEN"
-            return normalized or None
+            return normalize_circuit_display_state(raw_state)
 
-        cached_kill_state = _normalize_cached_kill_state(
+        cached_kill_state = initial_kill_switch_state or _normalize_cached_kill_state(
             app.storage.user.get("global_kill_switch_state")
         )
-        cached_circuit_state = _normalize_cached_circuit_state(
+        cached_circuit_state = initial_circuit_state or _normalize_cached_circuit_state(
             app.storage.user.get("global_circuit_state")
         )
+        cached_status_stale = not initial_global_status_live
         if cached_kill_state is not None or cached_circuit_state is not None:
             # Render stale cached state before heavy pages finish building so the
             # top banner does not start at UNKNOWN on first paint.
             _update_status_bar(
                 cached_kill_state or "UNKNOWN",
                 cached_circuit_state or "UNKNOWN",
-                stale=True,
+                stale=cached_status_stale,
             )
             cached_kill_display = cached_kill_state or "UNKNOWN"
             cached_cb_display = cached_circuit_state or "UNKNOWN"
-            kill_switch_button.set_text(f"KILL SWITCH: {cached_kill_display} (STALE)")
+            stale_suffix = " (STALE)" if cached_status_stale else ""
+            kill_switch_button.set_text(f"KILL SWITCH: {cached_kill_display}{stale_suffix}")
             if cached_kill_display == "ENGAGED":
                 kill_switch_button.classes(
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
+                )
+            elif cached_kill_display == "DISENGAGED" and not cached_status_stale:
+                kill_switch_button.classes(
+                    "bg-slate-700 text-slate-100",
+                    remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
+                )
+            elif cached_kill_display == "DISENGAGED":
+                kill_switch_button.classes(
+                    "bg-amber-500 text-black",
+                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
             else:
                 kill_switch_button.classes(
@@ -589,19 +639,19 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
             if cached_cb_display == "TRIPPED":
-                circuit_breaker_badge.set_text("CIRCUIT TRIPPED (STALE)")
+                circuit_breaker_badge.set_text(f"CIRCUIT TRIPPED{stale_suffix}")
                 circuit_breaker_badge.classes(
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                 )
             elif cached_cb_display in {"OPEN", "QUIET_PERIOD"}:
-                circuit_breaker_badge.set_text("CIRCUIT OK (STALE)")
+                circuit_breaker_badge.set_text(f"CIRCUIT OK{stale_suffix}")
                 circuit_breaker_badge.classes(
                     "bg-slate-700 text-slate-100",
                     remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                 )
             else:
-                circuit_breaker_badge.set_text(f"CIRCUIT: {cached_cb_display} (STALE)")
+                circuit_breaker_badge.set_text(f"CIRCUIT: {cached_cb_display}{stale_suffix}")
                 circuit_breaker_badge.classes(
                     "bg-amber-500 text-black",
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
@@ -719,9 +769,9 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
         if last_kill_switch_state is not None or last_circuit_state is not None:
             cached_state = last_kill_switch_state or "UNKNOWN"
             cached_cb = last_circuit_state or "UNKNOWN"
-            _render_kill_switch_state(cached_state, stale=True)
-            _render_circuit_breaker_state(cached_cb, stale=True)
-            _update_status_bar(cached_state, cached_cb, stale=True)
+            _render_kill_switch_state(cached_state, stale=cached_status_stale)
+            _render_circuit_breaker_state(cached_cb, stale=cached_status_stale)
+            _update_status_bar(cached_state, cached_cb, stale=cached_status_stale)
             set_kill_switch_controls(cached_state)
 
         async def perform_kill_switch_action(action: str, reason: str) -> None:

@@ -132,9 +132,7 @@ class _DummyStatusBar:
         stale: bool = False,
     ) -> None:
         self.state = state
-        self.calls.append(
-            {"state": state, "circuit_state": circuit_state, "stale": stale}
-        )
+        self.calls.append({"state": state, "circuit_state": circuit_state, "stale": stale})
 
 
 class _DummyHeaderMetrics:
@@ -384,13 +382,37 @@ async def test_layout_sets_current_path_and_cleanup(monkeypatch: pytest.MonkeyPa
     assert dummy_ui.head_html
 
 
-def test_trading_state_listener_honors_stale_status_events() -> None:
-    listener_path = Path(
-        "apps/web_console_ng/static/js/trading_state_listener.js"
+@pytest.mark.asyncio()
+async def test_layout_initial_live_status_overrides_cached_stale_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Initial render should not stick on cached STALE when live status is reachable."""
+    await _run_extended_layout(
+        monkeypatch,
+        initial_user_storage={
+            "global_kill_switch_state": "DISENGAGED",
+            "global_circuit_state": "OPEN",
+        },
+        client=_ExtendedDummyClient(kill_switch_state="DISENGAGED", cb_state="OPEN"),
     )
+
+    status_bar = _DummyStatusBar.instances[-1]
+    assert status_bar.calls
+    assert status_bar.calls[-1] == {
+        "state": "DISENGAGED",
+        "circuit_state": "OPEN",
+        "stale": False,
+    }
+
+
+def test_trading_state_listener_honors_stale_status_events() -> None:
+    listener_path = Path("apps/web_console_ng/static/js/trading_state_listener.js")
     listener = listener_path.read_text(encoding="utf-8")
 
-    assert "const hasStatusStale = Object.prototype.hasOwnProperty.call(detail, 'statusStale');" in listener
+    assert (
+        "const hasStatusStale = Object.prototype.hasOwnProperty.call(detail, 'statusStale');"
+        in listener
+    )
     assert "const hasFreshTradingState =" in listener
     assert "if (hasStatusStale) {" in listener
     assert "window._tradingState.statusStale = detail.statusStale === true;" in listener
@@ -978,13 +1000,13 @@ async def test_layout_bootstraps_status_bar_from_cached_circuit_only(
     await _run_extended_layout(
         monkeypatch,
         connection_monitor=conn_monitor,
+        client=_ExtendedDummyClient(fail_kill_switch=True, fail_cb=True),
         initial_user_storage={"global_circuit_state": "TRIPPED"},
     )
 
     status_bar = _DummyStatusBar.instances[-1]
     assert any(
-        call["circuit_state"] == "TRIPPED" and call["stale"] is True
-        for call in status_bar.calls
+        call["circuit_state"] == "TRIPPED" and call["stale"] is True for call in status_bar.calls
     )
 
 
@@ -1530,8 +1552,8 @@ async def test_status_poll_lock_prevents_concurrent_updates(
     wrapped = layout_module.main_layout(_page)
     await wrapped()
 
-    # Initial call happens during layout setup
-    assert call_count == 1
+    # Initial safety bootstrap and first status update happen during layout setup.
+    assert call_count == 2
 
     # Call the update callback multiple times concurrently
     # With the lock, only one should execute at a time
@@ -1542,9 +1564,8 @@ async def test_status_poll_lock_prevents_concurrent_updates(
     )
 
     # Due to lock, concurrent calls should be skipped if lock is held
-    # The exact count depends on timing, but should be less than 4 total
-    # (1 initial + potentially 1-3 from gather depending on lock timing)
-    assert call_count >= 2
+    # The exact count depends on timing, but should advance beyond the bootstrap calls.
+    assert call_count >= 3
 
 
 @pytest.mark.asyncio()
@@ -1593,7 +1614,7 @@ async def test_kill_switch_engaged_notification_on_state_change(
         async def fetch_kill_switch_status(self, *args: Any, **kwargs: Any) -> dict[str, str]:
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
+            if call_count <= 2:
                 return {"state": "DISENGAGED"}
             return {"state": "ENGAGED"}
 
@@ -1630,16 +1651,16 @@ async def test_kill_switch_engaged_notification_on_state_change(
     wrapped = layout_module.main_layout(_page)
     await wrapped()
 
-    # First call was DISENGAGED
-    assert call_count == 1
-
-    # Second call will be ENGAGED - should trigger notification
-    await status_update_callback()
+    # Initial safety bootstrap and first status update were DISENGAGED.
     assert call_count == 2
+
+    # Next call will be ENGAGED - should trigger notification.
+    await status_update_callback()
+    assert call_count == 3
 
     # Third call still ENGAGED - should NOT trigger notification again
     await status_update_callback()
-    assert call_count == 3
+    assert call_count == 4
 
 
 @pytest.mark.asyncio()

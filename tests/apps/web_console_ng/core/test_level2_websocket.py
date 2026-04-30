@@ -100,26 +100,26 @@ def test_entitlement_status_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WEB_CONSOLE_NG_DEBUG", "true")
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False
-    assert "not enabled" in reason
+    assert "NBBO quotes" in reason
 
     monkeypatch.setenv("WEB_CONSOLE_NG_DEBUG", "false")
     monkeypatch.setenv("ALPACA_L2_ENABLED", "false")
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False
-    assert "not enabled" in reason
+    assert "NBBO quotes" in reason
 
     monkeypatch.setenv("ALPACA_L2_ENABLED", "true")
     monkeypatch.setenv("ALPACA_PRO_API_KEY", "")
     monkeypatch.setenv("ALPACA_PRO_API_SECRET", "")
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False
-    assert "credentials missing" in reason
+    assert "external L2 credentials missing" in reason
 
     monkeypatch.setenv("ALPACA_PRO_API_KEY", "key")
     monkeypatch.setenv("ALPACA_PRO_API_SECRET", "secret")
     entitled, reason = Level2WebSocketService.entitlement_status()
     assert entitled is False
-    assert "not implemented" in reason
+    assert "real provider not implemented" in reason
 
 
 @pytest.mark.asyncio()

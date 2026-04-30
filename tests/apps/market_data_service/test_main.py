@@ -119,6 +119,7 @@ class TestHealthCheckEndpoint:
             "subscribed_symbols": 5,
             "reconnect_attempts": 0,
             "max_reconnect_attempts": 3,
+            "data_feed": "iex",
         }
 
         with patch("apps.market_data_service.main.stream", mock_stream):
@@ -131,6 +132,7 @@ class TestHealthCheckEndpoint:
         assert data["subscribed_symbols"] == 5
         assert data["reconnect_attempts"] == 0
         assert data["max_reconnect_attempts"] == 3
+        assert data["data_feed"] == "iex"
 
     def test_health_check_degraded_when_disconnected(self, test_client, mock_stream):
         """Test health check returns degraded when WebSocket disconnected."""
@@ -139,6 +141,7 @@ class TestHealthCheckEndpoint:
             "subscribed_symbols": 0,
             "reconnect_attempts": 2,
             "max_reconnect_attempts": 3,
+            "data_feed": "iex",
         }
 
         with patch("apps.market_data_service.main.stream", mock_stream):
@@ -438,7 +441,9 @@ class TestUnsubscribeEndpoint:
         assert response.status_code == 200
         mock_stream.unsubscribe_symbols.assert_called_once_with(["AAPL"], source="manual")
 
-    def test_unsubscribe_success_with_explicit_source_when_authorized(self, test_client, mock_stream):
+    def test_unsubscribe_success_with_explicit_source_when_authorized(
+        self, test_client, mock_stream
+    ):
         """Authorized internal requests may unsubscribe with explicit source tags."""
         mock_stream.get_subscribed_symbols.return_value = []
 
@@ -996,6 +1001,7 @@ class TestHealthCheckEdgeCases:
             "subscribed_symbols": 3,
             "reconnect_attempts": 5,
             "max_reconnect_attempts": 10,
+            "data_feed": "iex",
         }
 
         with patch("apps.market_data_service.main.stream", mock_stream):
@@ -1014,6 +1020,7 @@ class TestHealthCheckEdgeCases:
             "subscribed_symbols": 10,
             "reconnect_attempts": 0,
             "max_reconnect_attempts": 3,
+            "data_feed": "iex",
         }
 
         with patch("apps.market_data_service.main.stream", mock_stream):
@@ -1075,6 +1082,7 @@ class TestResponseModels:
             "subscribed_symbols": 5,
             "reconnect_attempts": 0,
             "max_reconnect_attempts": 3,
+            "data_feed": "iex",
         }
 
         with patch("apps.market_data_service.main.stream", mock_stream):
@@ -1090,8 +1098,10 @@ class TestResponseModels:
         assert "subscribed_symbols" in data
         assert "reconnect_attempts" in data
         assert "max_reconnect_attempts" in data
+        assert "data_feed" in data
         assert isinstance(data["websocket_connected"], bool)
         assert isinstance(data["subscribed_symbols"], int)
+        assert isinstance(data["data_feed"], str)
 
 
 class TestMetricsUpdates:

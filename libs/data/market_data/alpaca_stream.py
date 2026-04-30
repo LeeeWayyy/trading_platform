@@ -11,6 +11,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from alpaca.data.enums import DataFeed
 from alpaca.data.live import StockDataStream
 from alpaca.data.models import Quote
 from prometheus_client import Counter
@@ -22,6 +23,34 @@ from libs.data.market_data.exceptions import ConnectionError, SubscriptionError
 from libs.data.market_data.types import PriceData, PriceUpdateEvent, QuoteData
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_crossed_quote_prices(
+    symbol: str,
+    bid_price: Decimal,
+    ask_price: Decimal,
+) -> tuple[Decimal, Decimal]:
+    """Return non-crossed prices for transient SIP NBBO inversions.
+
+    SIP can emit short-lived crossed top-of-book snapshots when venue updates
+    arrive out of order. Dropping those messages starves the Redis price cache
+    and makes the trading UI stale, so normalize them to a locked market at the
+    midpoint while keeping the stricter QuoteData invariant intact.
+    """
+    if ask_price >= bid_price:
+        return bid_price, ask_price
+
+    midpoint = (bid_price + ask_price) / Decimal("2")
+    logger.debug(
+        "crossed_quote_normalized",
+        extra={
+            "symbol": symbol,
+            "bid_price": str(bid_price),
+            "ask_price": str(ask_price),
+            "normalized_price": str(midpoint),
+        },
+    )
+    return midpoint, midpoint
 
 
 class AlpacaMarketDataStream:
@@ -52,7 +81,8 @@ class AlpacaMarketDataStream:
         price_ttl: int = 300,  # 5 minutes
         messages_received_counter: Counter | None = None,
         reconnect_attempts_counter: Counter | None = None,
-    ):
+        data_feed: str = "iex",
+    ) -> None:
         """
         Initialize Alpaca market data stream.
 
@@ -66,6 +96,7 @@ class AlpacaMarketDataStream:
                 received WebSocket message. Must declare a ``message_type`` label.
             reconnect_attempts_counter: Optional Prometheus Counter incremented once
                 per WebSocket reconnection attempt (no labels).
+            data_feed: Alpaca live stock data feed, currently ``iex`` or ``sip``.
         """
         self.api_key = api_key
         self.secret_key = secret_key
@@ -83,8 +114,11 @@ class AlpacaMarketDataStream:
             else None
         )
 
+        resolved_feed = self._resolve_data_feed(data_feed)
+        self.data_feed = resolved_feed.value
+
         # Initialize Alpaca WebSocket client
-        self.stream = StockDataStream(api_key, secret_key)
+        self.stream = StockDataStream(api_key, secret_key, feed=resolved_feed)
 
         # H5 Fix: Track subscribed symbols with source ref-counting
         # Maps symbol -> set of sources (e.g., "manual", "position")
@@ -98,7 +132,34 @@ class AlpacaMarketDataStream:
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
 
-        logger.info("AlpacaMarketDataStream initialized")
+        logger.info("AlpacaMarketDataStream initialized", extra={"data_feed": self.data_feed})
+
+    @staticmethod
+    def _resolve_data_feed(data_feed: str) -> DataFeed:
+        """Resolve and validate the Alpaca live stock feed.
+
+        Alpaca-py live stock streams support IEX and SIP. Fail fast for other
+        configured feeds so the service does not silently stream IEX while REST
+        calls use a different feed.
+        """
+        normalized_feed = (data_feed or "").strip().lower() or DataFeed.IEX.value
+        try:
+            resolved_feed = DataFeed(normalized_feed)
+        except ValueError as exc:
+            supported = ", ".join(feed.value for feed in (DataFeed.IEX, DataFeed.SIP))
+            raise ValueError(
+                f"Unsupported Alpaca live data feed '{normalized_feed}'. "
+                f"Supported live feeds: {supported}."
+            ) from exc
+
+        if resolved_feed not in {DataFeed.IEX, DataFeed.SIP}:
+            supported = ", ".join(feed.value for feed in (DataFeed.IEX, DataFeed.SIP))
+            raise ValueError(
+                f"Unsupported Alpaca live data feed '{resolved_feed.value}'. "
+                f"Supported live feeds: {supported}."
+            )
+
+        return resolved_feed
 
     @property
     def subscribed_symbols(self) -> set[str]:
@@ -318,10 +379,16 @@ class AlpacaMarketDataStream:
                 else getattr(quote, "ask_exchange", "UNKNOWN")
             )
 
+            bid_price = Decimal(str(bid_price_value))
+            ask_price = Decimal(str(ask_price_value))
+            bid_price, ask_price = _normalize_crossed_quote_prices(
+                str(symbol), bid_price, ask_price
+            )
+
             quote_data = QuoteData(
                 symbol=symbol,
-                bid_price=Decimal(str(bid_price_value)),
-                ask_price=Decimal(str(ask_price_value)),
+                bid_price=bid_price,
+                ask_price=ask_price,
                 bid_size=int(bid_size_value),
                 ask_size=int(ask_size_value),
                 timestamp=timestamp_value,
@@ -488,7 +555,7 @@ class AlpacaMarketDataStream:
         """
         return sorted(self.subscribed_symbols)
 
-    def get_connection_stats(self) -> dict[str, int | bool]:
+    def get_connection_stats(self) -> dict[str, int | bool | str]:
         """
         Get connection statistics.
 
@@ -500,6 +567,7 @@ class AlpacaMarketDataStream:
             "subscribed_symbols": len(self.subscribed_symbols),
             "reconnect_attempts": self._reconnect_attempts,
             "max_reconnect_attempts": self._max_reconnect_attempts,
+            "data_feed": self.data_feed,
         }
 
     def get_subscription_sources(self) -> dict[str, list[str]]:

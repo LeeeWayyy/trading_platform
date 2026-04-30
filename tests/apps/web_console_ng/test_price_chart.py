@@ -329,7 +329,9 @@ class TestPriceChartPriceData:
         assert component._last_realtime_update is None
         schedule_update.assert_not_called()
 
-    def test_set_price_data_rejects_past_skew_timestamp(self, component: PriceChartComponent) -> None:
+    def test_set_price_data_rejects_past_skew_timestamp(
+        self, component: PriceChartComponent
+    ) -> None:
         """set_price_data drops stale delayed ticks outside allowed past skew."""
         component._current_symbol = "AAPL"
         stale_ts = datetime.now(UTC) - timedelta(seconds=MAX_PAST_TICK_SKEW_S + 5)
@@ -406,9 +408,7 @@ class TestPriceChartPriceData:
         component._handle_price_update = fake_handle  # type: ignore[method-assign]
         now = datetime.now(UTC)
 
-        component.set_price_data(
-            {"symbol": "AAPL", "price": 100.0, "timestamp": now.isoformat()}
-        )
+        component.set_price_data({"symbol": "AAPL", "price": 100.0, "timestamp": now.isoformat()})
         await started.wait()
 
         component.set_price_data(
@@ -614,7 +614,9 @@ class TestPriceChartSymbolChange:
             patch.object(component, "_fetch_candle_data", return_value=[]),
             patch.object(component, "_fetch_execution_markers", return_value=[]),
             patch.object(component, "_update_chart_data", new_callable=AsyncMock),
-            patch.object(component, "_clear_chart_series", new_callable=AsyncMock) as mock_clear_series,
+            patch.object(
+                component, "_clear_chart_series", new_callable=AsyncMock
+            ) as mock_clear_series,
             patch.object(component, "_show_no_data_overlay", new_callable=AsyncMock) as mock_show,
             patch.object(component, "_hide_no_data_overlay", new_callable=AsyncMock) as mock_hide,
         ):
@@ -739,7 +741,7 @@ class TestPriceChartHistoricalBars:
             role="trader",
             strategies=["alpha"],
             timeframe="5Min",
-            limit=240,
+            limit=10000,
         )
 
     @pytest.mark.asyncio()
@@ -765,7 +767,7 @@ class TestPriceChartHistoricalBars:
 
         assert candles == []
         assert component._client.calls == [  # type: ignore[attr-defined]
-            ("MSFT", "5Min", 240),
+            ("MSFT", "5Min", 10000),
         ]
         assert component._live_bucket_interval_seconds == 300
 
@@ -822,16 +824,19 @@ class TestPriceChartHistoricalBars:
             role="trader",
             strategies=["alpha"],
             timeframe="1Min",
-            limit=390,
+            limit=10000,
         )
 
-    def test_chart_header_text_includes_symbol_and_timeframe(self) -> None:
+    def test_chart_header_text_includes_symbol_timeframe_and_feed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ALPACA_DATA_FEED", "sip")
         component = PriceChartComponent(trading_client=MagicMock())
         component._current_symbol = "SPY"
         component._selected_timeframe = "15Min"
 
         assert component._chart_title_text() == "SPY Price Chart"
-        assert component._chart_subtitle_text() == "Alpaca · 15-minute bars"
+        assert component._chart_subtitle_text() == "Alpaca SIP · 15-minute bars"
 
 
 class TestPriceChartExecutionMarkers:
@@ -864,7 +869,9 @@ class TestPriceChartExecutionMarkers:
             def __init__(self) -> None:
                 self.calls: list[int] = []
 
-            async def fetch_recent_fills(self, limit: int = 50) -> dict[str, list[dict[str, object]]]:
+            async def fetch_recent_fills(
+                self, limit: int = 50
+            ) -> dict[str, list[dict[str, object]]]:
                 self.calls.append(limit)
                 return {"fills": []}
 
@@ -945,7 +952,7 @@ class TestPriceChartRealtimeUpdates:
         component._run_javascript.assert_awaited()
         js_payload = component._run_javascript.await_args.args[0]
         assert "setData(" in js_payload
-        assert "\"volume\"" in js_payload
+        assert '"volume"' in js_payload
 
     @pytest.mark.asyncio()
     async def test_handle_price_update_new_bucket_uses_tick_as_open(self) -> None:
