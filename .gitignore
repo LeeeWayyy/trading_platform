@@ -177,3 +177,4 @@ response.json
 
 # test output
 artifacts/
+/some/
