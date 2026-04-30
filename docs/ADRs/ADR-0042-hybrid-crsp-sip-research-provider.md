@@ -71,8 +71,8 @@ not choose the hybrid provider implicitly.
 
 - Run Phase 0 bar/return reconciliation against live Alpaca SIP entitlement and
   CRSP comparison data before relying on hybrid results.
-- Choose and implement the corporate-actions ingestion path for raw-bar
-  reconstruction.
+- Live-validate the direct-REST corporate-actions ingestion path, then decide
+  how raw-bar reconstruction should consume those announcements.
 - Select a strategy and run the Phase 4 retrain/walk-forward comparison with
   synced SIP data.
 - Revisit a production-grade hybrid only if a PITBacktester interface refactor

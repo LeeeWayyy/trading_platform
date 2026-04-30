@@ -42,10 +42,13 @@ constraints made explicit before implementation:
   data-sync mocks, source-status visibility, data explorer listing, SQL
   validation, SQL explorer table mapping, and quality mock surfaces now include
   `alpaca_sip` / `alpaca_sip_daily`.
-- Corporate-actions ingestion is still deferred. `alpaca-py==0.15.0` does not
-  expose a corporate-actions request/client method in the installed SDK, so this
-  should be implemented only after choosing either a direct REST wrapper or an
-  SDK upgrade.
+- Corporate-actions ingestion foundation is implemented with a direct Alpaca
+  market-data REST wrapper because `alpaca-py==0.15.0` does not expose a
+  corporate-actions request/client method. It writes
+  `alpaca_sip_corp_actions` parquet snapshots/manifests and exposes
+  `make sync-alpaca-corp-actions`,
+  `make sync-alpaca-corp-actions-status`, and
+  `make sync-alpaca-corp-actions-verify`.
 - Phase 3 provider-layer hybrid foundation is implemented:
   `HybridDataProviderAdapter` routes CRSP universe queries and Alpaca SIP price
   queries, remains explicit-only/research-only, and rejects pre-SIP history
@@ -55,8 +58,8 @@ constraints made explicit before implementation:
   and Alpaca SIP for price history. ADR-0042 records this research-only hybrid
   decision.
 - Remaining plan work requires external inputs: live Alpaca SIP entitlement and
-  CRSP comparison data for Phase 0, an SDK-upgrade-versus-direct-REST decision
-  for corporate actions, and synced SIP data plus a selected strategy for the
+  CRSP comparison data for Phase 0, live validation of the direct-REST
+  corporate-actions sync, and synced SIP data plus a selected strategy for the
   Phase 4 retrain/walk-forward comparison.
 
 ## Scope
@@ -253,17 +256,20 @@ not the goal, so delisted coverage is not the gate.
   `sync_manager.py`. **Daily-bar sync foundation implemented.**
 - New `libs/data/data_providers/alpaca_corp_actions_sync.py` — splits,
   dividends, symbol changes. Persisted under `data/alpaca/sip/corp_actions/`.
-  **Deferred pending SDK/REST decision.**
+  **Implemented with direct Alpaca market-data REST because the installed SDK
+  lacks a corporate-actions client.**
 - Quarantine on validation failure via existing `data_quality` framework.
 - `make` targets: `make sync-alpaca-sip`, `make sync-alpaca-sip-status`,
-  `make sync-alpaca-sip-verify`; `make sync-alpaca-corp-actions` remains
-  deferred with corporate-actions ingestion.
+  `make sync-alpaca-sip-verify`, `make sync-alpaca-corp-actions`,
+  `make sync-alpaca-corp-actions-status`, and
+  `make sync-alpaca-corp-actions-verify`.
 - Surface in the web-console-ng data-sync UI. Note: today
   `libs/web_console_services/data_sync_service.py:28` lists supported
   datasets as `crsp|compustat|taq|fama_french`. This phase adds
   `alpaca_sip` to that set, plus adjacent source-status, explorer, SQL
   validation, SQL explorer, and quality mock surfaces.
-  `alpaca_corp_actions` remains deferred.
+  `alpaca_corp_actions` sync is implemented, but web-console surfacing for that
+  table remains deferred until raw-bar reconstruction consumes it.
 
 ### Phase 3 — Hybrid provider (3–5 days)
 

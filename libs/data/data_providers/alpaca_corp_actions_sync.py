@@ -1,0 +1,553 @@
+"""Bulk sync manager for Alpaca corporate-action announcements.
+
+The installed ``alpaca-py==0.15.0`` package does not expose the corporate
+actions client available in newer SDKs, so this module uses Alpaca's market
+data REST endpoint directly while preserving the local parquet + manifest
+pattern used by ``AlpacaSIPSyncManager``.
+"""
+
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+import logging
+import os
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any, Protocol, cast
+
+import httpx
+import polars as pl
+
+from libs.data.data_quality.exceptions import DiskSpaceError
+from libs.data.data_quality.manifest import ManifestManager, SyncManifest
+
+logger = logging.getLogger(__name__)
+
+ALPACA_CORP_ACTIONS_COLUMNS: tuple[str, ...] = (
+    "id",
+    "symbol",
+    "cusip",
+    "ca_type",
+    "process_date",
+    "ex_date",
+    "record_date",
+    "payable_date",
+    "cash",
+    "old_rate",
+    "new_rate",
+    "old_symbol",
+    "new_symbol",
+    "raw",
+)
+ALPACA_CORP_ACTIONS_SCHEMA: dict[str, type[pl.DataType]] = {
+    "id": pl.Utf8,
+    "symbol": pl.Utf8,
+    "cusip": pl.Utf8,
+    "ca_type": pl.Utf8,
+    "process_date": pl.Date,
+    "ex_date": pl.Date,
+    "record_date": pl.Date,
+    "payable_date": pl.Date,
+    "cash": pl.Float64,
+    "old_rate": pl.Float64,
+    "new_rate": pl.Float64,
+    "old_symbol": pl.Utf8,
+    "new_symbol": pl.Utf8,
+    "raw": pl.Utf8,
+}
+
+
+class AlpacaCorporateActionsClient(Protocol):
+    """Minimal client interface needed by ``AlpacaCorporateActionsSyncManager``."""
+
+    def get_corporate_actions(self, params: Mapping[str, str | int]) -> Mapping[str, Any]:
+        """Return one page of corporate-action announcements."""
+
+
+class AlpacaCorporateActionsRestClient:
+    """Direct REST client for Alpaca corporate-action announcements."""
+
+    DEFAULT_BASE_URL = "https://data.alpaca.markets"
+    ENDPOINT_PATH = "/v1/corporate-actions"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        secret_key: str,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.headers = {
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": secret_key,
+        }
+
+    def get_corporate_actions(self, params: Mapping[str, str | int]) -> Mapping[str, Any]:
+        """Fetch one REST page and return decoded JSON."""
+        with httpx.Client(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=self.timeout_seconds,
+        ) as client:
+            response = client.get(self.ENDPOINT_PATH, params=dict(params))
+            response.raise_for_status()
+            payload = response.json()
+
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"Unexpected Alpaca corporate actions payload: {type(payload).__name__}"
+            )
+        return cast(Mapping[str, Any], payload)
+
+
+class AlpacaCorporateActionsSyncManager:
+    """Sync Alpaca corporate-action announcements to local parquet."""
+
+    DATASET_NAME = "alpaca_sip_corp_actions"
+    DEFAULT_DATA_ROOT = Path("data")
+    DEFAULT_STORAGE_PATH = Path("data/alpaca/sip/corp_actions")
+    DEFAULT_LIMIT = 1000
+    BYTES_PER_ROW_ESTIMATE = 1024
+
+    def __init__(
+        self,
+        client: AlpacaCorporateActionsClient,
+        storage_path: Path,
+        manifest_manager: ManifestManager,
+        *,
+        data_root: Path | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> None:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        self.client = client
+        self.storage_path = Path(storage_path).resolve()
+        self.manifest_manager = manifest_manager
+        self.data_root = (data_root or self.DEFAULT_DATA_ROOT).resolve()
+        self.limit = limit
+
+        if not self.storage_path.is_relative_to(self.data_root):
+            raise ValueError(
+                f"storage_path '{storage_path}' must be within data_root '{self.data_root}'"
+            )
+
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        storage_path: Path | None = None,
+        manifest_manager: ManifestManager | None = None,
+        data_root: Path | None = None,
+        limit: int = DEFAULT_LIMIT,
+        base_url: str | None = None,
+    ) -> AlpacaCorporateActionsSyncManager:
+        """Build a manager from standard Alpaca environment variables."""
+        api_key = os.getenv("ALPACA_API_KEY_ID") or os.getenv("ALPACA_API_KEY")
+        secret_key = os.getenv("ALPACA_API_SECRET_KEY") or os.getenv("ALPACA_SECRET_KEY")
+        if not api_key or not secret_key:
+            raise ValueError(
+                "Alpaca credentials required: set ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY"
+            )
+
+        resolved_data_root = Path(data_root or cls.DEFAULT_DATA_ROOT)
+        resolved_storage = Path(
+            storage_path
+            or os.getenv("ALPACA_CORP_ACTIONS_STORAGE_PATH")
+            or cls.DEFAULT_STORAGE_PATH
+        )
+        resolved_manifest_manager = manifest_manager or ManifestManager(
+            data_root=resolved_data_root
+        )
+        client = AlpacaCorporateActionsRestClient(
+            api_key=api_key,
+            secret_key=secret_key,
+            base_url=base_url or os.getenv("ALPACA_DATA_BASE_URL") or "https://data.alpaca.markets",
+        )
+        return cls(
+            client=client,
+            storage_path=resolved_storage,
+            manifest_manager=resolved_manifest_manager,
+            data_root=resolved_data_root,
+            limit=limit,
+        )
+
+    def full_sync(
+        self,
+        *,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        symbols: Sequence[str] | None = None,
+        ca_types: Sequence[str] | None = None,
+        ids: Sequence[str] | None = None,
+    ) -> SyncManifest:
+        """Sync a bounded corporate-action announcement range."""
+        self._validate_date_range(start_date, end_date)
+        normalized_symbols = self._normalize_symbols(symbols or ())
+        normalized_types = self._normalize_values(ca_types or (), upper=False)
+        normalized_ids = self._normalize_values(ids or (), upper=False)
+        if normalized_ids and (normalized_symbols or normalized_types):
+            raise ValueError("ids cannot be combined with symbols or ca_types")
+
+        base_params = self._build_base_params(
+            start_date=start_date,
+            end_date=end_date,
+            symbols=normalized_symbols,
+            ca_types=normalized_types,
+            ids=normalized_ids,
+        )
+        sync_id = self._build_sync_id(base_params)
+        output_path = self.storage_path / "snapshots" / sync_id / "corporate_actions.parquet"
+
+        with self.manifest_manager.acquire_lock(
+            self.DATASET_NAME,
+            writer_id=f"alpaca-corp-actions-sync:{os.getpid()}",
+            timeout_seconds=60.0,
+        ) as lock_token:
+            actions = self._fetch_all_pages(base_params)
+            self._check_disk_space(estimated_rows=max(1, len(actions)))
+            df = self._rows_to_frame([self._row_from_action(action) for action in actions])
+            self._atomic_write_parquet(df, output_path)
+            checksum = self._compute_combined_checksum_for_paths([output_path])
+            manifest = self._create_manifest(
+                file_paths=[str(output_path)],
+                row_count=df.height,
+                start_date=start_date,
+                end_date=end_date,
+                checksum=checksum,
+                params=base_params,
+            )
+            self.manifest_manager.save_manifest(manifest, lock_token)
+
+        logger.info(
+            "Alpaca corporate actions sync completed",
+            extra={
+                "event": "alpaca_corp_actions.sync.complete",
+                "dataset": self.DATASET_NAME,
+                "row_count": df.height,
+                "file": str(output_path),
+            },
+        )
+        return manifest
+
+    def verify_integrity(self) -> list[str]:
+        """Verify files, row count, and checksum against the current manifest."""
+        errors: list[str] = []
+        manifest = self.manifest_manager.load_manifest(self.DATASET_NAME)
+        if manifest is None:
+            return [f"No manifest found for {self.DATASET_NAME}"]
+
+        partition_paths, path_errors = self._manifest_paths_for_verify(manifest)
+        if path_errors:
+            return path_errors
+
+        total_rows = 0
+        for path in partition_paths:
+            if not path.exists():
+                errors.append(f"Missing file: {path}")
+                continue
+            try:
+                total_rows += int(pl.scan_parquet(path).select(pl.len()).collect().item())
+            except (OSError, ValueError) as exc:
+                errors.append(f"Cannot read {path}: {exc}")
+
+        if errors:
+            return errors
+
+        computed_checksum = self._compute_combined_checksum_for_paths(partition_paths)
+        if computed_checksum != manifest.checksum:
+            errors.append(
+                "Checksum mismatch: "
+                f"manifest={manifest.checksum[:16]}..., "
+                f"computed={computed_checksum[:16]}..."
+            )
+
+        if total_rows != manifest.row_count:
+            errors.append(
+                f"Row count mismatch: manifest={manifest.row_count}, computed={total_rows}"
+            )
+
+        return errors
+
+    def _fetch_all_pages(self, base_params: Mapping[str, str | int]) -> list[Mapping[str, Any]]:
+        params: dict[str, str | int] = dict(base_params)
+        actions: list[Mapping[str, Any]] = []
+        while True:
+            payload = self.client.get_corporate_actions(params)
+            actions.extend(self._actions_from_payload(payload))
+            next_page_token = self._next_page_token(payload)
+            if not next_page_token:
+                break
+            params["page_token"] = next_page_token
+        return actions
+
+    @staticmethod
+    def _actions_from_payload(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        raw_actions = (
+            payload.get("corporate_actions")
+            or payload.get("announcements")
+            or payload.get("data")
+            or []
+        )
+        if isinstance(raw_actions, dict):
+            candidates: list[Any] = []
+            for value in raw_actions.values():
+                if isinstance(value, list):
+                    candidates.extend(value)
+                else:
+                    candidates.append(value)
+            raw_actions = candidates
+        if not isinstance(raw_actions, list):
+            raise ValueError("Unexpected corporate actions response shape")
+
+        actions: list[Mapping[str, Any]] = []
+        for action in raw_actions:
+            if not isinstance(action, Mapping):
+                raise ValueError(f"Unexpected corporate action item: {type(action).__name__}")
+            actions.append(action)
+        return actions
+
+    @staticmethod
+    def _next_page_token(payload: Mapping[str, Any]) -> str | None:
+        token = payload.get("next_page_token") or payload.get("next_token")
+        if token is None:
+            return None
+        token_text = str(token).strip()
+        return token_text or None
+
+    def _row_from_action(self, action: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "id": self._optional_text(action, "id", "ca_id"),
+            "symbol": self._optional_text(action, "symbol", "ticker"),
+            "cusip": self._optional_text(action, "cusip"),
+            "ca_type": self._optional_text(action, "ca_type", "type", "corporate_action_type"),
+            "process_date": self._optional_date(action, "process_date", "declaration_date"),
+            "ex_date": self._optional_date(action, "ex_date", "ex_dividend_date"),
+            "record_date": self._optional_date(action, "record_date"),
+            "payable_date": self._optional_date(action, "payable_date", "payment_date"),
+            "cash": self._optional_float(action, "cash", "cash_amount"),
+            "old_rate": self._optional_float(action, "old_rate", "old_ratio"),
+            "new_rate": self._optional_float(action, "new_rate", "new_ratio"),
+            "old_symbol": self._optional_text(action, "old_symbol", "old_ticker"),
+            "new_symbol": self._optional_text(action, "new_symbol", "new_ticker"),
+            "raw": json.dumps(dict(action), sort_keys=True, default=str),
+        }
+
+    def _rows_to_frame(self, rows: list[dict[str, Any]]) -> pl.DataFrame:
+        if not rows:
+            return pl.DataFrame(schema=ALPACA_CORP_ACTIONS_SCHEMA)
+
+        df = pl.DataFrame(rows, schema=ALPACA_CORP_ACTIONS_SCHEMA).with_columns(
+            pl.col("symbol").str.to_uppercase()
+        )
+        if df["id"].null_count() == 0:
+            df = df.unique(subset=["id"], keep="last", maintain_order=True)
+        return df.sort(["process_date", "symbol", "id"], nulls_last=True).select(
+            list(ALPACA_CORP_ACTIONS_COLUMNS)
+        )
+
+    @staticmethod
+    def _optional_text(action: Mapping[str, Any], *names: str) -> str | None:
+        for name in names:
+            value = action.get(name)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return None
+
+    @staticmethod
+    def _optional_float(action: Mapping[str, Any], *names: str) -> float | None:
+        for name in names:
+            value = action.get(name)
+            if value in (None, ""):
+                continue
+            return float(cast(Any, value))
+        return None
+
+    @staticmethod
+    def _optional_date(action: Mapping[str, Any], *names: str) -> datetime.date | None:
+        for name in names:
+            value = action.get(name)
+            if value in (None, ""):
+                continue
+            if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+                return value
+            if isinstance(value, datetime.datetime):
+                if value.tzinfo is None:
+                    return value.date()
+                return value.astimezone(datetime.UTC).date()
+            if isinstance(value, str):
+                return datetime.date.fromisoformat(value[:10])
+            raise ValueError(f"Unsupported date value for {name}: {value!r}")
+        return None
+
+    @staticmethod
+    def _normalize_symbols(symbols: Sequence[str]) -> list[str]:
+        return AlpacaCorporateActionsSyncManager._normalize_values(symbols, upper=True)
+
+    @staticmethod
+    def _normalize_values(values: Sequence[str], *, upper: bool) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            item = value.strip()
+            if not item:
+                continue
+            if upper:
+                item = item.upper()
+            if item not in seen:
+                normalized.append(item)
+                seen.add(item)
+        return normalized
+
+    def _build_base_params(
+        self,
+        *,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        symbols: Sequence[str],
+        ca_types: Sequence[str],
+        ids: Sequence[str],
+    ) -> dict[str, str | int]:
+        params: dict[str, str | int] = {
+            "start": start_date.isoformat(),
+            "end": end_date.isoformat(),
+            "limit": self.limit,
+            "sort": "asc",
+        }
+        if symbols:
+            params["symbols"] = ",".join(symbols)
+        if ca_types:
+            params["types"] = ",".join(ca_types)
+        if ids:
+            params["ids"] = ",".join(ids)
+        return params
+
+    @staticmethod
+    def _validate_date_range(start_date: datetime.date, end_date: datetime.date) -> None:
+        if start_date < datetime.date(2016, 1, 1):
+            raise ValueError("Alpaca SIP corporate-action sync starts at 2016-01-01")
+        if end_date < start_date:
+            raise ValueError("end_date must be >= start_date")
+        today = datetime.datetime.now(datetime.UTC).date()
+        if end_date > today:
+            raise ValueError("end_date cannot be in the future")
+
+    def _build_sync_id(self, params: Mapping[str, str | int]) -> str:
+        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        params_hash = hashlib.sha256(
+            json.dumps(dict(params), sort_keys=True, default=str).encode()
+        ).hexdigest()[:12]
+        return f"{timestamp}_{params_hash}"
+
+    def _atomic_write_parquet(self, df: pl.DataFrame, target_path: Path) -> str:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target_path.with_suffix(".parquet.tmp")
+        try:
+            df.write_parquet(temp_path)
+            temp_checksum = self._compute_checksum_and_fsync(temp_path)
+            temp_path.replace(target_path)
+            self._fsync_directory(target_path.parent)
+            return temp_checksum
+        except OSError as exc:
+            if exc.errno == 28:
+                raise DiskSpaceError(f"Disk full writing {target_path}") from exc
+            raise
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _compute_checksum(path: Path) -> str:
+        hasher = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    @staticmethod
+    def _compute_checksum_and_fsync(path: Path) -> str:
+        hasher = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                hasher.update(chunk)
+            os.fsync(handle.fileno())
+        return hasher.hexdigest()
+
+    def _compute_combined_checksum_for_paths(self, paths: Sequence[Path]) -> str:
+        hasher = hashlib.sha256()
+        for path in sorted(paths, key=str):
+            if path.exists():
+                hasher.update(self._compute_checksum(path).encode())
+        return hasher.hexdigest()
+
+    def _manifest_paths_for_verify(self, manifest: SyncManifest) -> tuple[list[Path], list[str]]:
+        paths: list[Path] = []
+        errors: list[str] = []
+        for path_str in manifest.file_paths:
+            resolved = self._resolve_manifest_path(Path(path_str))
+            if not resolved.is_relative_to(self.storage_path):
+                errors.append(
+                    f"Manifest path outside storage_path: {path_str} "
+                    f"(resolved: {resolved}, storage_path: {self.storage_path})"
+                )
+                continue
+            paths.append(resolved)
+        return paths, errors
+
+    def _resolve_manifest_path(self, path: Path) -> Path:
+        if path.is_absolute():
+            return path.resolve()
+        if len(path.parts) == 1:
+            return (self.storage_path / path).resolve()
+        if path.parts[0] == self.data_root.name:
+            return (self.data_root.parent / path).resolve()
+        return (self.data_root / path).resolve()
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def _create_manifest(
+        self,
+        *,
+        file_paths: list[str],
+        row_count: int,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        checksum: str,
+        params: Mapping[str, str | int],
+    ) -> SyncManifest:
+        query_hash = hashlib.sha256(
+            json.dumps(dict(params), sort_keys=True, default=str).encode()
+        ).hexdigest()
+
+        return SyncManifest(
+            dataset=self.DATASET_NAME,
+            sync_timestamp=datetime.datetime.now(datetime.UTC),
+            start_date=start_date,
+            end_date=end_date,
+            row_count=row_count,
+            checksum=checksum,
+            schema_version="v1.0.0",
+            wrds_query_hash=query_hash,
+            file_paths=file_paths,
+            validation_status="passed",
+        )
+
+    def _check_disk_space(self, estimated_rows: int) -> None:
+        required_bytes = max(1, estimated_rows) * self.BYTES_PER_ROW_ESTIMATE * 2
+        status = self.manifest_manager.check_disk_space(required_bytes)
+        if status.level == "warning":
+            logger.warning("Alpaca corporate-actions sync disk warning: %s", status.message)
+        elif status.level == "critical":
+            logger.critical("Alpaca corporate-actions sync disk critical: %s", status.message)

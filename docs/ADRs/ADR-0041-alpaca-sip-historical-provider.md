@@ -58,10 +58,12 @@ The Phase 2 daily-bar sync foundation has these semantics:
   `AlpacaSIPLocalProvider`.
 - The default feed is `sip`; the default adjustment policy is `all`, and
   `adj_close` is populated from the returned close for that adjusted response.
-- Corporate-actions ingestion is not included yet. The installed
-  `alpaca-py==0.15.0` package does not expose a corporate-actions
-  request/client method, so that follow-up needs either a direct REST wrapper or
-  an SDK upgrade decision.
+- Corporate-actions ingestion uses a direct Alpaca market-data REST wrapper
+  because the installed `alpaca-py==0.15.0` package does not expose a
+  corporate-actions request/client method. The dataset name is
+  `alpaca_sip_corp_actions`; parquet files are written under
+  `data/alpaca/sip/corp_actions/` and manifest metadata lives under
+  `data/manifests/`.
 
 ## Hybrid Provider Follow-Up
 
@@ -92,14 +94,15 @@ path unchanged.
   timing differences.
 - Alpaca SIP cannot provide point-in-time universes in Phase 1.
 - Cost model computation remains CRSP-only in this slice.
-- The Phase 2 sync foundation stores adjusted bars by default. Raw-bar plus
-  corporate-action reconstruction remains future work.
+- The Phase 2 sync foundation stores adjusted bars by default. Corporate-action
+  announcements are now synced separately, but raw-bar reconstruction remains
+  future work until the adjustment pipeline consumes those announcements.
 
 ## Required Follow-Up
 
 - Run the Phase 0 entitlement and reconciliation spike before relying on SIP
   results for strategy decisions.
-- Complete corporate-actions ingestion before broad usage.
+- Live-validate corporate-actions ingestion before broad usage.
 - Use ADR-0042 for the research-only hybrid simple-backtest path; add a new ADR
   if a production-grade PIT hybrid is designed.
 - Update ADR-016 or replace it with a broader multi-provider selection ADR if
@@ -108,6 +111,8 @@ path unchanged.
 ## References
 
 - ADR-016: Data Provider Protocol
+- Alpaca corporate actions REST reference:
+  https://docs.alpaca.markets/reference/corporateactions-1
 - `docs/TASKS/2026-04-28-alpaca-sip-data-source-plan.md`
 - `libs/data/data_providers/protocols.py`
 - `libs/data/data_providers/unified_fetcher.py`

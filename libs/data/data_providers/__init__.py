@@ -17,6 +17,13 @@ This module provides:
 
 import logging as _logging
 
+from libs.data.data_providers.alpaca_corp_actions_sync import (
+    ALPACA_CORP_ACTIONS_COLUMNS,
+    ALPACA_CORP_ACTIONS_SCHEMA,
+    AlpacaCorporateActionsClient,
+    AlpacaCorporateActionsRestClient,
+    AlpacaCorporateActionsSyncManager,
+)
 from libs.data.data_providers.alpaca_sip_local_provider import (
     ALPACA_SIP_COLUMNS,
     ALPACA_SIP_SCHEMA,
@@ -169,6 +176,11 @@ __all__ = [
     "AlpacaSIPSyncManager",
     "AlpacaStockBarsClient",
     "SyncedPartition",
+    "AlpacaCorporateActionsSyncManager",
+    "AlpacaCorporateActionsRestClient",
+    "AlpacaCorporateActionsClient",
+    "ALPACA_CORP_ACTIONS_COLUMNS",
+    "ALPACA_CORP_ACTIONS_SCHEMA",
     # Unified Data Fetcher (P4T1.8)
     "UnifiedDataFetcher",
     "FetcherConfig",
