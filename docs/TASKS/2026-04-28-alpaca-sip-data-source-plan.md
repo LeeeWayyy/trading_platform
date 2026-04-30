@@ -2,7 +2,7 @@
 
 Date: 2026-04-28
 Owner: Codex
-Status: LOCAL IMPLEMENTATION COMPLETE (local review in progress; external validation pending)
+Status: LOCAL IMPLEMENTATION COMPLETE (direct Gemini review passed; external validation pending)
 
 ## 2026-04-29 Tuning Notes
 
@@ -52,7 +52,8 @@ constraints made explicit before implementation:
   without silent fallback. Backtest job/UI/worker wiring now exposes the hybrid
   provider as research-only; when no explicit universe is supplied, the worker
   uses CRSP `get_universe(start_date)` as the static simple-backtest universe
-  and Alpaca SIP for price history.
+  and Alpaca SIP for price history. ADR-0042 records this research-only hybrid
+  decision.
 - Remaining plan work requires external inputs: live Alpaca SIP entitlement and
   CRSP comparison data for Phase 0, an SDK-upgrade-versus-direct-REST decision
   for corporate actions, and synced SIP data plus a selected strategy for the
@@ -173,7 +174,8 @@ before `2016-04-01`, the hybrid worker raises an explicit error because its
 provider also raises when direct price requests start before SIP coverage. No
 silent fallback.
 
-New ADR required — ADR-016 assumed one provider answers both methods.
+ADR-0042 records the research-only hybrid decision because ADR-016 assumed one
+provider answers both methods.
 
 ### D4. Survivorship layer for SIP is deferred and optional
 

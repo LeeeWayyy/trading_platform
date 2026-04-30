@@ -63,13 +63,18 @@ The Phase 2 daily-bar sync foundation has these semantics:
   request/client method, so that follow-up needs either a direct REST wrapper or
   an SDK upgrade decision.
 
-## Hybrid Provider Deferral
+## Hybrid Provider Follow-Up
 
 Do not implement the hybrid CRSP-universe/SIP-prices provider in Phase 1.
 `PITBacktester` is currently coupled to CRSP/PERMNO data, while SIP prices are
 ticker-based. A correct hybrid implementation needs either a PITBacktester
 interface refactor or an explicit point-in-time PERMNO-to-symbol bridge. That is
 Phase 3 work, not local-provider plumbing.
+
+ADR-0042 subsequently accepts a narrower research-only hybrid path through
+`SimpleBacktester`: CRSP provides a static start-date universe and Alpaca SIP
+provides local post-2016 price history. That follow-up keeps the production PIT
+path unchanged.
 
 ## Consequences
 
@@ -95,7 +100,8 @@ Phase 3 work, not local-provider plumbing.
 - Run the Phase 0 entitlement and reconciliation spike before relying on SIP
   results for strategy decisions.
 - Complete corporate-actions ingestion before broad usage.
-- Add a hybrid ADR/update when PITBacktester or PERMNO bridging is designed.
+- Use ADR-0042 for the research-only hybrid simple-backtest path; add a new ADR
+  if a production-grade PIT hybrid is designed.
 - Update ADR-016 or replace it with a broader multi-provider selection ADR if
   hybrid becomes a first-class production pathway.
 
