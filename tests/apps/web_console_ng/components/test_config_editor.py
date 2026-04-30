@@ -157,6 +157,16 @@ class TestValidateBacktestParams:
         assert len(result.warnings) == 1
         assert "Yahoo" in result.warnings[0]
 
+    def test_alpaca_sip_cost_model_warning(self, valid_config: dict[str, Any]) -> None:
+        valid_config["provider"] = "alpaca_sip"
+        valid_config["extra_params"] = {
+            "cost_model": {"enabled": True, "bps_per_trade": 5.0},
+        }
+        result = validate_backtest_params(valid_config)
+        assert result.is_valid
+        assert len(result.warnings) == 1
+        assert "Alpaca SIP" in result.warnings[0]
+
     def test_provider_defaults_to_crsp(self) -> None:
         config = {
             "alpha_name": "test",
@@ -174,6 +184,7 @@ class TestProviderMapping:
     def test_display_keys(self) -> None:
         assert "crsp" in PROVIDER_DISPLAY
         assert "yfinance" in PROVIDER_DISPLAY
+        assert "alpaca_sip" in PROVIDER_DISPLAY
 
     def test_inverse_roundtrip(self) -> None:
         for key, display in PROVIDER_DISPLAY.items():
@@ -213,6 +224,20 @@ class TestFormJsonRoundTrip:
         assert data["provider"] == "yfinance"
         assert data["extra_params"]["universe"] == ["AAPL", "MSFT", "NVDA"]
 
+    def test_roundtrip_with_alpaca_sip(self) -> None:
+        json_str = form_state_to_json(
+            alpha_name="alpha1",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            weight_method="rank",
+            provider_display_label="Alpaca SIP (local, non-PIT)",
+            universe_csv="AAPL, MSFT",
+            cost_config=None,
+        )
+        data = json.loads(json_str)
+        assert data["provider"] == "alpaca_sip"
+        assert data["extra_params"]["universe"] == ["AAPL", "MSFT"]
+
     def test_roundtrip_with_cost_model(self) -> None:
         cost = {"enabled": True, "bps_per_trade": 5.0}
         json_str = form_state_to_json(
@@ -242,13 +267,15 @@ class TestFormJsonRoundTrip:
         assert data["extra_params"]["custom_key"] == 42
 
     def test_json_to_form_basic(self) -> None:
-        raw = json.dumps({
-            "alpha_name": "momentum_1m",
-            "start_date": "2024-01-01",
-            "end_date": "2025-12-31",
-            "weight_method": "quantile",
-            "provider": "yfinance",
-        })
+        raw = json.dumps(
+            {
+                "alpha_name": "momentum_1m",
+                "start_date": "2024-01-01",
+                "end_date": "2025-12-31",
+                "weight_method": "quantile",
+                "provider": "yfinance",
+            }
+        )
         fs = json_to_form_state(raw)
         assert fs.alpha_name == "momentum_1m"
         assert fs.weight_method == "quantile"
@@ -256,18 +283,33 @@ class TestFormJsonRoundTrip:
         assert fs.universe_csv == ""
         assert fs.cost_config is None
 
+    def test_json_to_form_alpaca_sip(self) -> None:
+        raw = json.dumps(
+            {
+                "alpha_name": "momentum_1m",
+                "start_date": "2024-01-01",
+                "end_date": "2025-12-31",
+                "weight_method": "quantile",
+                "provider": "alpaca_sip",
+            }
+        )
+        fs = json_to_form_state(raw)
+        assert fs.provider_display_label == "Alpaca SIP (local, non-PIT)"
+
     def test_json_to_form_with_extras(self) -> None:
-        raw = json.dumps({
-            "alpha_name": "alpha1",
-            "start_date": "2024-01-01",
-            "end_date": "2024-12-31",
-            "provider": "crsp",
-            "extra_params": {
-                "universe": ["AAPL", "MSFT"],
-                "cost_model": {"enabled": True},
-                "custom_key": "secret",
-            },
-        })
+        raw = json.dumps(
+            {
+                "alpha_name": "alpha1",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "provider": "crsp",
+                "extra_params": {
+                    "universe": ["AAPL", "MSFT"],
+                    "cost_model": {"enabled": True},
+                    "custom_key": "secret",
+                },
+            }
+        )
         fs = json_to_form_state(raw)
         assert fs.universe_csv == "AAPL, MSFT"
         assert fs.cost_config == {"enabled": True}
@@ -343,9 +385,7 @@ class TestValidationWithFromDict:
         assert config.alpha_name == "momentum_1m"
         assert config.provider.value == "crsp"
 
-    def test_config_with_extras_passes_from_dict(
-        self, config_with_extras: dict[str, Any]
-    ) -> None:
+    def test_config_with_extras_passes_from_dict(self, config_with_extras: dict[str, Any]) -> None:
         from libs.trading.backtest.job_queue import BacktestJobConfig
 
         result = validate_backtest_params(config_with_extras)

@@ -1,7 +1,7 @@
 """Data Provider Protocol and Adapters.
 
 This module defines the common DataProvider protocol interface and adapter
-implementations for yfinance and CRSP providers.
+implementations for yfinance, CRSP, and Alpaca SIP providers.
 
 The protocol enables seamless switching between data sources (yfinance for
 development, CRSP for production) via configuration.
@@ -9,6 +9,7 @@ development, CRSP for production) via configuration.
 Classes:
     DataProvider: Protocol defining the common interface for all data providers.
     YFinanceDataProviderAdapter: Adapter for YFinanceProvider.
+    AlpacaSIPDataProviderAdapter: Adapter for AlpacaSIPLocalProvider.
     CRSPDataProviderAdapter: Adapter for CRSPLocalProvider.
 
 Exceptions:
@@ -32,6 +33,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import polars as pl
 
 if TYPE_CHECKING:
+    from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
     from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
     from libs.data.data_providers.yfinance_provider import YFinanceProvider
 
@@ -389,6 +391,104 @@ class YFinanceDataProviderAdapter:
             "yfinance does not support universe queries. "
             "Use CRSP provider for production universe operations.",
             provider_name="yfinance",
+            operation="get_universe",
+        )
+
+
+class AlpacaSIPDataProviderAdapter:
+    """Adapter to make AlpacaSIPLocalProvider conform to DataProvider protocol.
+
+    Alpaca SIP Phase 1 is an explicit, local, ticker-based provider. It improves
+    execution-feed parity for post-2016 research, but it does not provide a
+    point-in-time universe or survivorship guarantees.
+    """
+
+    def __init__(self, provider: AlpacaSIPLocalProvider) -> None:
+        """Initialize adapter with AlpacaSIPLocalProvider."""
+        self._provider = provider
+
+    @property
+    def name(self) -> str:
+        """Provider identifier."""
+        return "alpaca_sip"
+
+    @property
+    def is_production_ready(self) -> bool:
+        """Alpaca SIP lacks survivorship handling in Phase 1."""
+        return False
+
+    @property
+    def supports_universe(self) -> bool:
+        """Alpaca SIP has no point-in-time universe in Phase 1."""
+        return False
+
+    def get_daily_prices(
+        self,
+        symbols: list[str],
+        start_date: date,
+        end_date: date,
+    ) -> pl.DataFrame:
+        """Fetch daily prices via local Alpaca SIP parquet."""
+        if not symbols:
+            raise ValueError("symbols list cannot be empty")
+
+        df = self._provider.get_daily_prices(
+            start_date=start_date,
+            end_date=end_date,
+            symbols=symbols,
+        )
+        return self._normalize_schema(df)
+
+    def _normalize_schema(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Normalize local Alpaca SIP output to the unified schema."""
+        if df.is_empty():
+            return self._empty_result()
+
+        required_cols = ["date", "symbol", "open", "high", "low", "close", "volume"]
+        missing = [column for column in required_cols if column not in df.columns]
+        if missing:
+            raise ValueError(
+                f"DataFrame missing required columns: {missing}. Got columns: {df.columns}"
+            )
+
+        df = df.with_columns(
+            [
+                pl.col("date").cast(pl.Date),
+                pl.col("symbol").str.to_uppercase(),
+            ]
+        )
+
+        if "adj_close" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("adj_close"))
+        if "ret" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("ret"))
+
+        float_cols = ["close", "volume", "ret", "open", "high", "low", "adj_close"]
+        for column in float_cols:
+            df = df.with_columns(pl.col(column).cast(pl.Float64))
+
+        df = (
+            df.sort(["symbol", "date"])
+            .with_columns(pl.coalesce(["adj_close", "close"]).alias("__return_price"))
+            .with_columns(
+                pl.col("__return_price").pct_change().over("symbol").alias("__calculated_ret")
+            )
+            .with_columns(pl.coalesce(["ret", "__calculated_ret"]).alias("ret"))
+            .drop(["__return_price", "__calculated_ret"])
+        )
+
+        return df.select(UNIFIED_COLUMNS)
+
+    def _empty_result(self) -> pl.DataFrame:
+        """Return empty DataFrame with unified schema."""
+        return pl.DataFrame(schema=UNIFIED_SCHEMA)
+
+    def get_universe(self, as_of_date: date) -> list[str]:
+        """Not supported by Alpaca SIP in Phase 1."""
+        raise ProviderNotSupportedError(
+            "alpaca_sip does not support universe queries. "
+            "Use CRSP provider for point-in-time universe operations.",
+            provider_name="alpaca_sip",
             operation="get_universe",
         )
 

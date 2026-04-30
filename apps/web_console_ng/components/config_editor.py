@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 PROVIDER_DISPLAY: dict[str, str] = {
     "crsp": "CRSP (production)",
     "yfinance": "Yahoo Finance (dev only)",
+    "alpaca_sip": "Alpaca SIP (local, non-PIT)",
 }
 PROVIDER_DISPLAY_INVERSE: dict[str, str] = {v: k for k, v in PROVIDER_DISPLAY.items()}
 
@@ -128,8 +129,7 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
     valid_providers = set(PROVIDER_DISPLAY.keys())
     if str(provider).lower().strip() not in valid_providers:
         errors.append(
-            f"Unrecognised provider: '{provider}'. "
-            f"Must be one of: {sorted(valid_providers)}"
+            f"Unrecognised provider: '{provider}'. " f"Must be one of: {sorted(valid_providers)}"
         )
 
     # --- Universe symbol validation -------------------------------------
@@ -139,7 +139,9 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
         if universe and isinstance(universe, list):
             invalid_symbols = [s for s in universe if not SYMBOL_PATTERN.match(str(s).upper())]
             if invalid_symbols:
-                sanitized = [str(s).replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]]
+                sanitized = [
+                    str(s).replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]
+                ]
                 errors.append(
                     f"Invalid universe symbols: {', '.join(sanitized)}. "
                     "Symbols must start with a letter, be 1-10 characters "
@@ -147,12 +149,20 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
                 )
 
     # --- Provider-specific warnings ------------------------------------
-    if str(provider).lower().strip() == "yfinance":
+    normalized_provider = str(provider).lower().strip()
+    if normalized_provider == "yfinance":
         cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
         if isinstance(cost_model, dict) and cost_model.get("enabled"):
             warnings.append(
                 "Yahoo Finance provider with cost model enabled - "
                 "cost estimates may be inaccurate (no PIT ADV data)"
+            )
+    elif normalized_provider == "alpaca_sip":
+        cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
+        if isinstance(cost_model, dict) and cost_model.get("enabled"):
+            warnings.append(
+                "Alpaca SIP provider with cost model enabled - "
+                "cost computation is skipped until PIT ADV data is available"
             )
 
     return ValidationResult(errors=errors, warnings=warnings)
@@ -318,8 +328,7 @@ def render_config_editor(
 
     with container:
         ui.label(
-            "Edit backtest configuration as JSON. "
-            "Priority selector above remains active."
+            "Edit backtest configuration as JSON. " "Priority selector above remains active."
         ).classes("text-xs text-gray-500 mb-1")
 
         editor = ui.codemirror("", language="JSON").classes("w-full").style("min-height: 300px")
@@ -334,11 +343,10 @@ def render_config_editor(
         handles["warning_label"] = warning_label
 
         with ui.row().classes("gap-2 mt-2"):
+
             async def _copy_json() -> None:
                 val = editor.value or ""
-                await ui.run_javascript(
-                    f"navigator.clipboard.writeText({json.dumps(val)})"
-                )
+                await ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(val)})")
                 ui.notify("Copied to clipboard", type="positive")
 
             ui.button("Copy Config", on_click=_copy_json, icon="content_copy").props("flat")

@@ -49,6 +49,8 @@ from apps.web_console_ng.components.backtest_comparison_chart import (
     render_tracking_error_vs_baseline,
 )
 from apps.web_console_ng.components.config_editor import (
+    PROVIDER_DISPLAY,
+    PROVIDER_DISPLAY_INVERSE,
     FormState,
     form_state_to_json,
     render_config_editor,
@@ -76,6 +78,7 @@ _schema_probe_cache: WeakKeyDictionary[Any, tuple[int, bool]] = WeakKeyDictionar
 
 class _SchemaProbeUnavailableError(Exception):
     """Internal sentinel for fail-closed schema probe failures."""
+
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -126,9 +129,7 @@ def _probe_cost_summary_column_uncached(db_pool: ConnectionPool) -> bool:
     """
     conn_ctx = db_pool.connection()
     if not hasattr(conn_ctx, "__enter__") or not hasattr(conn_ctx, "__exit__"):
-        raise TypeError(
-            "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
-        )
+        raise TypeError("Backtest job queries require sync ConnectionPool from get_sync_db_pool()")
     with conn_ctx as probe_conn, probe_conn.cursor() as probe_cur:
         probe_cur.execute(probe_sql)
         row = probe_cur.fetchone()
@@ -530,11 +531,13 @@ async def _render_new_backtest_form(
                 data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
                 crsp_manifest_path = data_root / "manifests" / "crsp.json"
                 crsp_available = crsp_manifest_path.exists()
+                alpaca_manifest_path = data_root / "manifests" / "alpaca_sip_daily.json"
+                alpaca_sip_available = alpaca_manifest_path.exists()
 
                 data_provider_select = ui.select(
                     label="Data Source",
-                    options=["CRSP (production)", "Yahoo Finance (dev only)"],
-                    value="CRSP (production)",
+                    options=list(PROVIDER_DISPLAY.values()),
+                    value=PROVIDER_DISPLAY["crsp"],
                 ).classes("w-full")
                 provider_help = ui.label(
                     "CRSP is required for point-in-time backtests and universe filtering. "
@@ -542,8 +545,13 @@ async def _render_new_backtest_form(
                 ).classes("text-xs text-gray-500")
                 status_label = ui.label("").classes("text-xs")
 
+                def _provider_from_display_label(value: str | None) -> DataProvider:
+                    provider_value = PROVIDER_DISPLAY_INVERSE.get(str(value or ""), value or "")
+                    return DataProvider.from_string(str(provider_value))
+
                 def _update_provider_status(value: str) -> None:
-                    if value.startswith("CRSP"):
+                    provider_value = PROVIDER_DISPLAY_INVERSE.get(str(value), "")
+                    if provider_value == DataProvider.CRSP.value:
                         status_text = (
                             "CRSP manifest found"
                             if crsp_available
@@ -558,6 +566,22 @@ async def _render_new_backtest_form(
                         provider_help.set_text(
                             "CRSP is required for point-in-time backtests and universe filtering. "
                             "Yahoo Finance is for development only and does not support PIT checks."
+                        )
+                    elif provider_value == DataProvider.ALPACA_SIP.value:
+                        status_text = (
+                            "Alpaca SIP manifest found"
+                            if alpaca_sip_available
+                            else "Alpaca SIP manifest missing (data/manifests/alpaca_sip_daily.json)"
+                        )
+                        status_label.set_text(status_text)
+                        safe_classes(
+                            status_label,
+                            replace="text-xs "
+                            + ("text-green-600" if alpaca_sip_available else "text-amber-600"),
+                        )
+                        provider_help.set_text(
+                            "Alpaca SIP uses local synced SIP bars for execution-feed parity. "
+                            "It is non-PIT in this phase and requires an explicit symbol universe."
                         )
                     else:
                         status_label.set_text("Yahoo Finance uses cached data in data/yfinance")
@@ -623,11 +647,11 @@ async def _render_new_backtest_form(
                 ui.label("End Date").classes("text-sm text-gray-500 -mt-2")
 
                 universe_input = ui.input(
-                    label="Yahoo Universe (comma-separated tickers)",
+                    label="Symbol Universe (comma-separated tickers)",
                     placeholder="AAPL, MSFT, NVDA",
                 ).classes("w-full")
                 ui.label(
-                    "Only used for Yahoo Finance. Leave blank to use a small default universe."
+                    "Used for Yahoo Finance and Alpaca SIP. Leave blank to use a small default universe."
                 ).classes("text-xs text-gray-500 -mt-2")
 
             # Right column
@@ -714,8 +738,13 @@ async def _render_new_backtest_form(
             if not cost_enabled.value:
                 return None
             # Set adv_source based on provider to accurately represent data provenance
-            # CRSP provider uses PIT-compliant CRSP ADV data; Yahoo uses yahoo data
-            adv_source = "crsp" if provider == DataProvider.CRSP else "yahoo"
+            # CRSP provider uses PIT-compliant CRSP ADV data; non-PIT providers are skipped.
+            if provider == DataProvider.CRSP:
+                adv_source = "crsp"
+            elif provider == DataProvider.ALPACA_SIP:
+                adv_source = "alpaca"
+            else:
+                adv_source = "yahoo"
             # Let the backend handle None values and type coercion.
             # The UI provides the participation limit in %, so we convert it to a fraction.
             part_limit_val = participation_limit_input.value
@@ -734,7 +763,7 @@ async def _render_new_backtest_form(
         def _get_form_json() -> str:
             """Serialize current form state to JSON for the editor."""
             selected_provider = data_provider_select.value
-            dp = DataProvider.CRSP if selected_provider.startswith("CRSP") else DataProvider.YFINANCE
+            dp = _provider_from_display_label(selected_provider)
             return form_state_to_json(
                 alpha_name=alpha_select.value or "",
                 start_date=start_date_input.value or "",
@@ -771,6 +800,7 @@ async def _render_new_backtest_form(
                 return
 
             try:
+
                 def submit_sync() -> Any:
                     queue = _get_job_queue()
                     logger.info(
@@ -790,7 +820,9 @@ async def _render_new_backtest_form(
                     type="positive",
                 )
             except (ConnectionError, OSError) as e:
-                logger.error("backtest_submit_db_connection_failed", extra={"error": str(e)}, exc_info=True)
+                logger.error(
+                    "backtest_submit_db_connection_failed", extra={"error": str(e)}, exc_info=True
+                )
                 ui.notify("Failed to submit backtest: Database connection error", type="negative")
             except (ValueError, TypeError) as e:
                 logger.error("backtest_submit_data_error", extra={"error": str(e)}, exc_info=True)
@@ -840,12 +872,10 @@ async def _render_new_backtest_form(
         async def submit_job() -> None:
             ui.notify("Submitting backtest...", type="info")
             selected_provider = data_provider_select.value
-            data_provider = (
-                DataProvider.CRSP if selected_provider.startswith("CRSP") else DataProvider.YFINANCE
-            )
+            data_provider = _provider_from_display_label(selected_provider)
 
             universe: list[str] | None = None
-            if data_provider == DataProvider.YFINANCE:
+            if data_provider in (DataProvider.YFINANCE, DataProvider.ALPACA_SIP):
                 raw_universe_value = universe_input.value
                 raw_universe = ""
                 if raw_universe_value is not None:
@@ -919,10 +949,10 @@ async def _render_new_backtest_form(
             # Add cost model configuration if enabled (T9.2)
             cost_config = build_cost_config(data_provider)
             if cost_config is not None:
-                if data_provider == DataProvider.YFINANCE:
-                    # Warn user that cost model will be skipped for Yahoo
+                if data_provider != DataProvider.CRSP:
+                    # Warn user that cost model will be skipped for non-PIT providers.
                     ui.notify(
-                        "Cost model enabled but Yahoo Finance lacks PIT ADV data. "
+                        "Cost model enabled but the selected provider lacks PIT ADV data. "
                         "Cost calculations will be skipped. Use CRSP for cost analysis.",
                         type="warning",
                     )
@@ -1263,8 +1293,7 @@ async def _render_backtest_results(
                 if any_missing_net:
                     active_basis = "gross"
                     ui.notify(
-                        "Some backtests lack cost model data; "
-                        "showing gross returns for all.",
+                        "Some backtests lack cost model data; " "showing gross returns for all.",
                         type="warning",
                     )
 
@@ -1338,12 +1367,16 @@ async def _render_backtest_results(
                 status_icon = (
                     "check_circle"
                     if job["status"] == "completed"
-                    else "cancel" if job["status"] == "failed" else "warning"
+                    else "cancel"
+                    if job["status"] == "failed"
+                    else "warning"
                 )
                 status_color = (
                     "text-green-600"
                     if job["status"] == "completed"
-                    else "text-red-600" if job["status"] == "failed" else "text-yellow-600"
+                    else "text-red-600"
+                    if job["status"] == "failed"
+                    else "text-yellow-600"
                 )
 
                 with ui.expansion(
@@ -1388,11 +1421,14 @@ async def _render_backtest_results(
                                 except Exception:  # noqa: BLE001 - best-effort cache
                                     async_redis = None
                                     logger.warning(
-                                        "async_redis_unavailable_for_result", exc_info=True,
+                                        "async_redis_unavailable_for_result",
+                                        exc_info=True,
                                     )
 
                                 data_access = StrategyScopedDataAccess(
-                                    async_pool, async_redis, user,
+                                    async_pool,
+                                    async_redis,
+                                    user,
                                 )
                                 storage = BacktestResultStorage(db_pool)
                                 service = BacktestAnalyticsService(data_access, storage)
@@ -1400,7 +1436,10 @@ async def _render_backtest_results(
                                 _render_backtest_result(result, user)
                                 # Live vs Backtest Overlay (T12.3)
                                 await _render_live_overlay_section(
-                                    result, job_id, user, db_pool,
+                                    result,
+                                    job_id,
+                                    user,
+                                    db_pool,
                                 )
                             except PermissionError:
                                 ui.notify("Result not found or access denied", type="negative")
@@ -2229,9 +2268,9 @@ async def _render_live_overlay_section(
 
     ui.separator().classes("my-4")
     with ui.expansion("Live vs Backtest Overlay", icon="compare_arrows").classes("w-full"):
-        ui.label(
-            "Compare live trading returns against this backtest's expected returns."
-        ).classes("text-xs text-gray-500 mb-2")
+        ui.label("Compare live trading returns against this backtest's expected returns.").classes(
+            "text-xs text-gray-500 mb-2"
+        )
 
         overlay_strat_select = ui.select(
             label="Strategy (live data source)",
@@ -2290,7 +2329,9 @@ async def _render_live_overlay_section(
             _end = _to_date(result.end_date)
             try:
                 live_rows = await data_access.get_portfolio_returns(
-                    strat_id, _start, _end,
+                    strat_id,
+                    _start,
+                    _end,
                 )
             except PermissionError:
                 ui.notify("Not authorized for this strategy", type="negative")
@@ -2318,7 +2359,9 @@ async def _render_live_overlay_section(
                 render_live_vs_backtest_overlay(overlay_res, bt_basis)
 
         ui.button(
-            "Load Overlay", on_click=_load_overlay, color="primary",
+            "Load Overlay",
+            on_click=_load_overlay,
+            color="primary",
         ).classes("mt-2")
 
 

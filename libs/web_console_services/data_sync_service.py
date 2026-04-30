@@ -25,7 +25,7 @@ from .schemas.data_management import (
     SyncStatusDTO,
 )
 
-_SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french")
+_SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
 
 
 class RateLimitExceeded(RuntimeError):

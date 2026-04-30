@@ -85,6 +85,7 @@ class SimpleBacktester:
         self,
         data_fetcher: UnifiedDataFetcher,
         metrics_adapter: AlphaMetricsAdapter | None = None,
+        dataset_version_ids: dict[str, str] | None = None,
     ) -> None:
         """Initialize SimpleBacktester.
 
@@ -92,13 +93,27 @@ class SimpleBacktester:
             data_fetcher: Configured UnifiedDataFetcher for price data access.
             metrics_adapter: Alpha metrics adapter for IC/ICIR computation.
                 Defaults to a new AlphaMetricsAdapter instance if not provided.
+            dataset_version_ids: Optional provider-specific reproducibility
+                metadata to include in result metadata and snapshot hashing.
         """
         self._fetcher = data_fetcher
         self._metrics = metrics_adapter or AlphaMetricsAdapter()
+        self._dataset_version_ids = dict(dataset_version_ids or {})
         self._symbol_map: dict[str, int] = {}
         self._permno_map: dict[int, str] = {}
         self._next_permno = 1
         self._prices_cache: pl.DataFrame | None = None
+
+    def _build_dataset_version_ids(self, provider_name: str) -> dict[str, str]:
+        """Build reproducibility metadata for non-PIT providers."""
+        dataset_version_ids = {
+            "provider_type": provider_name,
+            "provider": provider_name,
+            "version": "N/A",  # Non-PIT local/dev providers may override this.
+            "pit_compliant": "false",
+        }
+        dataset_version_ids.update(self._dataset_version_ids)
+        return dataset_version_ids
 
     def _get_permno(self, symbol: str) -> int:
         """Get or create pseudo-permno for a symbol.
@@ -331,12 +346,15 @@ class SimpleBacktester:
             decay_horizons = [1, 2, 5, 10, 20, 60]
 
         backtest_id = str(uuid.uuid4())
+        provider_name = self._fetcher.get_active_provider()
+        dataset_version_ids = self._build_dataset_version_ids(provider_name)
         # Deterministic snapshot_id for reproducibility (hash of config, not timestamp)
         snapshot_content = (
-            f"{alpha.name}|{start_date}|{end_date}|{sorted(universe)}|{weight_method}"
+            f"{provider_name}|{alpha.name}|{start_date}|{end_date}|"
+            f"{sorted(universe)}|{weight_method}|{sorted(dataset_version_ids.items())}"
         )
         snapshot_hash = hashlib.sha256(snapshot_content.encode()).hexdigest()[:16]
-        snapshot_id = f"yfinance-simple-{snapshot_hash}"
+        snapshot_id = f"{provider_name}-simple-{snapshot_hash}"
         logger.info("Starting simple backtest %s for %s", backtest_id, alpha.name)
 
         last_callback_time = time.monotonic()
@@ -529,12 +547,7 @@ class SimpleBacktester:
             # Deterministic snapshot_id for reproducibility
             snapshot_id=snapshot_id,
             # Clear API: provider_type distinguishes from PIT version hashes
-            dataset_version_ids={
-                "provider_type": "yfinance",
-                "provider": self._fetcher.get_active_provider(),
-                "version": "N/A",  # Yahoo Finance has no versioning
-                "pit_compliant": "false",
-            },
+            dataset_version_ids=dataset_version_ids,
             daily_signals=daily_signals,
             daily_ic=daily_ic,
             mean_ic=mean_ic,

@@ -21,11 +21,13 @@ from psycopg_pool import ConnectionPool
 from redis import Redis
 from rq import get_current_job
 
+from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
 from libs.data.data_providers.compustat_local_provider import CompustatLocalProvider
 from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
 from libs.data.data_providers.unified_fetcher import FetcherConfig, ProviderType, UnifiedDataFetcher
 from libs.data.data_providers.yfinance_provider import YFinanceProvider
-from libs.data.data_quality.manifest import ManifestManager
+from libs.data.data_quality.exceptions import DataNotFoundError
+from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 from libs.data.data_quality.versioning import DatasetVersionManager
 from libs.trading.alpha.alpha_library import create_alpha
 from libs.trading.alpha.exceptions import JobCancelled
@@ -46,6 +48,97 @@ from libs.trading.backtest.result_storage import (
     serialize_walk_forward,
 )
 from libs.trading.backtest.walk_forward import WalkForwardConfig, WalkForwardResult
+
+ENV_NORMALIZATION = {
+    "dev": "development",
+    "development": "development",
+    "testing": "test",
+    "test": "test",
+    "local": "development",
+    "ci": "development",
+}
+ALLOWED_NON_PIT_ENVIRONMENTS = frozenset(ENV_NORMALIZATION.keys())
+DEFAULT_NON_PIT_UNIVERSE: tuple[str, ...] = (
+    "SPY",
+    "QQQ",
+    "IWM",
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "NVDA",
+    "META",
+    "TSLA",
+)
+
+
+def _resolve_non_pit_environment(provider_name: str) -> str:
+    """Resolve and validate the environment for non-PIT providers."""
+    raw_environment = os.getenv("ENVIRONMENT", "").lower().strip()
+    if not raw_environment:
+        raise ValueError(
+            f"ENVIRONMENT variable must be explicitly set to use {provider_name} provider. "
+            "Valid development environments: development, test, local, ci. "
+            "Use CRSP for production backtests."
+        )
+
+    if raw_environment not in ALLOWED_NON_PIT_ENVIRONMENTS:
+        raise ValueError(
+            f"{provider_name} provider is only allowed in development environments "
+            f"({', '.join(sorted(ALLOWED_NON_PIT_ENVIRONMENTS))}). "
+            f"Current environment: '{raw_environment}'. "
+            "Use CRSP for production backtests."
+        )
+
+    return ENV_NORMALIZATION[raw_environment]
+
+
+def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
+    """Normalize explicit or default ticker universe for non-PIT backtests."""
+    raw_universe: str | list[str] | tuple[str, ...] | None = extra_params.get(
+        "universe", DEFAULT_NON_PIT_UNIVERSE
+    )
+
+    if isinstance(raw_universe, str):
+        universe = [symbol.strip().upper() for symbol in raw_universe.split(",") if symbol.strip()]
+    elif isinstance(raw_universe, list | tuple):
+        universe = [
+            symbol.strip().upper()
+            for symbol in raw_universe
+            if isinstance(symbol, str) and symbol.strip()
+        ]
+    else:
+        universe = []
+
+    if not universe:
+        raise ValueError("Universe cannot be empty after normalization")
+
+    return universe
+
+
+def _load_alpaca_sip_manifest(manifest_manager: ManifestManager) -> SyncManifest:
+    """Load the exact Alpaca SIP manifest to pin for one backtest."""
+    manifest = manifest_manager.load_manifest(AlpacaSIPLocalProvider.DATASET_NAME)
+    if manifest is None:
+        raise DataNotFoundError(
+            f"No manifest found for '{AlpacaSIPLocalProvider.DATASET_NAME}'. "
+            "Run Alpaca SIP sync first."
+        )
+    return manifest
+
+
+def _alpaca_sip_dataset_version_ids(manifest: SyncManifest) -> dict[str, str]:
+    """Build metadata required to reproduce Alpaca SIP simple backtests."""
+    return {
+        "version": f"manifest-v{manifest.manifest_version}",
+        "alpaca_sip_daily_dataset": manifest.dataset,
+        "alpaca_sip_daily_manifest_version": str(manifest.manifest_version),
+        "alpaca_sip_daily_checksum": manifest.checksum,
+        "alpaca_sip_daily_schema_version": manifest.schema_version,
+        "alpaca_sip_daily_start_date": manifest.start_date.isoformat(),
+        "alpaca_sip_daily_end_date": manifest.end_date.isoformat(),
+        "alpaca_sip_daily_row_count": str(manifest.row_count),
+    }
 
 
 class BacktestWorker:
@@ -439,100 +532,75 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     ),
                     cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
                 )
-            elif job_config.provider == DataProvider.YFINANCE:
-                # Simple Backtest Path (Yahoo Finance) - development/testing only
-                # SECURITY: Fail-closed production guard - yfinance has no PIT guarantees
-                # and could introduce look-ahead bias in production backtests.
-                raw_environment = os.getenv("ENVIRONMENT", "").lower().strip()
+            elif job_config.provider in (DataProvider.YFINANCE, DataProvider.ALPACA_SIP):
+                # Simple Backtest Path for non-PIT providers.
+                # SECURITY: fail closed because these providers do not have PIT universes.
+                provider_label = (
+                    "Yahoo Finance"
+                    if job_config.provider == DataProvider.YFINANCE
+                    else "Alpaca SIP"
+                )
+                environment = _resolve_non_pit_environment(provider_label)
+                simple_dataset_version_ids: dict[str, str] | None = None
 
-                # Fail-closed: ENVIRONMENT must be explicitly set to a dev environment
-                if not raw_environment:
-                    raise ValueError(
-                        "ENVIRONMENT variable must be explicitly set to use Yahoo Finance provider. "
-                        "Valid development environments: development, test, local, ci. "
-                        "Use CRSP for production backtests."
+                if job_config.provider == DataProvider.YFINANCE:
+                    yfinance_env_path = os.getenv("YFINANCE_DATA_DIR", "").strip()
+                    if yfinance_env_path:
+                        yfinance_storage = Path(yfinance_env_path)
+                    else:
+                        default_path = data_root / "yfinance"
+                        try:
+                            default_path.mkdir(parents=True, exist_ok=True)
+                            yfinance_storage = default_path
+                        except OSError:
+                            # Fall back to a writable backtest results directory
+                            yfinance_storage = data_root.parent / "backtest_results" / "yfinance"
+
+                    yf_provider = YFinanceProvider(
+                        storage_path=yfinance_storage,
+                        environment=environment,
+                    )
+                    fetcher_config = FetcherConfig(
+                        provider=ProviderType.YFINANCE,
+                        yfinance_storage_path=yfinance_storage,
+                        environment=environment,
+                    )
+                    fetcher = UnifiedDataFetcher(fetcher_config, yfinance_provider=yf_provider)
+                else:
+                    alpaca_env_path = (
+                        os.getenv("ALPACA_SIP_DATA_DIR", "").strip()
+                        or os.getenv("ALPACA_SIP_STORAGE_PATH", "").strip()
+                    )
+                    alpaca_storage = (
+                        Path(alpaca_env_path)
+                        if alpaca_env_path
+                        else data_root / "alpaca" / "sip" / "daily"
+                    )
+                    manifest_manager = ManifestManager(data_root=data_root)
+                    alpaca_manifest = _load_alpaca_sip_manifest(manifest_manager)
+                    simple_dataset_version_ids = _alpaca_sip_dataset_version_ids(alpaca_manifest)
+                    alpaca_provider = AlpacaSIPLocalProvider(
+                        storage_path=alpaca_storage,
+                        manifest_manager=manifest_manager,
+                        data_root=data_root,
+                        pinned_manifest=alpaca_manifest,
+                    )
+                    fetcher_config = FetcherConfig(
+                        provider=ProviderType.ALPACA_SIP,
+                        alpaca_sip_storage_path=alpaca_storage,
+                        environment=environment,
+                    )
+                    fetcher = UnifiedDataFetcher(
+                        fetcher_config,
+                        alpaca_sip_provider=alpaca_provider,
                     )
 
-                # Normalize environment names to FetcherConfig vocabulary
-                # FetcherConfig accepts: development, test, staging, production
-                # Worker allowlist (user-facing): dev, development, testing, test, local, ci
-                ENV_NORMALIZATION = {
-                    "dev": "development",
-                    "development": "development",
-                    "testing": "test",
-                    "test": "test",
-                    "local": "development",
-                    "ci": "development",
-                }
-                ALLOWED_DEV_ENVIRONMENTS = frozenset(ENV_NORMALIZATION.keys())
-
-                if raw_environment not in ALLOWED_DEV_ENVIRONMENTS:
-                    raise ValueError(
-                        f"Yahoo Finance provider is only allowed in development environments "
-                        f"({', '.join(sorted(ALLOWED_DEV_ENVIRONMENTS))}). "
-                        f"Current environment: '{raw_environment}'. "
-                        "Use CRSP for production backtests."
-                    )
-
-                # Normalize to FetcherConfig vocabulary
-                environment = ENV_NORMALIZATION[raw_environment]
-
-                yfinance_env_path = os.getenv("YFINANCE_DATA_DIR", "").strip()
-                if yfinance_env_path:
-                    yfinance_storage = Path(yfinance_env_path)
-                else:
-                    default_path = data_root / "yfinance"
-                    try:
-                        default_path.mkdir(parents=True, exist_ok=True)
-                        yfinance_storage = default_path
-                    except OSError:
-                        # Fall back to a writable backtest results directory
-                        yfinance_storage = data_root.parent / "backtest_results" / "yfinance"
-
-                yf_provider = YFinanceProvider(
-                    storage_path=yfinance_storage,
-                    environment=environment,
+                simple_backtester = SimpleBacktester(
+                    fetcher,
+                    metrics_adapter,
+                    dataset_version_ids=simple_dataset_version_ids,
                 )
-                fetcher_config = FetcherConfig(
-                    provider=ProviderType.YFINANCE,
-                    yfinance_storage_path=yfinance_storage,  # Use same path for consistency
-                    environment=environment,
-                )
-                fetcher = UnifiedDataFetcher(fetcher_config, yfinance_provider=yf_provider)
-
-                simple_backtester = SimpleBacktester(fetcher, metrics_adapter)
-
-                # Default universe if not provided (immutable tuple to prevent accidental modification)
-                DEFAULT_YFINANCE_UNIVERSE: tuple[str, ...] = (
-                    "SPY",
-                    "QQQ",
-                    "IWM",
-                    "AAPL",
-                    "MSFT",
-                    "GOOGL",
-                    "AMZN",
-                    "NVDA",
-                    "META",
-                    "TSLA",
-                )
-                raw_universe: str | list[str] | tuple[str, ...] | None = (
-                    job_config.extra_params.get("universe", DEFAULT_YFINANCE_UNIVERSE)
-                )
-
-                # Normalize universe input: strip whitespace, uppercase, filter empties
-                if isinstance(raw_universe, str):
-                    universe: list[str] = [
-                        s.strip().upper() for s in raw_universe.split(",") if s.strip()
-                    ]
-                elif isinstance(raw_universe, list | tuple):
-                    universe = [
-                        s.strip().upper() for s in raw_universe if isinstance(s, str) and s.strip()
-                    ]
-                else:
-                    universe = []
-
-                if not universe:
-                    raise ValueError("Universe cannot be empty after normalization")
+                universe = _resolve_symbol_universe(job_config.extra_params)
 
                 result = simple_backtester.run_backtest(
                     alpha=alpha,
@@ -616,12 +684,16 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                             result.dataset_version_ids["cost_data_source"] = "crsp"
                             result.dataset_version_ids["cost_data_version"] = crsp_version
 
-                elif cost_config is not None and job_config.provider == DataProvider.YFINANCE:
-                    # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
+                elif cost_config is not None and job_config.provider in (
+                    DataProvider.YFINANCE,
+                    DataProvider.ALPACA_SIP,
+                ):
+                    # For non-PIT providers, costs are not computed without PIT ADV/volatility.
                     worker.logger.info(
-                        "cost_model_skipped_yfinance",
+                        "cost_model_skipped_non_pit_provider",
                         job_id=job_id,
-                        reason="Yahoo Finance does not provide PIT-compliant ADV/volatility",
+                        provider=job_config.provider.value,
+                        reason="Provider does not provide PIT-compliant ADV/volatility",
                     )
 
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)

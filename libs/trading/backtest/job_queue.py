@@ -38,10 +38,12 @@ class DataProvider(str, Enum):
 
     CRSP: Production-grade point-in-time data (recommended for real backtests).
     YFINANCE: Development/testing only - no PIT compliance, limited universe.
+    ALPACA_SIP: Local Alpaca SIP bars - explicit non-PIT execution-feed parity.
     """
 
     CRSP = "crsp"
     YFINANCE = "yfinance"
+    ALPACA_SIP = "alpaca_sip"
 
     @classmethod
     def from_string(cls, value: str) -> DataProvider:

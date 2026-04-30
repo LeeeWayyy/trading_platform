@@ -1,7 +1,8 @@
 """Unified Data Fetcher.
 
 This module provides a unified interface for fetching market data from
-different providers (yfinance for development, CRSP for production).
+different providers (yfinance for development, CRSP for production, Alpaca SIP
+for explicit execution-feed-parity research).
 
 Classes:
     ProviderType: Enum of available provider types.
@@ -38,6 +39,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from libs.data.data_providers.protocols import (
+    AlpacaSIPDataProviderAdapter,
     ConfigurationError,
     CRSPDataProviderAdapter,
     DataProvider,
@@ -48,6 +50,7 @@ from libs.data.data_providers.protocols import (
 )
 
 if TYPE_CHECKING:
+    from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
     from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
     from libs.data.data_providers.yfinance_provider import YFinanceProvider
 
@@ -60,11 +63,13 @@ class ProviderType(str, Enum):
     Values:
         YFINANCE: Free data for development (NOT for production).
         CRSP: Production-ready academic data from WRDS.
+        ALPACA_SIP: Local Alpaca SIP bars for explicit research/backtests.
         AUTO: Automatically select based on environment and availability.
     """
 
     YFINANCE = "yfinance"
     CRSP = "crsp"
+    ALPACA_SIP = "alpaca_sip"
     AUTO = "auto"
 
 
@@ -81,15 +86,17 @@ class FetcherConfig:
         environment: Current environment (development, test, staging, production).
         yfinance_storage_path: Path to yfinance cache directory.
         crsp_storage_path: Path to CRSP data directory.
+        alpaca_sip_storage_path: Path to local Alpaca SIP daily parquet files.
         manifest_path: Path to data manifests directory.
         fallback_enabled: Whether to fallback to yfinance if CRSP unavailable.
             CRITICAL: Forced to False in production environment.
 
     Environment Variables:
-        DATA_PROVIDER: auto|yfinance|crsp (default: auto)
+        DATA_PROVIDER: auto|yfinance|crsp|alpaca_sip (default: auto)
         ENVIRONMENT: development|test|staging|production (default: development)
         YFINANCE_STORAGE_PATH: Path to yfinance cache
         CRSP_STORAGE_PATH: Path to CRSP data
+        ALPACA_SIP_STORAGE_PATH: Path to Alpaca SIP daily parquet
         MANIFEST_PATH: Path to data manifests
         FALLBACK_ENABLED: true|false (ignored in production)
     """
@@ -98,6 +105,7 @@ class FetcherConfig:
     environment: str = "development"
     yfinance_storage_path: Path | None = None
     crsp_storage_path: Path | None = None
+    alpaca_sip_storage_path: Path | None = None
     manifest_path: Path | None = None
     fallback_enabled: bool = True
 
@@ -133,12 +141,14 @@ class FetcherConfig:
         Validation Rules:
             1. If yfinance_storage_path is set, it must exist and be a directory.
             2. If crsp_storage_path is set, it must exist and be a directory.
-            3. If manifest_path is set, it must exist and be a directory.
-            4. Paths are only validated if they are configured (None = skip).
+            3. If alpaca_sip_storage_path is set, it must exist and be a directory.
+            4. If manifest_path is set, it must exist and be a directory.
+            5. Paths are only validated if they are configured (None = skip).
         """
         paths_to_check = [
             ("yfinance_storage_path", self.yfinance_storage_path),
             ("crsp_storage_path", self.crsp_storage_path),
+            ("alpaca_sip_storage_path", self.alpaca_sip_storage_path),
             ("manifest_path", self.manifest_path),
         ]
 
@@ -157,10 +167,11 @@ class FetcherConfig:
         """Load config from environment variables.
 
         Environment Variables:
-            DATA_PROVIDER: auto|yfinance|crsp (default: auto)
+            DATA_PROVIDER: auto|yfinance|crsp|alpaca_sip (default: auto)
             ENVIRONMENT: development|test|staging|production (default: development)
             YFINANCE_STORAGE_PATH: Path to yfinance cache
             CRSP_STORAGE_PATH: Path to CRSP data
+            ALPACA_SIP_STORAGE_PATH: Path to Alpaca SIP daily parquet
             MANIFEST_PATH: Path to data manifests
             FALLBACK_ENABLED: true|false (ignored in production)
 
@@ -197,6 +208,10 @@ class FetcherConfig:
         if p := os.getenv("CRSP_STORAGE_PATH"):
             crsp_path = Path(p)
 
+        alpaca_sip_path = None
+        if p := os.getenv("ALPACA_SIP_STORAGE_PATH"):
+            alpaca_sip_path = Path(p)
+
         manifest_path = None
         if p := os.getenv("MANIFEST_PATH"):
             manifest_path = Path(p)
@@ -206,6 +221,7 @@ class FetcherConfig:
             environment=env,
             yfinance_storage_path=yfinance_path,
             crsp_storage_path=crsp_path,
+            alpaca_sip_storage_path=alpaca_sip_path,
             manifest_path=manifest_path,
             fallback_enabled=fallback,
         )
@@ -215,7 +231,7 @@ class UnifiedDataFetcher:
     """Unified interface for fetching market data.
 
     Provides a single entry point for data access, abstracting the
-    underlying provider (yfinance, CRSP, etc.).
+    underlying provider (yfinance, CRSP, Alpaca SIP, etc.).
 
     Provider Selection Rules (EXPLICIT):
 
@@ -223,7 +239,7 @@ class UnifiedDataFetcher:
        - Production: CRSP required, NO fallback, error if unavailable
        - Development/Test: CRSP preferred, fallback to yfinance if enabled
 
-    2. Explicit mode (YFINANCE or CRSP):
+    2. Explicit mode (YFINANCE, CRSP, or ALPACA_SIP):
        - Use specified provider
        - Error if unavailable (no fallback)
 
@@ -252,6 +268,7 @@ class UnifiedDataFetcher:
         config: FetcherConfig,
         yfinance_provider: YFinanceProvider | None = None,
         crsp_provider: CRSPLocalProvider | None = None,
+        alpaca_sip_provider: AlpacaSIPLocalProvider | None = None,
     ) -> None:
         """Initialize UnifiedDataFetcher.
 
@@ -259,6 +276,7 @@ class UnifiedDataFetcher:
             config: Fetcher configuration.
             yfinance_provider: Optional YFinanceProvider instance.
             crsp_provider: Optional CRSPLocalProvider instance.
+            alpaca_sip_provider: Optional AlpacaSIPLocalProvider instance.
 
         Note:
             At least one provider should be supplied for the fetcher to work.
@@ -272,6 +290,10 @@ class UnifiedDataFetcher:
             self._adapters[ProviderType.YFINANCE] = YFinanceDataProviderAdapter(yfinance_provider)
         if crsp_provider is not None:
             self._adapters[ProviderType.CRSP] = CRSPDataProviderAdapter(crsp_provider)
+        if alpaca_sip_provider is not None:
+            self._adapters[ProviderType.ALPACA_SIP] = AlpacaSIPDataProviderAdapter(
+                alpaca_sip_provider
+            )
 
         logger.info(
             "UnifiedDataFetcher initialized",
@@ -335,9 +357,17 @@ class UnifiedDataFetcher:
                 )
             return crsp
 
-        # Development/Test: prefer CRSP, fallback to yfinance if enabled
+        # Development/Test: prefer CRSP, then yfinance fallback if enabled.
+        # Alpaca SIP is explicit-only because it is ticker-based and non-PIT.
         if ProviderType.CRSP in self._adapters:
             return self._adapters[ProviderType.CRSP]
+
+        if require_universe:
+            raise ProviderNotSupportedError(
+                "Universe queries require CRSP provider. "
+                "Available providers do not support universe operations.",
+                operation="get_universe",
+            )
 
         if self._config.fallback_enabled and ProviderType.YFINANCE in self._adapters:
             yf = self._adapters[ProviderType.YFINANCE]

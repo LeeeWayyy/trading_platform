@@ -401,6 +401,74 @@ class TestResultMetadata:
         # Check snapshot_id format
         assert result.snapshot_id.startswith("yfinance-simple-")
 
+    def test_alpaca_sip_manifest_metadata_changes_snapshot_id(self, mock_fetcher, mock_metrics):
+        """Test that Alpaca SIP manifest metadata is stamped into reproducibility data."""
+        mock_fetcher.get_active_provider.return_value = "alpaca_sip"
+        dates = [date(2024, 1, i) for i in range(1, 15)]
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": d,
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 95.0,
+                    "close": 102.0,
+                    "adj_close": 102.0,
+                    "volume": 1000000,
+                }
+                for d in dates
+            ]
+        )
+        mock_alpha = MagicMock()
+        mock_alpha.name = "test_alpha"
+        mock_alpha.compute.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 1)],
+                "permno": [1],
+                "signal": [0.5],
+            }
+        )
+
+        def run_with_checksum(checksum: str):
+            backtester = SimpleBacktester(
+                mock_fetcher,
+                mock_metrics,
+                dataset_version_ids={
+                    "version": "manifest-v7",
+                    "alpaca_sip_daily_manifest_version": "7",
+                    "alpaca_sip_daily_checksum": checksum,
+                    "alpaca_sip_daily_schema_version": "v1.0.0",
+                },
+            )
+            with patch.object(
+                backtester,
+                "_compute_forward_returns",
+                return_value=pl.DataFrame(
+                    {
+                        "permno": [1],
+                        "return": [0.01],
+                        "date": [date(2024, 1, 1)],
+                    }
+                ),
+            ):
+                return backtester.run_backtest(
+                    alpha=mock_alpha,
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 5),
+                    universe=["AAPL"],
+                )
+
+        result = run_with_checksum("checksum-a")
+        changed = run_with_checksum("checksum-b")
+
+        assert result.dataset_version_ids["provider_type"] == "alpaca_sip"
+        assert result.dataset_version_ids["version"] == "manifest-v7"
+        assert result.dataset_version_ids["alpaca_sip_daily_manifest_version"] == "7"
+        assert result.dataset_version_ids["alpaca_sip_daily_checksum"] == "checksum-a"
+        assert result.snapshot_id.startswith("alpaca_sip-simple-")
+        assert changed.snapshot_id != result.snapshot_id
+
 
 class TestCallbacks:
     """Tests for progress and cancellation callbacks."""

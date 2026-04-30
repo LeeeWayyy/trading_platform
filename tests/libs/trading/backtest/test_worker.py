@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 import types
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -2373,8 +2374,12 @@ class TestArtifactWriting:
 
             def __init__(self):
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64", "signal": "Float64",
-                    "weight": "Float64", "ic": "Float64", "rank_ic": "Float64",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "signal": "Float64",
+                    "weight": "Float64",
+                    "ic": "Float64",
+                    "rank_ic": "Float64",
                 }
 
             def __getitem__(self, key):
@@ -2450,8 +2455,12 @@ class TestArtifactWriting:
 
             def __init__(self):
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64", "signal": "Float64",
-                    "weight": "Float64", "ic": "Float64", "rank_ic": "Float64",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "signal": "Float64",
+                    "weight": "Float64",
+                    "ic": "Float64",
+                    "rank_ic": "Float64",
                 }
 
             def __getitem__(self, key):
@@ -2476,29 +2485,38 @@ class TestArtifactWriting:
 
         class DummyReturnsDF(DummyDF):
             """daily_returns with symbol column."""
+
             def __init__(self):
                 self.columns = ["date", "permno", "return", "symbol"]
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64",
-                    "return": "Float64", "symbol": "Utf8",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "return": "Float64",
+                    "symbol": "Utf8",
                 }
 
         class DummyPricesDF(DummyDF):
             """daily_prices with symbol column."""
+
             def __init__(self):
                 self.columns = ["date", "permno", "price", "symbol"]
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64",
-                    "price": "Float64", "symbol": "Utf8",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "price": "Float64",
+                    "symbol": "Utf8",
                 }
 
         class DummyNetReturnsDF(DummyDF):
             """net_returns_df for cost model output."""
+
             def __init__(self):
                 self.columns = ["date", "gross_return", "cost_drag", "net_return"]
                 self.dtype_map = {
-                    "date": "Date", "gross_return": "Float64",
-                    "cost_drag": "Float64", "net_return": "Float64",
+                    "date": "Date",
+                    "gross_return": "Float64",
+                    "cost_drag": "Float64",
+                    "net_return": "Float64",
                 }
 
         class DummyPolars(types.SimpleNamespace):
@@ -2523,7 +2541,9 @@ class TestArtifactWriting:
         )
 
         path = worker_module._save_parquet_artifacts(
-            "jid", bt_result, net_returns_df=DummyNetReturnsDF(),  # type: ignore[arg-type]
+            "jid",
+            bt_result,
+            net_returns_df=DummyNetReturnsDF(),  # type: ignore[arg-type]
         )
 
         assert (path / "daily_returns.parquet").exists()
@@ -2670,7 +2690,10 @@ class TestArtifactWriting:
         )
 
         worker_module._save_result_to_db(
-            conn, "jid", result, Path("p"),
+            conn,
+            "jid",
+            result,
+            Path("p"),
             cost_config=cost_config,  # type: ignore[arg-type]
             cost_summary=cost_summary,  # type: ignore[arg-type]
         )
@@ -2937,11 +2960,19 @@ class TestYFinanceEdgeCases:
 
             def run_backtest(self, *args, **kwargs):
                 return types.SimpleNamespace(
-                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
-                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
-                    snapshot_id="snap", dataset_version_ids={"ds": 1},
-                    daily_signals=MagicMock(), daily_weights=MagicMock(),
-                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
                 )
 
         redis_pipeline = MagicMock()
@@ -2979,6 +3010,222 @@ class TestYFinanceEdgeCases:
 
         assert len(captured_storage) == 1
         assert str(captured_storage[0]) == str(tmp_path / "custom_yf")
+
+    @pytest.mark.unit()
+    def test_alpaca_sip_custom_data_dir(self, monkeypatch, tmp_path):
+        """Test that ALPACA_SIP_DATA_DIR is used for Alpaca SIP jobs."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+        monkeypatch.setenv("ALPACA_SIP_DATA_DIR", str(tmp_path / "custom_sip"))
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        captured_storage = []
+        captured_universe = []
+        captured_dataset_version_ids = []
+        captured_pinned_manifest = []
+
+        class MockManifestManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def load_manifest(self, dataset):
+                return types.SimpleNamespace(
+                    dataset=dataset,
+                    manifest_version=7,
+                    checksum="sip-checksum",
+                    schema_version="v1.0.0",
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 31),
+                    row_count=123,
+                )
+
+        class MockAlpacaSIPLocalProvider:
+            DATASET_NAME = "alpaca_sip_daily"
+
+            def __init__(self, *args, storage_path=None, pinned_manifest=None, **kwargs):
+                captured_storage.append(storage_path)
+                captured_pinned_manifest.append(pinned_manifest)
+
+        class MockSimpleBacktester:
+            def __init__(self, *args, dataset_version_ids=None, **kwargs):
+                captured_dataset_version_ids.append(dataset_version_ids)
+
+            def run_backtest(self, *args, **kwargs):
+                captured_universe.extend(kwargs["universe"])
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"provider": "alpaca_sip"},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "ManifestManager", MockManifestManager)
+        monkeypatch.setattr(worker_module, "AlpacaSIPLocalProvider", MockAlpacaSIPLocalProvider)
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MagicMock())
+        monkeypatch.setattr(worker_module, "FetcherConfig", MagicMock())
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "alpaca_sip",
+                "extra_params": {"universe": "aapl, msft"},
+            },
+            created_by="test_user",
+        )
+
+        assert len(captured_storage) == 1
+        assert str(captured_storage[0]) == str(tmp_path / "custom_sip")
+        assert captured_pinned_manifest[0].manifest_version == 7
+        assert captured_universe == ["AAPL", "MSFT"]
+        assert captured_dataset_version_ids == [
+            {
+                "version": "manifest-v7",
+                "alpaca_sip_daily_dataset": "alpaca_sip_daily",
+                "alpaca_sip_daily_manifest_version": "7",
+                "alpaca_sip_daily_checksum": "sip-checksum",
+                "alpaca_sip_daily_schema_version": "v1.0.0",
+                "alpaca_sip_daily_start_date": "2024-01-01",
+                "alpaca_sip_daily_end_date": "2024-01-31",
+                "alpaca_sip_daily_row_count": "123",
+            }
+        ]
+
+    @pytest.mark.unit()
+    def test_alpaca_sip_blocked_in_production(self, monkeypatch):
+        """Test that Alpaca SIP provider is blocked in production environment."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(ValueError, match="only allowed in development"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "alpaca_sip",
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_alpaca_sip_missing_manifest_raises(self, monkeypatch, tmp_path):
+        """Test that Alpaca SIP jobs fail closed when no manifest is pinned."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        class MockManifestManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def load_manifest(self, dataset):
+                return None
+
+        class MockAlpacaSIPLocalProvider:
+            DATASET_NAME = "alpaca_sip_daily"
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "ManifestManager", MockManifestManager)
+        monkeypatch.setattr(worker_module, "AlpacaSIPLocalProvider", MockAlpacaSIPLocalProvider)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(worker_module.DataNotFoundError, match="Run Alpaca SIP sync first"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "alpaca_sip",
+                },
+                created_by="test_user",
+            )
 
     @pytest.mark.unit()
     def test_yfinance_non_standard_universe_type_falls_to_empty(self, monkeypatch):

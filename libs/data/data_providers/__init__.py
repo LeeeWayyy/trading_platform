@@ -9,12 +9,24 @@ This module provides:
 - CompustatLocalProvider: Read-only Compustat fundamental data access with DuckDB
 - FamaFrenchLocalProvider: Read-only Fama-French factor data access
 - YFinanceProvider: Free market data for development (NOT for production)
+- AlpacaSIPLocalProvider: Local Alpaca SIP daily bars for explicit research
 - UnifiedDataFetcher: Unified interface for data access with provider switching
 - DataProvider: Protocol for data provider implementations
 """
 
 import logging as _logging
 
+from libs.data.data_providers.alpaca_sip_local_provider import (
+    ALPACA_SIP_COLUMNS,
+    ALPACA_SIP_SCHEMA,
+    AlpacaSIPLocalProvider,
+    AlpacaSIPManifestVersionChangedError,
+)
+from libs.data.data_providers.alpaca_sip_sync import (
+    AlpacaSIPSyncManager,
+    AlpacaStockBarsClient,
+    SyncedPartition,
+)
 from libs.data.data_providers.compustat_local_provider import (
     AmbiguousGVKEYError,
     CompustatLocalProvider,
@@ -44,6 +56,7 @@ from libs.data.data_providers.locking import (
 from libs.data.data_providers.protocols import (
     UNIFIED_COLUMNS,
     UNIFIED_SCHEMA,
+    AlpacaSIPDataProviderAdapter,
     ConfigurationError,
     CRSPDataProviderAdapter,
     DataProvider,
@@ -75,19 +88,20 @@ _dp_logger = _logging.getLogger(__name__)
 # Known optional third-party packages that data-provider submodules may
 # depend on.  If these are absent we degrade gracefully; any *other*
 # missing module is a genuine regression and must fail fast.
-_OPTIONAL_PACKAGES = frozenset({
-    "wrds",       # WRDS database driver
-    "sas7bdat",   # SAS file reader
-    "saspy",      # SAS scripting
-    "paramiko",   # SSH transport for WRDS
-})
+_OPTIONAL_PACKAGES = frozenset(
+    {
+        "wrds",  # WRDS database driver
+        "sas7bdat",  # SAS file reader
+        "saspy",  # SAS scripting
+        "paramiko",  # SSH transport for WRDS
+    }
+)
 
 
 def _is_optional_dep(exc: ModuleNotFoundError) -> bool:
     """Return True when *exc* is caused by a known optional package."""
     return exc.name is not None and any(
-        exc.name == pkg or exc.name.startswith(f"{pkg}.")
-        for pkg in _OPTIONAL_PACKAGES
+        exc.name == pkg or exc.name.startswith(f"{pkg}.") for pkg in _OPTIONAL_PACKAGES
     )
 
 
@@ -95,9 +109,7 @@ try:
     from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 except ModuleNotFoundError as _exc:
     if _is_optional_dep(_exc):
-        _dp_logger.info(
-            "sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name
-        )
+        _dp_logger.info("sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name)
         SyncManager = None  # type: ignore[assignment,misc]
         SyncProgress = None  # type: ignore[assignment,misc]
     else:
@@ -107,9 +119,7 @@ try:
     from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 except ModuleNotFoundError as _exc:
     if _is_optional_dep(_exc):
-        _dp_logger.info(
-            "wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name
-        )
+        _dp_logger.info("wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name)
         WRDSClient = None  # type: ignore[assignment,misc]
         WRDSConfig = None  # type: ignore[assignment,misc]
     else:
@@ -149,6 +159,14 @@ __all__ = [
     "YFinanceError",
     "ProductionGateError",
     "DriftDetectedError",
+    # Alpaca SIP Provider
+    "AlpacaSIPLocalProvider",
+    "AlpacaSIPManifestVersionChangedError",
+    "ALPACA_SIP_COLUMNS",
+    "ALPACA_SIP_SCHEMA",
+    "AlpacaSIPSyncManager",
+    "AlpacaStockBarsClient",
+    "SyncedPartition",
     # Unified Data Fetcher (P4T1.8)
     "UnifiedDataFetcher",
     "FetcherConfig",
@@ -159,6 +177,7 @@ __all__ = [
     "ProviderNotSupportedError",
     "ProductionProviderRequiredError",
     "ConfigurationError",
+    "AlpacaSIPDataProviderAdapter",
     "CRSPDataProviderAdapter",
     "YFinanceDataProviderAdapter",
     "UNIFIED_COLUMNS",
