@@ -298,11 +298,22 @@ class AlpacaCorporateActionsSyncManager:
         )
         if isinstance(raw_actions, dict):
             candidates: list[Any] = []
-            for value in raw_actions.values():
+            for action_type, value in raw_actions.items():
                 if isinstance(value, list):
-                    candidates.extend(value)
+                    for item in value:
+                        if isinstance(item, Mapping):
+                            enriched = dict(item)
+                            enriched.setdefault("ca_type", str(action_type))
+                            candidates.append(enriched)
+                        else:
+                            candidates.append(item)
                 else:
-                    candidates.append(value)
+                    if isinstance(value, Mapping):
+                        enriched = dict(value)
+                        enriched.setdefault("ca_type", str(action_type))
+                        candidates.append(enriched)
+                    else:
+                        candidates.append(value)
             raw_actions = candidates
         if not isinstance(raw_actions, list):
             raise ValueError("Unexpected corporate actions response shape")
@@ -332,7 +343,7 @@ class AlpacaCorporateActionsSyncManager:
             "ex_date": self._optional_date(action, "ex_date", "ex_dividend_date"),
             "record_date": self._optional_date(action, "record_date"),
             "payable_date": self._optional_date(action, "payable_date", "payment_date"),
-            "cash": self._optional_float(action, "cash", "cash_amount"),
+            "cash": self._cash_amount(action),
             "old_rate": self._optional_float(action, "old_rate", "old_ratio"),
             "new_rate": self._optional_float(action, "new_rate", "new_ratio"),
             "old_symbol": self._optional_text(action, "old_symbol", "old_ticker"),
@@ -368,6 +379,17 @@ class AlpacaCorporateActionsSyncManager:
             if value in (None, ""):
                 continue
             return float(cast(Any, value))
+        return None
+
+    @staticmethod
+    def _cash_amount(action: Mapping[str, Any]) -> float | None:
+        cash = AlpacaCorporateActionsSyncManager._optional_float(action, "cash", "cash_amount")
+        if cash is not None:
+            return cash
+
+        ca_type = str(action.get("ca_type") or action.get("type") or "").strip().lower()
+        if ca_type in {"cash_dividend", "cash_dividends", "dividend", "dividends"}:
+            return AlpacaCorporateActionsSyncManager._optional_float(action, "rate")
         return None
 
     @staticmethod

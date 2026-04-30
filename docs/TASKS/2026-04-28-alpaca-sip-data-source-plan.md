@@ -2,7 +2,7 @@
 
 Date: 2026-04-28
 Owner: Codex
-Status: LOCAL IMPLEMENTATION COMPLETE (direct Gemini review passed; external validation pending)
+Status: LOCAL IMPLEMENTATION COMPLETE (live Alpaca SIP smoke passed; CRSP comparison pending)
 
 ## 2026-04-29 Tuning Notes
 
@@ -58,10 +58,13 @@ constraints made explicit before implementation:
   uses CRSP `get_universe(start_date)` as the static simple-backtest universe
   and Alpaca SIP for price history. ADR-0042 records this research-only hybrid
   decision.
-- Remaining plan work requires external inputs: live Alpaca SIP entitlement and
-  CRSP comparison data for Phase 0, live validation of the direct-REST
-  corporate-actions sync, and synced SIP data plus a selected strategy for the
-  Phase 4 retrain/walk-forward comparison.
+- Live Alpaca SIP smoke validation passed on 2026-04-30 using temporary
+  storage: 2024 AAPL/MSFT SIP daily bars returned 504 rows, manifest integrity
+  passed, adapter returns were computed, and direct-REST corporate actions
+  returned 8 AAPL/MSFT cash-dividend rows with grouped payload types normalized.
+- Remaining plan work requires external inputs: CRSP comparison data for the
+  rest of Phase 0, a broader SIP sync/rate-limit estimate, and synced SIP data
+  plus a selected strategy for the Phase 4 retrain/walk-forward comparison.
 
 ## Scope
 
@@ -209,7 +212,8 @@ Nothing in CRSP code paths changes.
 within a defined tolerance. This validates D3 (hybrid) — pure replacement is
 not the goal, so delisted coverage is not the gate.
 
-- Verify SIP entitlement against the existing Alpaca account. The
+- Verify SIP entitlement against the existing Alpaca account. **Smoke completed
+  on 2026-04-30 for AAPL/MSFT 2024 daily SIP bars.** The
   `ALPACA_DATA_FEED` env var **supports** `sip` but the repo default is
   `iex` (`.env.example:14`, `docker-compose.yml:191,276`); the spike must
   set it explicitly and confirm against a live API call.

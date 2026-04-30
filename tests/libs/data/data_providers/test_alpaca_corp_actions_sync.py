@@ -177,6 +177,48 @@ def test_full_sync_allows_empty_result_manifest(
     assert pl.read_parquet(manifest.file_paths[0]).is_empty()
 
 
+def test_full_sync_preserves_grouped_live_payload_types(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "cash_dividends": [
+                        {
+                            "id": "ca-div-1",
+                            "symbol": "AAPL",
+                            "process_date": "2024-02-15",
+                            "ex_date": "2024-02-09",
+                            "record_date": "2024-02-12",
+                            "payable_date": "2024-02-15",
+                            "rate": 0.24,
+                        }
+                    ]
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["ca_type"].to_list() == ["cash_dividends"]
+    assert df["cash"].to_list() == [0.24]
+    assert '"rate": 0.24' in df["raw"][0]
+
+
 def test_full_sync_rejects_ids_with_filters(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,
