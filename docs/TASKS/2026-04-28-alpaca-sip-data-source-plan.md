@@ -23,9 +23,10 @@ constraints made explicit before implementation:
 - Hybrid simple backtests require `start_date >= 2016-04-01`, which leaves the
   `SimpleBacktester` 90-day lookback window inside Alpaca SIP history that starts
   around 2016-01-01.
-- Hybrid is deferred. `PITBacktester` is CRSP/PERMNO-coupled today, so hybrid
-  needs either a PITBacktester interface refactor or a point-in-time
-  PERMNO-to-symbol bridge.
+- Full PIT hybrid remains deferred because `PITBacktester` is CRSP/PERMNO-
+  coupled today and still needs either a PITBacktester interface refactor or a
+  point-in-time PERMNO-to-symbol bridge. A narrower research-only
+  `SimpleBacktester` hybrid is implemented in ADR-0042.
 - Cost model computation remains CRSP-only in this slice. Alpaca SIP jobs may
   carry cost-model config for provenance, but the worker skips cost computation
   until a PIT ADV/volatility source exists.
@@ -156,14 +157,10 @@ class HybridDataProviderAdapter:
 This configuration delivers the strategic win **on paper**:
 **survivorship-correct universe (CRSP) + same bars as execution (SIP)**.
 
-**Caller-wiring caveat**: today no production code path consumes
-`get_universe()` — backtest entry points (`libs/trading/alpha/simple_backtester.py`,
-`libs/data/data_pipeline/historical_etl.py`) take explicit symbol lists
-from the caller. The hybrid provider therefore has no value until at
-least one caller is wired to use its universe output. Phase 4 (per-strategy
-migration) is the right place to do that wiring on a strategy-by-strategy
-basis. **Until that wiring exists, hybrid is offered as an option, not
-described as the recommended default.**
+**Caller-wiring status**: the research-only backtest worker now consumes
+`get_universe(start_date)` when no explicit universe is supplied. Other
+production/research entry points still take explicit symbol lists, so Phase 4
+remains the per-strategy migration gate before any strategy default changes.
 
 **Corporate actions policy**: prices and adjustments come from Alpaca
 (`adjustment` API param + Alpaca corporate-actions endpoint). CRSP is used
