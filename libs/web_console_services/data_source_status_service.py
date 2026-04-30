@@ -59,6 +59,19 @@ _DATA_SOURCES: tuple[dict[str, Any], ...] = (
         "error_message": None,
     },
     {
+        "name": "alpaca_sip",
+        "display_name": "Alpaca SIP Daily",
+        "provider_type": "commercial",
+        "is_production_ready": False,
+        "dataset_key": "alpaca_sip",
+        "tables": ["alpaca_sip_daily"],
+        "status": "unknown",
+        "minutes_ago": 0,
+        "row_count": 0,
+        "error_rate_pct": 0.0,
+        "error_message": "Local SIP sync status unavailable until manifest-backed status lands",
+    },
+    {
         "name": "compustat",
         "display_name": "Compustat",
         "provider_type": "academic",
@@ -133,10 +146,7 @@ class DataSourceStatusService:
         ]
         # Merge refreshed sources so callers see updated timestamps after manual refresh
         now = datetime.now(UTC)
-        merged = [
-            self._last_refresh_results.get(source.name, source)
-            for source in filtered
-        ]
+        merged = [self._last_refresh_results.get(source.name, source) for source in filtered]
         # Recompute age_seconds from last_update so cached DTOs stay accurate
         for source in merged:
             self._last_refresh_results.setdefault(source.name, source)
@@ -162,9 +172,7 @@ class DataSourceStatusService:
 
         if self._redis_client_factory is None:
             if self._data_mode == "real":
-                raise RuntimeError(
-                    "Redis client factory required for refresh in real data mode"
-                )
+                raise RuntimeError("Redis client factory required for refresh in real data mode")
             logger.warning(
                 "redis_lock_disabled_no_factory",
                 extra={"source_name": source.name, "data_mode": self._data_mode},
@@ -210,7 +218,10 @@ class DataSourceStatusService:
     ) -> None:
         try:
             released = await redis_client.eval(  # type: ignore[misc]
-                _COMPARE_AND_DELETE_LUA, 1, lock_key, lock_token,
+                _COMPARE_AND_DELETE_LUA,
+                1,
+                lock_key,
+                lock_token,
             )
             if int(released) == 0:
                 logger.warning("redis_lock_release_noop", extra={"lock_key": lock_key})
@@ -236,7 +247,9 @@ class DataSourceStatusService:
             "redis_lock_acquire_failed_fallback",
             extra={"source_name": source.name, "error": str(exc)},
         )
-        return await asyncio.wait_for(self._perform_refresh(source), timeout=_REFRESH_TIMEOUT_SECONDS)
+        return await asyncio.wait_for(
+            self._perform_refresh(source), timeout=_REFRESH_TIMEOUT_SECONDS
+        )
 
     async def _handle_runtime_redis_fallback(
         self,
@@ -249,11 +262,17 @@ class DataSourceStatusService:
             "redis_lock_fallback_runtime_error",
             extra={"source_name": source.name, "error": str(exc)},
         )
-        return await asyncio.wait_for(self._perform_refresh(source), timeout=_REFRESH_TIMEOUT_SECONDS)
+        return await asyncio.wait_for(
+            self._perform_refresh(source), timeout=_REFRESH_TIMEOUT_SECONDS
+        )
 
     async def _perform_refresh(self, source: DataSourceStatusDTO) -> DataSourceStatusDTO:
         """Mock refresh implementation (deterministic, idempotent)."""
         await asyncio.sleep(0)
+        if source.name == "alpaca_sip" and source.status == "unknown":
+            self._last_refresh_results[source.name] = source
+            return source
+
         now = datetime.now(UTC)
         refreshed = source.model_copy(deep=True)
         refreshed.last_update = now

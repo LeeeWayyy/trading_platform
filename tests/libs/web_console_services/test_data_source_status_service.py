@@ -78,10 +78,11 @@ async def test_get_all_sources_returns_all_for_admin(admin_user: DummyUser) -> N
 
     sources = await service.get_all_sources(admin_user)
 
-    assert len(sources) == 5
+    assert len(sources) == 6
     assert {s.name for s in sources} == {
         "crsp",
         "yfinance",
+        "alpaca_sip",
         "compustat",
         "fama_french",
         "taq",
@@ -94,7 +95,7 @@ async def test_get_all_sources_researcher_allowed_single_admin(researcher_user: 
     service = DataSourceStatusService()
 
     sources = await service.get_all_sources(researcher_user)
-    assert len(sources) == 5
+    assert len(sources) == 6
 
 
 @pytest.mark.asyncio()
@@ -105,7 +106,7 @@ async def test_get_all_sources_viewer_sees_all_single_admin(viewer_user: DummyUs
     sources = await service.get_all_sources(viewer_user)
 
     # Single-admin: has_dataset_permission always True, all sources visible
-    assert len(sources) == 5
+    assert len(sources) == 6
 
 
 @pytest.mark.asyncio()
@@ -135,6 +136,20 @@ async def test_refresh_source_viewer_allowed_single_admin(viewer_user: DummyUser
 
     refreshed = await service.refresh_source(viewer_user, "crsp")
     assert refreshed.name == "crsp"
+
+
+@pytest.mark.asyncio()
+async def test_refresh_alpaca_sip_source(operator_user: DummyUser) -> None:
+    service = DataSourceStatusService(redis_client_factory=None)
+
+    refreshed = await service.refresh_source(operator_user, "alpaca_sip")
+
+    assert refreshed.name == "alpaca_sip"
+    assert refreshed.dataset_key == "alpaca_sip"
+    assert refreshed.status == "unknown"
+    assert refreshed.last_update is None
+    assert refreshed.age_seconds is None
+    assert refreshed.tables == ["alpaca_sip_daily"]
 
 
 @pytest.mark.asyncio()

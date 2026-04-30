@@ -121,6 +121,7 @@ class DatasetPermission(str, Enum):
     COMPUSTAT_ACCESS = "dataset:compustat"
     TAQ_ACCESS = "dataset:taq"
     FAMA_FRENCH_ACCESS = "dataset:fama_french"
+    ALPACA_SIP_ACCESS = "dataset:alpaca_sip"
 
 
 # P6T19: Emptied — single-admin model, all checks return True.

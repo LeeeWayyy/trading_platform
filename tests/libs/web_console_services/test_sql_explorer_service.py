@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -95,7 +96,9 @@ def test_sensitive_table_blocking_exact_and_prefix() -> None:
     _check_sensitive_tables(["crsp_daily"])
 
 
-def test_path_validation_rejects_traversal_and_quotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_path_validation_rejects_traversal_and_quotes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     allowed_root = (tmp_path / "data").resolve()
     allowed_root.mkdir(parents=True)
     monkeypatch.setattr(module, "_ALLOWED_DATA_ROOTS", [allowed_root])
@@ -156,8 +159,90 @@ def test_create_query_connection_sets_extension_lockdown(monkeypatch: pytest.Mon
     assert "SET enable_extension_loading = false" in fake_conn.statements
 
 
+def test_validate_table_paths_detects_alpaca_sip_snapshot_partition(
+    tmp_path: Path,
+) -> None:
+    snapshot_dir = tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1"
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / "2024.parquet").write_bytes(b"PAR1")
+
+    available, warnings = module._validate_table_paths(
+        {
+            "alpaca_sip_daily": str(
+                tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "*" / "*.parquet"
+            )
+        }
+    )
+
+    assert available["alpaca_sip"] == {"alpaca_sip_daily"}
+    assert not any("alpaca_sip_daily" in warning for warning in warnings)
+
+
+def test_resolve_table_paths_uses_alpaca_manifest_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text(
+        json.dumps({"file_paths": [str(partition)]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == (str(partition),)
+
+
+def test_create_query_connection_handles_manifest_path_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResult:
+        def fetchall(self) -> list[tuple[str]]:
+            return [("core_functions",), ("parquet",)]
+
+    class FakeConn:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def execute(self, sql: str) -> FakeResult | None:
+            self.statements.append(sql)
+            if "duckdb_extensions" in sql:
+                return FakeResult()
+            return None
+
+        def close(self) -> None:
+            return None
+
+    data_root = tmp_path / "data"
+    partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    fake_conn = FakeConn()
+    monkeypatch.setattr(module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
+    monkeypatch.setattr(
+        module, "_resolve_table_paths", lambda: {"alpaca_sip_daily": (str(partition),)}
+    )
+
+    module._create_query_connection("alpaca_sip", available_tables={"alpaca_sip_daily"})
+
+    view_statements = [stmt for stmt in fake_conn.statements if "CREATE OR REPLACE VIEW" in stmt]
+    assert len(view_statements) == 1
+    assert f"read_parquet(['{partition}'])" in view_statements[0]
+
+
 def test_can_query_dataset_default_deny_for_unmapped(operator_user: dict[str, str]) -> None:
     assert can_query_dataset(operator_user, "crsp") is True
+    assert can_query_dataset(operator_user, "alpaca_sip") is True
 
     module.DATASET_TABLES["new_dataset"] = ["new_table"]
     try:
@@ -205,7 +290,9 @@ async def test_execute_query_viewer_allowed_single_admin(
 ) -> None:
     """P6T19: Viewer can execute queries — single-admin model."""
     service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
-    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: _DummyConn())
+    monkeypatch.setattr(
+        module, "_create_query_connection", lambda dataset, available_tables: _DummyConn()
+    )
 
     result = await service.execute_query(viewer_user, "crsp", "SELECT * FROM crsp_daily")
     assert result is not None
@@ -255,7 +342,9 @@ async def test_execute_query_concurrency_cap(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio()
-async def test_execute_query_audit_statuses(operator_user: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_query_audit_statuses(
+    operator_user: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     statuses: list[str] = []
 
     def capture_log(
@@ -276,7 +365,9 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
     service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
 
     # success
-    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: _DummyConn())
+    monkeypatch.setattr(
+        module, "_create_query_connection", lambda dataset, available_tables: _DummyConn()
+    )
     await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
     # P6T19: authorization_denied path removed — has_permission always True
@@ -318,7 +409,11 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
     # error
-    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        module,
+        "_create_query_connection",
+        lambda dataset, available_tables: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
     with pytest.raises(RuntimeError):
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
@@ -359,7 +454,8 @@ async def test_export_csv_rate_limited(operator_user: dict[str, str]) -> None:
 
 
 def test_verify_sandbox_missing_dir_not_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """FileNotFoundError from missing probe directory should not count as failure."""
     import socket as _socket
@@ -382,7 +478,8 @@ def test_verify_sandbox_missing_dir_not_failure(
 
 
 def test_verify_sandbox_writable_dir_is_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """A writable directory should be reported as a sandbox failure."""
     import socket as _socket

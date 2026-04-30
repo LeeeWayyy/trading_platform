@@ -91,7 +91,7 @@ _SEVERITY_COLORS: dict[str, str] = {
 _ACK_MAP: dict[str, bool | None] = {"all": None, "unacked": False, "acked": True}
 
 # Datasets available for quality trends (mirrors service-side _SUPPORTED_DATASETS)
-_TREND_DATASETS: tuple[str, ...] = ("crsp", "compustat", "taq", "fama_french")
+_TREND_DATASETS: tuple[str, ...] = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
 
 # Quality trend chart threshold lines
 GOOD_QUALITY_THRESHOLD = 90.0

@@ -35,6 +35,10 @@ constraints made explicit before implementation:
   parquet partitions, saves `alpaca_sip_daily` manifests, and exposes
   `make sync-alpaca-sip`, `make sync-alpaca-sip-status`, and
   `make sync-alpaca-sip-verify`.
+- Phase 2 web-console surfacing is implemented for local SIP daily bars:
+  data-sync mocks, source-status visibility, data explorer listing, SQL
+  validation, SQL explorer table mapping, and quality mock surfaces now include
+  `alpaca_sip` / `alpaca_sip_daily`.
 - Corporate-actions ingestion is still deferred. `alpaca-py==0.15.0` does not
   expose a corporate-actions request/client method in the installed SDK, so this
   should be implemented only after choosing either a direct REST wrapper or an
@@ -244,7 +248,9 @@ not the goal, so delisted coverage is not the gate.
 - Surface in the web-console-ng data-sync UI. Note: today
   `libs/web_console_services/data_sync_service.py:28` lists supported
   datasets as `crsp|compustat|taq|fama_french`. This phase adds
-  `alpaca_sip` to that set. `alpaca_corp_actions` remains deferred.
+  `alpaca_sip` to that set, plus adjacent source-status, explorer, SQL
+  validation, SQL explorer, and quality mock surfaces.
+  `alpaca_corp_actions` remains deferred.
 
 ### Phase 3 — Hybrid provider (3–5 days)
 

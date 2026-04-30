@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import glob as _glob_module
+import json
 import logging
 import os
 import re
@@ -41,6 +42,7 @@ _MAX_CONCURRENT_QUERIES = 3
 _QUERY_RATE_LIMIT = 10
 _EXPORT_RATE_LIMIT = 5
 _MAX_CELLS = 1_000_000
+_TablePathSpec = str | tuple[str, ...]
 
 _KNOWN_ENVS = {"production", "staging", "development", "test", "local"}
 
@@ -80,6 +82,7 @@ _DATASET_PERMISSION_MAP: dict[str, DatasetPermission] = {
     "compustat": DatasetPermission.COMPUSTAT_ACCESS,
     "taq": DatasetPermission.TAQ_ACCESS,
     "fama_french": DatasetPermission.FAMA_FRENCH_ACCESS,
+    "alpaca_sip": DatasetPermission.ALPACA_SIP_ACCESS,
 }
 
 _AUDIT_LOG_RAW_SQL = os.getenv("SQL_EXPLORER_AUDIT_RAW_SQL", "false").lower() == "true"
@@ -132,9 +135,7 @@ else:
             logger.error(
                 "sql_explorer_project_root_not_found",
                 extra={
-                    "hint": (
-                        "Set PROJECT_ROOT env var or SQL_EXPLORER_DEV_MODE=true for local dev"
-                    )
+                    "hint": ("Set PROJECT_ROOT env var or SQL_EXPLORER_DEV_MODE=true for local dev")
                 },
             )
             _PROJECT_ROOT = _Path("/nonexistent")
@@ -267,7 +268,13 @@ def _log_query(
 
 
 def _glob_has_match(pattern: str) -> bool:
-    return bool(_glob_module.glob(pattern))
+    return bool(_glob_module.glob(pattern, recursive=True))
+
+
+def _path_spec_has_match(path_spec: _TablePathSpec) -> bool:
+    if isinstance(path_spec, str):
+        return _glob_has_match(path_spec)
+    return any(_Path(path).exists() for path in path_spec)
 
 
 def _validate_path_safe(path: str) -> None:
@@ -292,7 +299,76 @@ def _validate_path_safe(path: str) -> None:
         raise ValueError(f"Path not under allowed data root: {path} (resolved to {resolved})")
 
 
-def _resolve_table_paths() -> dict[str, str]:
+def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:
+    """Return manifest-pinned SIP partitions, with snapshot glob as fallback."""
+    data_root_path = _Path(data_root)
+    storage_root = (data_root_path / "alpaca" / "sip" / "daily").resolve()
+    manifest_path = data_root_path / "manifests" / "alpaca_sip_daily.json"
+
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            file_paths = manifest.get("file_paths", [])
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "sql_explorer_alpaca_sip_manifest_unreadable",
+                extra={"manifest_path": str(manifest_path), "error": str(exc)},
+            )
+        else:
+            resolved_paths: list[str] = []
+            if isinstance(file_paths, list):
+                for raw_path in file_paths:
+                    if not isinstance(raw_path, str):
+                        continue
+                    resolved = _resolve_alpaca_sip_manifest_path(
+                        _Path(raw_path),
+                        data_root=data_root_path,
+                        storage_root=storage_root,
+                    )
+                    if (
+                        resolved.is_relative_to(storage_root)
+                        and resolved.suffix == ".parquet"
+                        and resolved.exists()
+                    ):
+                        resolved_paths.append(str(resolved))
+
+            if resolved_paths:
+                return tuple(sorted(resolved_paths))
+
+    return f"{storage_root}/snapshots/*/*.parquet"
+
+
+def _resolve_alpaca_sip_manifest_path(
+    path: _Path,
+    *,
+    data_root: _Path,
+    storage_root: _Path,
+) -> _Path:
+    """Resolve manifest path forms written by AlpacaSIPSyncManager."""
+    if path.is_absolute():
+        return path.resolve()
+    if len(path.parts) == 1:
+        return (storage_root / path).resolve()
+    if path.parts[0] == data_root.name:
+        return (data_root.parent / path).resolve()
+    return (data_root / path).resolve()
+
+
+def _duckdb_read_parquet_arg(path_spec: _TablePathSpec) -> str:
+    """Build a safe DuckDB read_parquet argument from validated path specs."""
+    paths = (path_spec,) if isinstance(path_spec, str) else path_spec
+    for path in paths:
+        _validate_path_safe(path)
+
+    if isinstance(path_spec, str):
+        return f"'{path_spec}'"
+    if not path_spec:
+        raise ValueError("Empty path list rejected")
+    quoted_paths = ", ".join(f"'{path}'" for path in path_spec)
+    return f"[{quoted_paths}]"
+
+
+def _resolve_table_paths() -> dict[str, _TablePathSpec]:
     """Resolve logical tables to physical parquet/glob paths."""
 
     data_root = str((_PROJECT_ROOT / "data").resolve())
@@ -305,11 +381,12 @@ def _resolve_table_paths() -> dict[str, str]:
         "ff_factors_monthly": f"{data_root}/fama_french/factors/factors_*_monthly.parquet",
         "taq_trades": f"{data_root}/taq/aggregates/1min_bars/*.parquet",
         "taq_quotes": f"{data_root}/taq/aggregates/spread_stats/*.parquet",
+        "alpaca_sip_daily": _resolve_alpaca_sip_daily_paths(data_root),
     }
 
 
 def _validate_table_paths(
-    table_paths: dict[str, str] | None = None,
+    table_paths: dict[str, _TablePathSpec] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     """Validate discovered table paths and return per-dataset availability."""
 
@@ -320,11 +397,11 @@ def _validate_table_paths(
     for dataset, tables in DATASET_TABLES.items():
         available_tables: set[str] = set()
         for table in tables:
-            pattern = paths.get(table)
-            if pattern and _glob_has_match(pattern):
+            path_spec = paths.get(table)
+            if path_spec and _path_spec_has_match(path_spec):
                 available_tables.add(table)
             else:
-                warnings.append(f"No Parquet files found for {table}: {pattern}")
+                warnings.append(f"No Parquet files found for {table}: {path_spec}")
 
         if available_tables:
             available_tables_by_dataset[dataset] = available_tables
@@ -346,9 +423,7 @@ def _create_query_connection(dataset: str, available_tables: set[str]) -> duckdb
         _denied_extensions = frozenset(
             {"httpfs", "postgres_scanner", "sqlite_scanner", "mysql_scanner", "azure", "aws"}
         )
-        _strict_extensions = (
-            os.getenv("SQL_EXPLORER_STRICT_EXTENSIONS", "true").lower() == "true"
-        )
+        _strict_extensions = os.getenv("SQL_EXPLORER_STRICT_EXTENSIONS", "true").lower() == "true"
         if not _strict_extensions and _APP_ENV == "production":
             raise RuntimeError(
                 "SQL_EXPLORER_STRICT_EXTENSIONS=false is forbidden when APP_ENV=production."
@@ -387,13 +462,13 @@ def _create_query_connection(dataset: str, available_tables: set[str]) -> duckdb
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
                 raise ValueError(f"Invalid table identifier: {table_name}")
 
-            parquet_path = table_paths.get(table_name)
-            if parquet_path is None:
+            parquet_path_spec = table_paths.get(table_name)
+            if parquet_path_spec is None:
                 continue
-            _validate_path_safe(parquet_path)
+            parquet_arg = _duckdb_read_parquet_arg(parquet_path_spec)
             conn.execute(
                 f'CREATE OR REPLACE VIEW "{table_name}" AS '
-                f"SELECT * FROM read_parquet('{parquet_path}')"
+                f"SELECT * FROM read_parquet({parquet_arg})"
             )
 
         return conn
@@ -424,13 +499,13 @@ def _verify_sandbox() -> tuple[bool, list[str]]:
     except (OSError, TimeoutError):
         pass
 
-    forbidden_raw = os.getenv(
-        "SQL_EXPLORER_FORBIDDEN_WRITE_PATHS", "data/,libs/,apps/,config/"
-    )
+    forbidden_raw = os.getenv("SQL_EXPLORER_FORBIDDEN_WRITE_PATHS", "data/,libs/,apps/,config/")
     forbidden_paths: list[_Path] = []
     for raw in [segment.strip() for segment in forbidden_raw.split(",") if segment.strip()]:
         candidate = _Path(raw)
-        resolved = candidate.resolve() if candidate.is_absolute() else (_PROJECT_ROOT / raw).resolve()
+        resolved = (
+            candidate.resolve() if candidate.is_absolute() else (_PROJECT_ROOT / raw).resolve()
+        )
         forbidden_paths.append(resolved)
 
     probe_suffix = f".sql_explorer_probe_{os.getpid()}"
@@ -483,6 +558,7 @@ async def _execute_query_with_timeout(
     clamped_timeout = min(timeout_seconds, _MAX_TIMEOUT_SECONDS)
 
     try:
+
         def _run() -> pl.DataFrame:
             result = conn.execute(sql)
             df = result.pl()
@@ -528,9 +604,7 @@ class SqlExplorerService:
                 )
             logger.warning("sql_explorer_rate_limiter_disabled_dev_mode")
         elif rate_limiter.fallback_mode != "deny":
-            raise ValueError(
-                "SqlExplorerService requires RateLimiter with fallback_mode='deny'."
-            )
+            raise ValueError("SqlExplorerService requires RateLimiter with fallback_mode='deny'.")
 
         self._rate_limiter = rate_limiter
         self._validator = SQLValidator()
@@ -593,7 +667,9 @@ class SqlExplorerService:
 
             execution_ms = int((time.monotonic() - start) * 1000)
             fingerprint = _fingerprint_query(query)
-            _log_query(user, dataset, query, limited_sql, len(result), execution_ms, "success", None)
+            _log_query(
+                user, dataset, query, limited_sql, len(result), execution_ms, "success", None
+            )
             return QueryResult(df=result, execution_ms=execution_ms, fingerprint=fingerprint)
 
         except PermissionError:

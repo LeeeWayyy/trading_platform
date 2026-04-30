@@ -57,6 +57,12 @@ class TestTableAccess:
         valid, error = validator.validate("SELECT * FROM crsp_daily", "crsp")
         assert valid
 
+    def test_alpaca_sip_table_accepted(self, validator: SQLValidator) -> None:
+        """Query for Alpaca SIP dataset should allow the SIP daily table."""
+        valid, error = validator.validate("SELECT * FROM alpaca_sip_daily", "alpaca_sip")
+        assert valid
+        assert error is None
+
     def test_schema_qualified_table_rejected(self, validator: SQLValidator) -> None:
         """Schema-qualified tables (schema.table) should be rejected."""
         valid, error = validator.validate("SELECT * FROM other_schema.crsp_daily", "crsp")
