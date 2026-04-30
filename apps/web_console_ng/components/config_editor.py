@@ -26,7 +26,7 @@ from typing import Any
 
 from nicegui import ui
 
-from libs.trading.backtest.job_queue import BacktestJobConfig
+from libs.trading.backtest.job_queue import HYBRID_CRSP_SIP_MIN_START_DATE, BacktestJobConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ PROVIDER_DISPLAY: dict[str, str] = {
     "crsp": "CRSP (production)",
     "yfinance": "Yahoo Finance (dev only)",
     "alpaca_sip": "Alpaca SIP (local, non-PIT)",
+    "hybrid_crsp_universe_sip_prices": "Hybrid CRSP Universe + Alpaca SIP Prices (research)",
 }
 PROVIDER_DISPLAY_INVERSE: dict[str, str] = {v: k for k, v in PROVIDER_DISPLAY.items()}
 
@@ -150,6 +151,17 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
 
     # --- Provider-specific warnings ------------------------------------
     normalized_provider = str(provider).lower().strip()
+    if (
+        normalized_provider == "hybrid_crsp_universe_sip_prices"
+        and start_dt < HYBRID_CRSP_SIP_MIN_START_DATE
+    ):
+        errors.append(
+            "Hybrid CRSP/SIP provider requires start_date >= "
+            f"{HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} because the simple "
+            "backtester fetches a 90-day lookback and Alpaca SIP daily history "
+            "starts around 2016-01-01"
+        )
+
     if normalized_provider == "yfinance":
         cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
         if isinstance(cost_model, dict) and cost_model.get("enabled"):
@@ -163,6 +175,13 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
             warnings.append(
                 "Alpaca SIP provider with cost model enabled - "
                 "cost computation is skipped until PIT ADV data is available"
+            )
+    elif normalized_provider == "hybrid_crsp_universe_sip_prices":
+        cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
+        if isinstance(cost_model, dict) and cost_model.get("enabled"):
+            warnings.append(
+                "Hybrid provider with cost model enabled - cost computation is skipped "
+                "until PIT ADV data can be joined to SIP price weights"
             )
 
     return ValidationResult(errors=errors, warnings=warnings)

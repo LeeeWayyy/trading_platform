@@ -2,7 +2,7 @@
 
 Date: 2026-04-28
 Owner: Codex
-Status: IN PROGRESS (Phase 3 provider-layer hybrid foundation)
+Status: LOCAL IMPLEMENTATION COMPLETE (local review in progress; external validation pending)
 
 ## 2026-04-29 Tuning Notes
 
@@ -20,6 +20,9 @@ constraints made explicit before implementation:
 - Backtests use the same non-PIT `SimpleBacktester` path as yfinance and require
   an explicit non-production `ENVIRONMENT`. SIP is not production-ready until a
   survivorship strategy exists.
+- Hybrid simple backtests require `start_date >= 2016-04-01`, which leaves the
+  `SimpleBacktester` 90-day lookback window inside Alpaca SIP history that starts
+  around 2016-01-01.
 - Hybrid is deferred. `PITBacktester` is CRSP/PERMNO-coupled today, so hybrid
   needs either a PITBacktester interface refactor or a point-in-time
   PERMNO-to-symbol bridge.
@@ -46,8 +49,14 @@ constraints made explicit before implementation:
 - Phase 3 provider-layer hybrid foundation is implemented:
   `HybridDataProviderAdapter` routes CRSP universe queries and Alpaca SIP price
   queries, remains explicit-only/research-only, and rejects pre-SIP history
-  without silent fallback. Backtest UI/worker wiring remains deferred until a
-  strategy harness consumes provider `get_universe()` output.
+  without silent fallback. Backtest job/UI/worker wiring now exposes the hybrid
+  provider as research-only; when no explicit universe is supplied, the worker
+  uses CRSP `get_universe(start_date)` as the static simple-backtest universe
+  and Alpaca SIP for price history.
+- Remaining plan work requires external inputs: live Alpaca SIP entitlement and
+  CRSP comparison data for Phase 0, an SDK-upgrade-versus-direct-REST decision
+  for corporate actions, and synced SIP data plus a selected strategy for the
+  Phase 4 retrain/walk-forward comparison.
 
 ## Scope
 
@@ -158,9 +167,11 @@ only for `get_universe(as_of_date)` and PERMNO-side history. This avoids
 needing a point-in-time PERMNO↔ticker mapping table to apply CRSP
 distributions to SIP bars.
 
-**Pre-SIP-history behavior**: when the requested date range starts before
-SIP coverage (~2016), the hybrid provider raises an explicit error pointing
-the caller at pure-CRSP mode. No silent fallback.
+**Pre-SIP-history behavior**: when the requested simple-backtest start date is
+before `2016-04-01`, the hybrid worker raises an explicit error because its
+90-day lookback would predate SIP coverage (~2016-01-01). The unified hybrid
+provider also raises when direct price requests start before SIP coverage. No
+silent fallback.
 
 New ADR required — ADR-016 assumed one provider answers both methods.
 
@@ -256,7 +267,9 @@ not the goal, so delisted coverage is not the gate.
 
 - `HybridDataProviderAdapter` per D3. **Provider-layer foundation implemented.**
 - `ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES`. **Implemented in
-  `UnifiedDataFetcher`; not exposed in backtest job/UI yet.**
+  `UnifiedDataFetcher` and exposed through the backtest job enum, web form,
+  JSON config editor, and worker dispatch as a research-only simple-backtest
+  path with an enforced `2016-04-01` minimum backtest start date.**
 - Dedicated tests covering: universe queries route to CRSP, price queries
   route to SIP, schema unification, delisted-symbol behavior (price gap when
   SIP lacks the ticker — explicit error or empty rows, not silent fill).
@@ -278,7 +291,8 @@ not the goal, so delisted coverage is not the gate.
 - Per-strategy default lives in the strategy config.
 - Document the per-strategy recommendation: **CRSP for long-history
   research and any backtest that depends on point-in-time universe;
-  Alpaca SIP for execution-feed parity post-2016; hybrid only for
+  Alpaca SIP for execution-feed parity post-2016; hybrid simple backtests only
+  for `start_date >= 2016-04-01` and
   strategies whose backtest harness has been wired to consume
   `get_universe()`; yfinance for dev/CI**.
 

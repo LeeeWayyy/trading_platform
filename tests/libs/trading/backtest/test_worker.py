@@ -3228,6 +3228,137 @@ class TestYFinanceEdgeCases:
             )
 
     @pytest.mark.unit()
+    def test_hybrid_uses_crsp_universe_when_universe_omitted(self, monkeypatch, tmp_path):
+        """Test hybrid jobs use CRSP universe and Alpaca SIP prices when no universe is provided."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+        monkeypatch.setenv("ALPACA_SIP_DATA_DIR", str(tmp_path / "custom_sip"))
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        class MockManifestManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def load_manifest(self, dataset):
+                return types.SimpleNamespace(
+                    dataset=dataset,
+                    manifest_version=7,
+                    checksum="sip-checksum",
+                    schema_version="v1.0.0",
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 31),
+                    row_count=123,
+                )
+
+        captured_crsp_storage = []
+        captured_alpaca_storage = []
+        captured_dataset_version_ids = []
+        captured_universe = []
+        captured_universe_dates = []
+        captured_fetcher_config = []
+
+        class MockCRSPLocalProvider:
+            def __init__(self, storage_path, *args, **kwargs):
+                captured_crsp_storage.append(storage_path)
+
+        class MockAlpacaSIPLocalProvider:
+            DATASET_NAME = "alpaca_sip_daily"
+
+            def __init__(self, *args, storage_path=None, **kwargs):
+                captured_alpaca_storage.append(storage_path)
+
+        class MockUnifiedDataFetcher:
+            def __init__(self, config, *args, **kwargs):
+                captured_fetcher_config.append(config)
+
+            def get_universe(self, as_of_date):
+                captured_universe_dates.append(as_of_date)
+                return ["aapl", "MSFT", "AAPL"]
+
+        class MockSimpleBacktester:
+            def __init__(self, *args, dataset_version_ids=None, **kwargs):
+                captured_dataset_version_ids.append(dataset_version_ids)
+
+            def run_backtest(self, *args, **kwargs):
+                captured_universe.extend(kwargs["universe"])
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"provider": "hybrid"},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "ManifestManager", MockManifestManager)
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MockCRSPLocalProvider)
+        monkeypatch.setattr(worker_module, "AlpacaSIPLocalProvider", MockAlpacaSIPLocalProvider)
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MockUnifiedDataFetcher)
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "hybrid_crsp_universe_sip_prices",
+            },
+            created_by="test_user",
+        )
+
+        assert str(captured_crsp_storage[0]) == str(tmp_path / "data" / "crsp")
+        assert str(captured_alpaca_storage[0]) == str(tmp_path / "custom_sip")
+        assert (
+            captured_fetcher_config[0].provider
+            == worker_module.ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
+        assert captured_universe_dates == [date(2024, 1, 1)]
+        assert captured_universe == ["AAPL", "MSFT"]
+        assert captured_dataset_version_ids[0]["hybrid_universe_provider"] == "crsp"
+        assert captured_dataset_version_ids[0]["hybrid_price_provider"] == "alpaca_sip"
+
+    @pytest.mark.unit()
+    def test_hybrid_rejects_start_date_before_sip_lookback_boundary(self):
+        """Test hybrid jobs fail early when the 90-day lookback predates SIP coverage."""
+        with pytest.raises(ValueError, match="2016-04-01"):
+            worker_module._validate_hybrid_start_date(date(2016, 3, 31))
+
+        worker_module._validate_hybrid_start_date(date(2016, 4, 1))
+
+    @pytest.mark.unit()
     def test_yfinance_non_standard_universe_type_falls_to_empty(self, monkeypatch):
         """Test that non-str/list/tuple universe becomes empty list (line 532)."""
         monkeypatch.setenv("DATABASE_URL", "postgres://test")

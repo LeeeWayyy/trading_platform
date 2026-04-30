@@ -16,6 +16,8 @@ from redis import Redis
 from rq import Queue, Retry
 from rq.job import Job, NoSuchJobError  # type: ignore[attr-defined]
 
+HYBRID_CRSP_SIP_MIN_START_DATE = date(2016, 4, 1)
+
 
 class WeightMethod(str, Enum):
     """Weight method for converting signals to portfolio weights."""
@@ -39,11 +41,13 @@ class DataProvider(str, Enum):
     CRSP: Production-grade point-in-time data (recommended for real backtests).
     YFINANCE: Development/testing only - no PIT compliance, limited universe.
     ALPACA_SIP: Local Alpaca SIP bars - explicit non-PIT execution-feed parity.
+    HYBRID_CRSP_UNIVERSE_SIP_PRICES: CRSP universe + local Alpaca SIP prices.
     """
 
     CRSP = "crsp"
     YFINANCE = "yfinance"
     ALPACA_SIP = "alpaca_sip"
+    HYBRID_CRSP_UNIVERSE_SIP_PRICES = "hybrid_crsp_universe_sip_prices"
 
     @classmethod
     def from_string(cls, value: str) -> DataProvider:

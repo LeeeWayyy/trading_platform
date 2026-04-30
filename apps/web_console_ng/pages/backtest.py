@@ -513,6 +513,7 @@ async def _render_new_backtest_form(
 ) -> None:
     """Render the new backtest submission form."""
     from libs.trading.backtest.job_queue import (
+        HYBRID_CRSP_SIP_MIN_START_DATE,
         BacktestJobConfig,
         DataProvider,
         JobPriority,
@@ -541,7 +542,8 @@ async def _render_new_backtest_form(
                 ).classes("w-full")
                 provider_help = ui.label(
                     "CRSP is required for point-in-time backtests and universe filtering. "
-                    "Yahoo Finance is for development only and does not support PIT checks."
+                    "Yahoo Finance and Alpaca SIP are explicit research/dev paths; hybrid "
+                    "uses CRSP for a static universe and Alpaca SIP for prices."
                 ).classes("text-xs text-gray-500")
                 status_label = ui.label("").classes("text-xs")
 
@@ -582,6 +584,30 @@ async def _render_new_backtest_form(
                         provider_help.set_text(
                             "Alpaca SIP uses local synced SIP bars for execution-feed parity. "
                             "It is non-PIT in this phase and requires an explicit symbol universe."
+                        )
+                    elif provider_value == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES.value:
+                        hybrid_available = crsp_available and alpaca_sip_available
+                        missing = []
+                        if not crsp_available:
+                            missing.append("CRSP")
+                        if not alpaca_sip_available:
+                            missing.append("Alpaca SIP")
+                        status_text = (
+                            "Hybrid manifests found"
+                            if hybrid_available
+                            else f"Hybrid missing {' and '.join(missing)} manifest(s)"
+                        )
+                        status_label.set_text(status_text)
+                        safe_classes(
+                            status_label,
+                            replace="text-xs "
+                            + ("text-green-600" if hybrid_available else "text-amber-600"),
+                        )
+                        provider_help.set_text(
+                            "Hybrid uses CRSP for the static backtest universe and Alpaca SIP "
+                            "for local price history. It is research-only and requires "
+                            f"start dates on or after {HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} "
+                            "to preserve the simple backtest lookback window."
                         )
                     else:
                         status_label.set_text("Yahoo Finance uses cached data in data/yfinance")
@@ -651,7 +677,8 @@ async def _render_new_backtest_form(
                     placeholder="AAPL, MSFT, NVDA",
                 ).classes("w-full")
                 ui.label(
-                    "Used for Yahoo Finance and Alpaca SIP. Leave blank to use a small default universe."
+                    "Used for Yahoo Finance and Alpaca SIP. For hybrid, leave blank to use the "
+                    "CRSP universe as of the start date."
                 ).classes("text-xs text-gray-500 -mt-2")
 
             # Right column
@@ -743,6 +770,8 @@ async def _render_new_backtest_form(
                 adv_source = "crsp"
             elif provider == DataProvider.ALPACA_SIP:
                 adv_source = "alpaca"
+            elif provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+                adv_source = "hybrid_crsp_sip"
             else:
                 adv_source = "yahoo"
             # Let the backend handle None values and type coercion.
@@ -875,7 +904,11 @@ async def _render_new_backtest_form(
             data_provider = _provider_from_display_label(selected_provider)
 
             universe: list[str] | None = None
-            if data_provider in (DataProvider.YFINANCE, DataProvider.ALPACA_SIP):
+            if data_provider in (
+                DataProvider.YFINANCE,
+                DataProvider.ALPACA_SIP,
+                DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            ):
                 raw_universe_value = universe_input.value
                 raw_universe = ""
                 if raw_universe_value is not None:
@@ -926,6 +959,17 @@ async def _render_new_backtest_form(
                 return
             if start_dt.year < 1990 or end_dt.year > 2100:
                 ui.notify("Dates must be between 1990 and 2100", type="negative")
+                return
+            if (
+                data_provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+                and start_dt < HYBRID_CRSP_SIP_MIN_START_DATE
+            ):
+                ui.notify(
+                    "Hybrid CRSP/SIP requires start_date >= "
+                    f"{HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} because Alpaca SIP "
+                    "history starts around 2016 and the simple backtester needs a 90-day lookback.",
+                    type="negative",
+                )
                 return
 
             # Build config

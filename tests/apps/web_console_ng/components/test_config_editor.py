@@ -167,6 +167,18 @@ class TestValidateBacktestParams:
         assert len(result.warnings) == 1
         assert "Alpaca SIP" in result.warnings[0]
 
+    def test_hybrid_rejects_start_date_before_sip_lookback_boundary(
+        self, valid_config: dict[str, Any]
+    ) -> None:
+        valid_config["provider"] = "hybrid_crsp_universe_sip_prices"
+        valid_config["start_date"] = "2016-03-31"
+        valid_config["end_date"] = "2016-05-01"
+
+        result = validate_backtest_params(valid_config)
+
+        assert not result.is_valid
+        assert any("2016-04-01" in error for error in result.errors)
+
     def test_provider_defaults_to_crsp(self) -> None:
         config = {
             "alpha_name": "test",
@@ -185,6 +197,7 @@ class TestProviderMapping:
         assert "crsp" in PROVIDER_DISPLAY
         assert "yfinance" in PROVIDER_DISPLAY
         assert "alpaca_sip" in PROVIDER_DISPLAY
+        assert "hybrid_crsp_universe_sip_prices" in PROVIDER_DISPLAY
 
     def test_inverse_roundtrip(self) -> None:
         for key, display in PROVIDER_DISPLAY.items():
@@ -237,6 +250,20 @@ class TestFormJsonRoundTrip:
         data = json.loads(json_str)
         assert data["provider"] == "alpaca_sip"
         assert data["extra_params"]["universe"] == ["AAPL", "MSFT"]
+
+    def test_roundtrip_with_hybrid(self) -> None:
+        json_str = form_state_to_json(
+            alpha_name="alpha1",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            weight_method="rank",
+            provider_display_label="Hybrid CRSP Universe + Alpaca SIP Prices (research)",
+            universe_csv=None,
+            cost_config=None,
+        )
+        data = json.loads(json_str)
+        assert data["provider"] == "hybrid_crsp_universe_sip_prices"
+        assert "extra_params" not in data
 
     def test_roundtrip_with_cost_model(self) -> None:
         cost = {"enabled": True, "bps_per_trade": 5.0}

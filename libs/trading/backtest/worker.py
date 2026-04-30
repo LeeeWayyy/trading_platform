@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,7 +40,12 @@ from libs.trading.backtest.cost_model import (
     compute_backtest_costs,
     load_pit_adv_volatility,
 )
-from libs.trading.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
+from libs.trading.backtest.job_queue import (
+    HYBRID_CRSP_SIP_MIN_START_DATE,
+    BacktestJobConfig,
+    BacktestJobQueue,
+    DataProvider,
+)
 from libs.trading.backtest.param_search import SearchResult
 from libs.trading.backtest.result_storage import (
     _sanitize_float,
@@ -114,6 +119,40 @@ def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
         raise ValueError("Universe cannot be empty after normalization")
 
     return universe
+
+
+def _resolve_hybrid_symbol_universe(
+    fetcher: UnifiedDataFetcher,
+    extra_params: dict[str, Any],
+    as_of_date: date,
+) -> list[str]:
+    """Resolve the static universe for hybrid CRSP/SIP simple backtests."""
+    if "universe" in extra_params:
+        return _resolve_symbol_universe(extra_params)
+
+    universe: list[str] = []
+    seen: set[str] = set()
+    for symbol in fetcher.get_universe(as_of_date):
+        normalized = symbol.strip().upper() if isinstance(symbol, str) else ""
+        if normalized and normalized not in seen:
+            universe.append(normalized)
+            seen.add(normalized)
+
+    if not universe:
+        raise ValueError("Hybrid CRSP universe cannot be empty")
+
+    return universe
+
+
+def _validate_hybrid_start_date(start_date: date) -> None:
+    """Fail early when the simple backtest lookback would predate SIP coverage."""
+    if start_date < HYBRID_CRSP_SIP_MIN_START_DATE:
+        raise ValueError(
+            "Hybrid CRSP/SIP backtests require start_date >= "
+            f"{HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} because the simple "
+            "backtester fetches a 90-day lookback and Alpaca SIP daily history "
+            "starts around 2016-01-01. Use CRSP for earlier windows."
+        )
 
 
 def _load_alpaca_sip_manifest(manifest_manager: ManifestManager) -> SyncManifest:
@@ -485,6 +524,8 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
 
             data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
+            if job_config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+                _validate_hybrid_start_date(job_config.start_date)
             metrics_adapter = AlphaMetricsAdapter()
             alpha = create_alpha(job_config.alpha_name)
 
@@ -532,14 +573,18 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     ),
                     cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
                 )
-            elif job_config.provider in (DataProvider.YFINANCE, DataProvider.ALPACA_SIP):
-                # Simple Backtest Path for non-PIT providers.
-                # SECURITY: fail closed because these providers do not have PIT universes.
-                provider_label = (
-                    "Yahoo Finance"
-                    if job_config.provider == DataProvider.YFINANCE
-                    else "Alpaca SIP"
-                )
+            elif job_config.provider in (
+                DataProvider.YFINANCE,
+                DataProvider.ALPACA_SIP,
+                DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            ):
+                # Simple Backtest Path for research-only providers.
+                # SECURITY: fail closed because these paths are not production PIT backtests.
+                provider_label = {
+                    DataProvider.YFINANCE: "Yahoo Finance",
+                    DataProvider.ALPACA_SIP: "Alpaca SIP",
+                    DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES: "Hybrid CRSP/SIP",
+                }[job_config.provider]
                 environment = _resolve_non_pit_environment(provider_label)
                 simple_dataset_version_ids: dict[str, str] | None = None
 
@@ -566,7 +611,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         environment=environment,
                     )
                     fetcher = UnifiedDataFetcher(fetcher_config, yfinance_provider=yf_provider)
-                else:
+                elif job_config.provider == DataProvider.ALPACA_SIP:
                     alpaca_env_path = (
                         os.getenv("ALPACA_SIP_DATA_DIR", "").strip()
                         or os.getenv("ALPACA_SIP_STORAGE_PATH", "").strip()
@@ -594,13 +639,61 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         fetcher_config,
                         alpaca_sip_provider=alpaca_provider,
                     )
+                else:
+                    alpaca_env_path = (
+                        os.getenv("ALPACA_SIP_DATA_DIR", "").strip()
+                        or os.getenv("ALPACA_SIP_STORAGE_PATH", "").strip()
+                    )
+                    alpaca_storage = (
+                        Path(alpaca_env_path)
+                        if alpaca_env_path
+                        else data_root / "alpaca" / "sip" / "daily"
+                    )
+                    manifest_manager = ManifestManager(data_root=data_root)
+                    alpaca_manifest = _load_alpaca_sip_manifest(manifest_manager)
+                    simple_dataset_version_ids = {
+                        **_alpaca_sip_dataset_version_ids(alpaca_manifest),
+                        "hybrid_universe_provider": "crsp",
+                        "hybrid_price_provider": "alpaca_sip",
+                        "hybrid_universe_as_of_date": job_config.start_date.isoformat(),
+                    }
+                    crsp_provider = CRSPLocalProvider(
+                        data_root / "crsp",
+                        manifest_manager,
+                        data_root=data_root,
+                    )
+                    alpaca_provider = AlpacaSIPLocalProvider(
+                        storage_path=alpaca_storage,
+                        manifest_manager=manifest_manager,
+                        data_root=data_root,
+                        pinned_manifest=alpaca_manifest,
+                    )
+                    fetcher_config = FetcherConfig(
+                        provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+                        crsp_storage_path=data_root / "crsp",
+                        alpaca_sip_storage_path=alpaca_storage,
+                        environment=environment,
+                    )
+                    fetcher = UnifiedDataFetcher(
+                        fetcher_config,
+                        crsp_provider=crsp_provider,
+                        alpaca_sip_provider=alpaca_provider,
+                    )
 
                 simple_backtester = SimpleBacktester(
                     fetcher,
                     metrics_adapter,
                     dataset_version_ids=simple_dataset_version_ids,
                 )
-                universe = _resolve_symbol_universe(job_config.extra_params)
+                universe = (
+                    _resolve_hybrid_symbol_universe(
+                        fetcher,
+                        job_config.extra_params,
+                        job_config.start_date,
+                    )
+                    if job_config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+                    else _resolve_symbol_universe(job_config.extra_params)
+                )
 
                 result = simple_backtester.run_backtest(
                     alpha=alpha,
@@ -687,6 +780,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 elif cost_config is not None and job_config.provider in (
                     DataProvider.YFINANCE,
                     DataProvider.ALPACA_SIP,
+                    DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
                 ):
                     # For non-PIT providers, costs are not computed without PIT ADV/volatility.
                     worker.logger.info(

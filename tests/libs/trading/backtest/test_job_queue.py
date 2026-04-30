@@ -637,6 +637,13 @@ class TestDataProviderEnum:
         """Test that 'alpaca_sip' string parses to ALPACA_SIP provider."""
         assert DataProvider.from_string("alpaca_sip") == DataProvider.ALPACA_SIP
 
+    def test_from_string_valid_hybrid(self):
+        """Test that hybrid provider string parses correctly."""
+        assert (
+            DataProvider.from_string("hybrid_crsp_universe_sip_prices")
+            == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
+
     def test_from_string_case_insensitive(self):
         """Test that provider parsing is case-insensitive."""
         assert DataProvider.from_string("CRSP") == DataProvider.CRSP
@@ -644,6 +651,10 @@ class TestDataProviderEnum:
         assert DataProvider.from_string("YFINANCE") == DataProvider.YFINANCE
         assert DataProvider.from_string("YFinance") == DataProvider.YFINANCE
         assert DataProvider.from_string("ALPACA_SIP") == DataProvider.ALPACA_SIP
+        assert (
+            DataProvider.from_string("HYBRID_CRSP_UNIVERSE_SIP_PRICES")
+            == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
 
     def test_from_string_strips_whitespace(self):
         """Test that provider parsing strips leading/trailing whitespace."""
@@ -707,6 +718,17 @@ class TestBacktestJobConfigFromDict:
         }
         config = BacktestJobConfig.from_dict(data)
         assert config.provider == DataProvider.ALPACA_SIP
+
+    def test_from_dict_provider_hybrid(self):
+        """Test that hybrid provider is correctly parsed."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "hybrid_crsp_universe_sip_prices",
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
 
     def test_from_dict_invalid_provider_raises(self):
         """Test that invalid provider in dict raises ValueError."""

@@ -1413,6 +1413,35 @@ async def test_submit_job_alpaca_sip_provider(
 
 
 @pytest.mark.asyncio()
+async def test_submit_job_hybrid_rejects_pre_sip_lookback_start(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test hybrid provider enforces the SIP lookback boundary before enqueue."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    start_date = dummy_ui.dates[0]
+    end_date = dummy_ui.dates[1]
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Hybrid CRSP Universe + Alpaca SIP Prices (research)"
+    start_date.value = "2016-03-31"
+    end_date.value = "2016-05-01"
+
+    await _call(submit_button._on_click)
+
+    assert any("2016-04-01" in n["text"] for n in dummy_ui.notifications)
+    assert any(n["type"] == "negative" for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
 async def test_submit_job_date_validation(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
