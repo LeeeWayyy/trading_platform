@@ -1,4 +1,4 @@
-.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify sync-alpaca-corp-actions sync-alpaca-corp-actions-status sync-alpaca-corp-actions-verify clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify sync-alpaca-corp-actions sync-alpaca-corp-actions-status sync-alpaca-corp-actions-verify alpaca-feed-delta clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -166,6 +166,9 @@ sync-alpaca-corp-actions-status: ## Show Alpaca corporate-actions sync manifest 
 
 sync-alpaca-corp-actions-verify: ## Verify Alpaca corporate-actions files against manifest
 	PYTHONPATH=. poetry run python scripts/data/alpaca_corp_actions_sync.py verify $(ARGS)
+
+alpaca-feed-delta: ## Compare Alpaca IEX-vs-SIP bars. Usage: make alpaca-feed-delta ARGS="--symbols AAPL,MSFT --start 2026-04-20 --end 2026-04-24"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_feed_delta.py $(ARGS)
 
 ui-crawl: ## Run broad Playwright UI crawler (manual E2E diagnostic)
 	PYTHONPATH=. poetry run python tests/e2e/ui_crawl.py
