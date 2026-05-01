@@ -30,6 +30,15 @@ MANIFEST_DIR = DATA_ROOT / "manifests"
 LOCK_DIR = DATA_ROOT / "locks"
 
 
+def _load_dotenv() -> None:
+    """Load repo-root .env for local CLI use when python-dotenv is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(Path(".env"))
+
+
 def _parse_csv(raw: str) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
@@ -47,6 +56,7 @@ def _manifest_manager() -> ManifestManager:
 
 
 def _manager(*, storage_path: Path, limit: int) -> AlpacaCorporateActionsSyncManager:
+    _load_dotenv()
     return AlpacaCorporateActionsSyncManager.from_env(
         storage_path=storage_path,
         manifest_manager=_manifest_manager(),

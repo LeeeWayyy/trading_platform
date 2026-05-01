@@ -26,6 +26,15 @@ logging.basicConfig(
 )
 
 
+def _load_dotenv() -> None:
+    """Load repo-root .env for local CLI use when python-dotenv is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(Path(".env"))
+
+
 def _parse_symbols(symbols: str, symbols_file: Path | None) -> list[str]:
     parsed: list[str] = []
     if symbols:
@@ -61,6 +70,7 @@ def _write_report(report: FeedDeltaReport, output: Path | None) -> None:
 
 
 def _run_compare(args: argparse.Namespace) -> int:
+    _load_dotenv()
     symbols = _parse_symbols(args.symbols, args.symbols_file)
     start = _parse_datetime(args.start)
     end = _parse_datetime(args.end, end_of_day=True)

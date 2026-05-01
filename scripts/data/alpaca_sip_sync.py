@@ -27,6 +27,15 @@ MANIFEST_DIR = DATA_ROOT / "manifests"
 LOCK_DIR = DATA_ROOT / "locks"
 
 
+def _load_dotenv() -> None:
+    """Load repo-root .env for local CLI use when python-dotenv is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(Path(".env"))
+
+
 def _parse_symbols(symbols: str, symbols_file: Path | None) -> list[str]:
     parsed: list[str] = []
     if symbols:
@@ -59,6 +68,7 @@ def _manager(
     feed: str,
     adjustment: str,
 ) -> AlpacaSIPSyncManager:
+    _load_dotenv()
     return AlpacaSIPSyncManager.from_env(
         storage_path=storage_path,
         manifest_manager=_manifest_manager(),
