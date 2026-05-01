@@ -11,6 +11,7 @@ import pytest
 
 from libs.data.data_providers.alpaca_corp_actions_sync import (
     AlpacaCorporateActionsSyncManager,
+    CorporateActionRoundTripCheck,
 )
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
@@ -267,6 +268,87 @@ def test_verify_integrity_passes_for_current_manifest(
     )
 
     assert manager.verify_integrity() == []
+
+
+def test_round_trip_checks_pass_known_matching_event(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    check = CorporateActionRoundTripCheck(
+        label="AAPL split",
+        symbol="AAPL",
+        start_date=datetime.date(2020, 8, 1),
+        end_date=datetime.date(2020, 9, 15),
+        expected_type_tokens=("split",),
+    )
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": [
+                    {
+                        "id": "split-1",
+                        "symbol": "AAPL",
+                        "ca_type": "stock_split",
+                        "process_date": "2020-08-31",
+                    }
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    report = manager.run_round_trip_checks([check])
+
+    assert report.status == "passed"
+    assert report.results[0].matched_action_count == 1
+    assert report.results[0].matched_ids == ("split-1",)
+    assert report.results[0].matched_types == ("stock_split",)
+    assert report.to_dict()["content_hash"] == report.content_hash
+    assert client.requests[0]["symbols"] == "AAPL"
+
+
+def test_round_trip_checks_fail_when_expected_type_missing(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    check = CorporateActionRoundTripCheck(
+        label="AAPL split",
+        symbol="AAPL",
+        start_date=datetime.date(2020, 8, 1),
+        end_date=datetime.date(2020, 9, 15),
+        expected_type_tokens=("split",),
+    )
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": [
+                    {
+                        "id": "div-1",
+                        "symbol": "AAPL",
+                        "ca_type": "cash_dividend",
+                        "process_date": "2020-08-31",
+                    }
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    report = manager.run_round_trip_checks([check])
+
+    assert report.status == "failed"
+    assert report.results[0].raw_action_count == 1
+    assert report.results[0].matched_action_count == 0
 
 
 def test_verify_integrity_rejects_manifest_path_outside_storage(

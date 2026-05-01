@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import logging
 import sys
 from collections.abc import Mapping, Sequence
@@ -122,6 +123,23 @@ def _run_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_round_trip(args: argparse.Namespace) -> int:
+    manager = _manager(storage_path=args.storage_path, limit=args.limit)
+    report = manager.run_round_trip_checks()
+    payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
+    if args.output is None:
+        print(payload)
+    else:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(payload + "\n")
+    print(
+        "Corporate actions round-trip: "
+        f"status={report.status} checks={len(report.results)} "
+        f"hash={report.content_hash[:16]}..."
+    )
+    return 0 if report.status == "passed" else 1
+
+
 class _VerifyOnlyClient:
     """Client placeholder for integrity-only commands."""
 
@@ -162,6 +180,19 @@ def _build_parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify", help="Verify local files against manifest.")
     verify.add_argument("--storage-path", type=Path, default=STORAGE_PATH)
     verify.set_defaults(func=_run_verify)
+
+    round_trip = subparsers.add_parser(
+        "round-trip",
+        help="Validate known split/dividend corporate actions through the API.",
+    )
+    round_trip.add_argument("--storage-path", type=Path, default=STORAGE_PATH)
+    round_trip.add_argument(
+        "--limit",
+        type=int,
+        default=AlpacaCorporateActionsSyncManager.DEFAULT_LIMIT,
+    )
+    round_trip.add_argument("--output", type=Path, default=None, help="Optional JSON output path.")
+    round_trip.set_defaults(func=_run_round_trip)
     return parser
 
 

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -62,6 +63,101 @@ ALPACA_CORP_ACTIONS_SCHEMA: dict[str, type[pl.DataType]] = {
     "new_symbol": pl.Utf8,
     "raw": pl.Utf8,
 }
+
+
+@dataclass(frozen=True)
+class CorporateActionRoundTripCheck:
+    """Known corporate-action event used for live round-trip validation."""
+
+    label: str
+    symbol: str
+    start_date: datetime.date
+    end_date: datetime.date
+    expected_type_tokens: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize check configuration to stable JSON-compatible values."""
+        return {
+            "label": self.label,
+            "symbol": self.symbol,
+            "start_date": self.start_date.isoformat(),
+            "end_date": self.end_date.isoformat(),
+            "expected_type_tokens": list(self.expected_type_tokens),
+        }
+
+
+@dataclass(frozen=True)
+class CorporateActionRoundTripResult:
+    """Result for one corporate-action round-trip check."""
+
+    check: CorporateActionRoundTripCheck
+    raw_action_count: int
+    matched_action_count: int
+    matched_ids: tuple[str, ...]
+    matched_types: tuple[str, ...]
+    status: str
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize result to stable JSON-compatible values."""
+        return {
+            "check": self.check.to_dict(),
+            "raw_action_count": self.raw_action_count,
+            "matched_action_count": self.matched_action_count,
+            "matched_ids": list(self.matched_ids),
+            "matched_types": list(self.matched_types),
+            "status": self.status,
+        }
+
+
+@dataclass(frozen=True)
+class CorporateActionRoundTripReport:
+    """Report for known corporate-action API round-trip validation."""
+
+    status: str
+    results: tuple[CorporateActionRoundTripResult, ...]
+
+    @property
+    def content_hash(self) -> str:
+        """Return a deterministic SHA-256 hash of the report payload."""
+        payload = self.to_dict(include_hash=False)
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(encoded).hexdigest()
+
+    def to_dict(self, *, include_hash: bool = True) -> dict[str, object]:
+        """Serialize report to stable JSON-compatible values."""
+        payload: dict[str, object] = {
+            "report_type": "alpaca_corporate_actions_round_trip",
+            "status": self.status,
+            "results": [result.to_dict() for result in self.results],
+        }
+        if include_hash:
+            payload["content_hash"] = self.content_hash
+        return payload
+
+
+DEFAULT_ROUND_TRIP_CHECKS: tuple[CorporateActionRoundTripCheck, ...] = (
+    CorporateActionRoundTripCheck(
+        label="AAPL 4-for-1 split",
+        symbol="AAPL",
+        start_date=datetime.date(2020, 8, 1),
+        end_date=datetime.date(2020, 9, 15),
+        expected_type_tokens=("split",),
+    ),
+    CorporateActionRoundTripCheck(
+        label="NVDA 10-for-1 split",
+        symbol="NVDA",
+        start_date=datetime.date(2024, 6, 1),
+        end_date=datetime.date(2024, 6, 20),
+        expected_type_tokens=("split",),
+    ),
+    CorporateActionRoundTripCheck(
+        label="AAPL cash dividend",
+        symbol="AAPL",
+        start_date=datetime.date(2024, 2, 1),
+        end_date=datetime.date(2024, 2, 20),
+        expected_type_tokens=("dividend", "cash"),
+    ),
+)
 
 
 class AlpacaCorporateActionsClient(Protocol):
@@ -285,6 +381,42 @@ class AlpacaCorporateActionsSyncManager:
 
         return errors
 
+    def run_round_trip_checks(
+        self,
+        checks: Sequence[CorporateActionRoundTripCheck] = DEFAULT_ROUND_TRIP_CHECKS,
+    ) -> CorporateActionRoundTripReport:
+        """Verify known split/dividend events are visible through the API."""
+        results: list[CorporateActionRoundTripResult] = []
+        for check in checks:
+            self._validate_date_range(check.start_date, check.end_date)
+            params = self._build_base_params(
+                start_date=check.start_date,
+                end_date=check.end_date,
+                symbols=[check.symbol.upper().strip()],
+                ca_types=[],
+                ids=[],
+            )
+            actions = self._fetch_all_pages(params)
+            rows = [self._row_from_action(action) for action in actions]
+            matches = [row for row in rows if self._row_matches_round_trip_check(row, check)]
+            results.append(
+                CorporateActionRoundTripResult(
+                    check=check,
+                    raw_action_count=len(actions),
+                    matched_action_count=len(matches),
+                    matched_ids=tuple(sorted(str(row["id"]) for row in matches if row.get("id"))),
+                    matched_types=tuple(
+                        sorted({str(row["ca_type"]) for row in matches if row.get("ca_type")})
+                    ),
+                    status="passed" if matches else "failed",
+                )
+            )
+
+        report_status = (
+            "passed" if all(result.status == "passed" for result in results) else "failed"
+        )
+        return CorporateActionRoundTripReport(status=report_status, results=tuple(results))
+
     def _fetch_all_pages(self, base_params: Mapping[str, str | int]) -> list[Mapping[str, Any]]:
         params: dict[str, str | int] = dict(base_params)
         actions: list[Mapping[str, Any]] = []
@@ -359,6 +491,37 @@ class AlpacaCorporateActionsSyncManager:
             "new_symbol": self._optional_text(action, "new_symbol", "new_ticker"),
             "raw": json.dumps(dict(action), sort_keys=True, default=str),
         }
+
+    @staticmethod
+    def _row_matches_round_trip_check(
+        row: Mapping[str, Any],
+        check: CorporateActionRoundTripCheck,
+    ) -> bool:
+        symbol = str(row.get("symbol") or "").upper().strip()
+        if symbol != check.symbol.upper().strip():
+            return False
+
+        date_values = [
+            value
+            for value in (
+                row.get("process_date"),
+                row.get("ex_date"),
+                row.get("record_date"),
+                row.get("payable_date"),
+            )
+            if isinstance(value, datetime.date)
+        ]
+        if date_values and not any(
+            check.start_date <= value <= check.end_date for value in date_values
+        ):
+            return False
+
+        type_text = str(row.get("ca_type") or "").lower()
+        raw_text = str(row.get("raw") or "").lower()
+        return any(
+            token.lower() in type_text or token.lower() in raw_text
+            for token in check.expected_type_tokens
+        )
 
     def _rows_to_frame(self, rows: list[dict[str, Any]]) -> pl.DataFrame:
         if not rows:

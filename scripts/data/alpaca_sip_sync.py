@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import logging
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from libs.data.data_providers.alpaca_sip_sync import AlpacaSIPSyncManager  # noqa: E402
+from libs.data.data_quality.alpaca_sip_integrity import AlpacaSIPIntegrityChecker  # noqa: E402
 from libs.data.data_quality.manifest import ManifestManager  # noqa: E402
 
 logging.basicConfig(
@@ -50,6 +52,18 @@ def _parse_symbols(symbols: str, symbols_file: Path | None) -> list[str]:
     if not normalized:
         raise ValueError("Provide --symbols or --symbols-file")
     return normalized
+
+
+def _parse_datetime(value: str, *, end_of_day: bool = False) -> datetime.datetime:
+    if "T" in value:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        parsed_date = datetime.date.fromisoformat(value)
+        time_value = datetime.time.max if end_of_day else datetime.time.min
+        parsed = datetime.datetime.combine(parsed_date, time_value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=datetime.UTC)
+    return parsed.astimezone(datetime.UTC)
 
 
 def _manifest_manager() -> ManifestManager:
@@ -150,6 +164,38 @@ def _run_estimate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_integrity(args: argparse.Namespace) -> int:
+    _load_dotenv()
+    symbols = _parse_symbols(args.symbols, args.symbols_file)
+    start = _parse_datetime(args.start)
+    end = _parse_datetime(args.end, end_of_day=True)
+    if end < start:
+        raise ValueError("--end must be >= --start")
+
+    report = AlpacaSIPIntegrityChecker.from_env().run(
+        symbols=symbols,
+        start=start,
+        end=end,
+        timeframe=args.timeframe,
+        adjustment_mode=args.adjustment,
+        feed=args.feed,
+        max_mismatch_samples=args.max_mismatch_samples,
+    )
+    payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
+    if args.output is None:
+        print(payload)
+    else:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(payload + "\n")
+    print(
+        "SIP integrity: "
+        f"status={report.status} first_rows={report.first_row_count} "
+        f"second_rows={report.second_row_count} mismatches={report.mismatch_count} "
+        f"hash={report.content_hash[:16]}..."
+    )
+    return 0 if report.status in {"passed", "warning"} else 1
+
+
 class _VerifyOnlyClient:
     """Client placeholder for integrity-only commands."""
 
@@ -210,6 +256,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional provider/account request-rate budget for a duration floor.",
     )
     estimate.set_defaults(func=_run_estimate)
+
+    integrity = subparsers.add_parser(
+        "integrity",
+        help="Pull a fixed SIP window twice and compare deterministic row hashes.",
+    )
+    integrity.add_argument("--symbols", default="", help="Comma-separated ticker symbols.")
+    integrity.add_argument(
+        "--symbols-file",
+        type=Path,
+        default=None,
+        help="File containing one ticker symbol per line.",
+    )
+    integrity.add_argument("--start", required=True, help="Start date or UTC datetime.")
+    integrity.add_argument("--end", required=True, help="End date or UTC datetime.")
+    integrity.add_argument(
+        "--timeframe",
+        default="1Day",
+        help="1Min, 5Min, 15Min, 1Hour, or 1Day.",
+    )
+    integrity.add_argument("--adjustment", default="all", help="Alpaca adjustment mode.")
+    integrity.add_argument("--feed", default="sip", help="Alpaca feed to verify.")
+    integrity.add_argument("--output", type=Path, default=None, help="Optional JSON output path.")
+    integrity.add_argument("--max-mismatch-samples", type=int, default=100)
+    integrity.set_defaults(func=_run_integrity)
     return parser
 
 
