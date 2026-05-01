@@ -14,6 +14,7 @@ import logging
 import os
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -49,6 +50,46 @@ except ImportError:  # pragma: no cover - optional dependency guard
     TimeFrame = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AlpacaSIPSyncEstimate:
+    """Offline estimate for an Alpaca SIP daily-bar full sync."""
+
+    symbol_count: int
+    start_year: int
+    end_year: int
+    year_count: int
+    request_chunk_size: int
+    request_count: int
+    estimated_rows: int
+    estimated_storage_bytes: int
+    request_interval_seconds: float
+    requests_per_minute: int | None
+    estimated_throttle_seconds: float
+    estimated_rate_limit_floor_seconds: float | None
+    estimated_total_seconds: float
+    symbol_set_hash: str
+
+    def to_dict(self) -> dict[str, int | float | str | None]:
+        """Serialize estimate to stable JSON-compatible values."""
+        return {
+            "symbol_count": self.symbol_count,
+            "start_year": self.start_year,
+            "end_year": self.end_year,
+            "year_count": self.year_count,
+            "request_chunk_size": self.request_chunk_size,
+            "request_count": self.request_count,
+            "estimated_rows": self.estimated_rows,
+            "estimated_storage_bytes": self.estimated_storage_bytes,
+            "request_interval_seconds": self.request_interval_seconds,
+            "requests_per_minute": self.requests_per_minute,
+            "estimated_throttle_seconds": self.estimated_throttle_seconds,
+            "estimated_rate_limit_floor_seconds": self.estimated_rate_limit_floor_seconds,
+            "estimated_total_seconds": self.estimated_total_seconds,
+            "estimated_total_minutes": round(self.estimated_total_seconds / 60.0, 4),
+            "symbol_set_hash": self.symbol_set_hash,
+        }
 
 
 class AlpacaStockBarsClient(Protocol):
@@ -231,6 +272,67 @@ class AlpacaSIPSyncManager:
             },
         )
         return manifest
+
+    @classmethod
+    def estimate_full_sync(
+        cls,
+        symbols: Sequence[str],
+        *,
+        start_year: int,
+        end_year: int | None = None,
+        request_chunk_size: int = 200,
+        request_interval_seconds: float = 0.0,
+        requests_per_minute: int | None = None,
+        avg_trading_days_per_year: int = 252,
+    ) -> AlpacaSIPSyncEstimate:
+        """Estimate request volume, rows, storage, and minimum sync duration.
+
+        This is intentionally offline. It lets operators choose chunking and
+        throttling before spending live API quota on a large SIP sync.
+        """
+        if request_chunk_size < 1:
+            raise ValueError("request_chunk_size must be >= 1")
+        if request_interval_seconds < 0:
+            raise ValueError("request_interval_seconds must be >= 0")
+        if requests_per_minute is not None and requests_per_minute < 1:
+            raise ValueError("requests_per_minute must be >= 1")
+        if avg_trading_days_per_year < 1:
+            raise ValueError("avg_trading_days_per_year must be >= 1")
+
+        normalized_symbols = cls._normalize_symbols(symbols)
+        resolved_end_year = end_year or datetime.datetime.now(datetime.UTC).year
+        cls._validate_year_range(start_year, resolved_end_year)
+        year_count = resolved_end_year - start_year + 1
+        chunks_per_year = (len(normalized_symbols) + request_chunk_size - 1) // request_chunk_size
+        request_count = chunks_per_year * year_count
+        estimated_rows = len(normalized_symbols) * year_count * avg_trading_days_per_year
+        estimated_storage_bytes = estimated_rows * cls.BYTES_PER_ROW_ESTIMATE
+        throttle_seconds = request_count * request_interval_seconds
+        rate_limit_floor_seconds = (
+            (request_count / requests_per_minute) * 60.0
+            if requests_per_minute is not None
+            else None
+        )
+        estimated_total_seconds = max(throttle_seconds, rate_limit_floor_seconds or 0.0)
+
+        return AlpacaSIPSyncEstimate(
+            symbol_count=len(normalized_symbols),
+            start_year=start_year,
+            end_year=resolved_end_year,
+            year_count=year_count,
+            request_chunk_size=request_chunk_size,
+            request_count=request_count,
+            estimated_rows=estimated_rows,
+            estimated_storage_bytes=estimated_storage_bytes,
+            request_interval_seconds=request_interval_seconds,
+            requests_per_minute=requests_per_minute,
+            estimated_throttle_seconds=round(throttle_seconds, 6),
+            estimated_rate_limit_floor_seconds=(
+                round(rate_limit_floor_seconds, 6) if rate_limit_floor_seconds is not None else None
+            ),
+            estimated_total_seconds=round(estimated_total_seconds, 6),
+            symbol_set_hash=compute_symbol_set_hash(normalized_symbols),
+        )
 
     def sync_year_partition(
         self,

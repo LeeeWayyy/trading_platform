@@ -1,4 +1,4 @@
-.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify sync-alpaca-corp-actions sync-alpaca-corp-actions-status sync-alpaca-corp-actions-verify alpaca-feed-delta clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify sync-alpaca-sip-estimate sync-alpaca-corp-actions sync-alpaca-corp-actions-status sync-alpaca-corp-actions-verify alpaca-feed-delta clean clean-cache clean-all install requirements install-hooks ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -157,6 +157,9 @@ sync-alpaca-sip-status: ## Show Alpaca SIP sync manifest status
 
 sync-alpaca-sip-verify: ## Verify Alpaca SIP synced files against manifest
 	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py verify $(ARGS)
+
+sync-alpaca-sip-estimate: ## Estimate Alpaca SIP sync size/duration. Usage: make sync-alpaca-sip-estimate ARGS="--symbols AAPL,MSFT --start-year 2020 --requests-per-minute 200"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py estimate $(ARGS)
 
 sync-alpaca-corp-actions: ## Sync Alpaca corporate actions. Usage: make sync-alpaca-corp-actions ARGS="--symbols AAPL,MSFT --start-date 2020-01-01 --end-date 2024-12-31"
 	PYTHONPATH=. poetry run python scripts/data/alpaca_corp_actions_sync.py full-sync $(ARGS)

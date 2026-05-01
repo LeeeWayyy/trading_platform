@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from collections.abc import Sequence
@@ -125,6 +126,20 @@ def _run_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_estimate(args: argparse.Namespace) -> int:
+    symbol_list = _parse_symbols(args.symbols, args.symbols_file)
+    estimate = AlpacaSIPSyncManager.estimate_full_sync(
+        symbol_list,
+        start_year=args.start_year,
+        end_year=args.end_year,
+        request_chunk_size=args.chunk_size,
+        request_interval_seconds=args.throttle_seconds,
+        requests_per_minute=args.requests_per_minute,
+    )
+    print(json.dumps(estimate.to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
 class _VerifyOnlyClient:
     """Client placeholder for integrity-only commands."""
 
@@ -162,6 +177,29 @@ def _build_parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify", help="Verify local files against manifest.")
     verify.add_argument("--storage-path", type=Path, default=STORAGE_PATH)
     verify.set_defaults(func=_run_verify)
+
+    estimate = subparsers.add_parser(
+        "estimate",
+        help="Estimate request count, rows, storage, and duration for a SIP sync.",
+    )
+    estimate.add_argument("--symbols", default="", help="Comma-separated ticker symbols.")
+    estimate.add_argument(
+        "--symbols-file",
+        type=Path,
+        default=None,
+        help="File containing one ticker symbol per line.",
+    )
+    estimate.add_argument("--start-year", type=int, default=2016)
+    estimate.add_argument("--end-year", type=int, default=None)
+    estimate.add_argument("--chunk-size", type=int, default=200)
+    estimate.add_argument("--throttle-seconds", type=float, default=0.0)
+    estimate.add_argument(
+        "--requests-per-minute",
+        type=int,
+        default=None,
+        help="Optional provider/account request-rate budget for a duration floor.",
+    )
+    estimate.set_defaults(func=_run_estimate)
     return parser
 
 

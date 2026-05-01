@@ -293,6 +293,38 @@ def test_full_sync_rejects_empty_symbols(
         manager.full_sync([" ", ""], start_year=2024, end_year=2024)
 
 
+def test_estimate_full_sync_counts_requests_rows_and_rate_limit_floor() -> None:
+    estimate = AlpacaSIPSyncManager.estimate_full_sync(
+        ["aapl", "MSFT", "aapl"],
+        start_year=2023,
+        end_year=2024,
+        request_chunk_size=1,
+        request_interval_seconds=0.5,
+        requests_per_minute=120,
+    )
+
+    assert estimate.symbol_count == 2
+    assert estimate.year_count == 2
+    assert estimate.request_count == 4
+    assert estimate.estimated_rows == 2 * 2 * 252
+    assert estimate.estimated_storage_bytes == estimate.estimated_rows * 160
+    assert estimate.estimated_throttle_seconds == 2.0
+    assert estimate.estimated_rate_limit_floor_seconds == 2.0
+    assert estimate.estimated_total_seconds == 2.0
+    assert len(estimate.symbol_set_hash) == 64
+    assert estimate.to_dict()["estimated_total_minutes"] == round(2.0 / 60.0, 4)
+
+
+def test_estimate_full_sync_rejects_invalid_rate_limit() -> None:
+    with pytest.raises(ValueError, match="requests_per_minute"):
+        AlpacaSIPSyncManager.estimate_full_sync(
+            ["AAPL"],
+            start_year=2024,
+            end_year=2024,
+            requests_per_minute=0,
+        )
+
+
 def test_storage_path_must_be_under_data_root(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,
