@@ -20,6 +20,11 @@ from typing import Any, Protocol, cast
 import httpx
 import polars as pl
 
+from libs.data.data_providers.registry import (
+    ProviderType,
+    compute_symbol_set_hash,
+    get_provider_spec,
+)
 from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
@@ -189,6 +194,7 @@ class AlpacaCorporateActionsSyncManager:
         ids: Sequence[str] | None = None,
     ) -> SyncManifest:
         """Sync a bounded corporate-action announcement range."""
+        sync_started_at = datetime.datetime.now(datetime.UTC)
         self._validate_date_range(start_date, end_date)
         normalized_symbols = self._normalize_symbols(symbols or ())
         normalized_types = self._normalize_values(ca_types or (), upper=False)
@@ -223,6 +229,9 @@ class AlpacaCorporateActionsSyncManager:
                 end_date=end_date,
                 checksum=checksum,
                 params=base_params,
+                symbols=normalized_symbols,
+                sync_started_at=sync_started_at,
+                sync_finished_at=datetime.datetime.now(datetime.UTC),
             )
             self.manifest_manager.save_manifest(manifest, lock_token)
 
@@ -462,11 +471,10 @@ class AlpacaCorporateActionsSyncManager:
             raise ValueError("end_date cannot be in the future")
 
     def _build_sync_id(self, params: Mapping[str, str | int]) -> str:
-        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S%fZ")
         params_hash = hashlib.sha256(
             json.dumps(dict(params), sort_keys=True, default=str).encode()
         ).hexdigest()[:12]
-        return f"{timestamp}_{params_hash}"
+        return params_hash
 
     def _atomic_write_parquet(self, df: pl.DataFrame, target_path: Path) -> str:
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -548,10 +556,14 @@ class AlpacaCorporateActionsSyncManager:
         end_date: datetime.date,
         checksum: str,
         params: Mapping[str, str | int],
+        symbols: Sequence[str],
+        sync_started_at: datetime.datetime,
+        sync_finished_at: datetime.datetime,
     ) -> SyncManifest:
         query_hash = hashlib.sha256(
             json.dumps(dict(params), sort_keys=True, default=str).encode()
         ).hexdigest()
+        spec = get_provider_spec(ProviderType.ALPACA_SIP)
 
         return SyncManifest(
             dataset=self.DATASET_NAME,
@@ -564,6 +576,13 @@ class AlpacaCorporateActionsSyncManager:
             wrds_query_hash=query_hash,
             file_paths=file_paths,
             validation_status="passed",
+            provider_id=spec.provider_id.value,
+            provider_version=spec.provider_version,
+            source_feed=spec.source_feed,
+            adjustment_mode=spec.default_adjustment_mode,
+            symbol_set_hash=compute_symbol_set_hash(list(symbols)),
+            sync_started_at=sync_started_at,
+            sync_finished_at=sync_finished_at,
         )
 
     def _check_disk_space(self, estimated_rows: int) -> None:

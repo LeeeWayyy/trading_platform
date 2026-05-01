@@ -11,10 +11,13 @@ Coverage focus:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
+from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
 from libs.web_console_services.data_sync_service import DataSyncService, RateLimitExceeded
 from libs.web_console_services.schemas.data_management import SyncScheduleUpdateDTO
@@ -63,6 +66,41 @@ async def test_get_sync_status_filters_by_dataset_permission(
 
     datasets = {item.dataset for item in results}
     assert datasets == {"crsp", "compustat", "fama_french", "taq", "alpaca_sip"}
+
+
+@pytest.mark.asyncio()
+async def test_get_sync_status_uses_alpaca_sip_manifests(
+    service: DataSyncService,
+    operator_user: DummyUser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    sync_timestamp = datetime(2026, 4, 30, 12, tzinfo=UTC)
+    for dataset, rows in (("alpaca_sip_daily", 10), ("alpaca_sip_corp_actions", 3)):
+        manifest = SyncManifest(
+            dataset=dataset,
+            sync_timestamp=sync_timestamp,
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 4, 30),
+            row_count=rows,
+            checksum=f"{dataset}-checksum",
+            schema_version="v1.0.0",
+            wrds_query_hash=f"{dataset}-query",
+            file_paths=[f"{dataset}.parquet"],
+            validation_status="passed",
+        )
+        (manifest_dir / f"{dataset}.json").write_text(manifest.model_dump_json())
+    monkeypatch.setenv("DATA_ROOT", str(data_root))
+
+    results = await service.get_sync_status(operator_user)
+
+    sip = next(item for item in results if item.dataset == "alpaca_sip")
+    assert sip.last_sync == sync_timestamp
+    assert sip.row_count == 13
+    assert sip.validation_status == "ok"
 
 
 @pytest.mark.asyncio()

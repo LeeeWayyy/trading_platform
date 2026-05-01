@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 import redis.exceptions
 
+from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
 from libs.web_console_services import data_source_status_service as module
 from libs.web_console_services.data_source_status_service import (
@@ -149,7 +152,41 @@ async def test_refresh_alpaca_sip_source(operator_user: DummyUser) -> None:
     assert refreshed.status == "unknown"
     assert refreshed.last_update is None
     assert refreshed.age_seconds is None
-    assert refreshed.tables == ["alpaca_sip_daily"]
+    assert refreshed.tables == ["alpaca_sip_daily", "alpaca_sip_corp_actions"]
+
+
+@pytest.mark.asyncio()
+async def test_alpaca_sip_source_uses_manifest_status(
+    admin_user: DummyUser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    sync_timestamp = datetime(2026, 4, 30, 12, tzinfo=UTC)
+    manifest = SyncManifest(
+        dataset="alpaca_sip_daily",
+        sync_timestamp=sync_timestamp,
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=42,
+        checksum="sip-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="query",
+        file_paths=["alpaca_sip_daily.parquet"],
+        validation_status="passed",
+    )
+    (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
+    monkeypatch.setenv("DATA_ROOT", str(data_root))
+
+    service = DataSourceStatusService()
+    sources = await service.get_all_sources(admin_user)
+
+    sip = next(source for source in sources if source.name == "alpaca_sip")
+    assert sip.status == "ok"
+    assert sip.row_count == 42
+    assert sip.error_message is None
 
 
 @pytest.mark.asyncio()

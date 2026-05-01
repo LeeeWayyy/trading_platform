@@ -644,6 +644,10 @@ class TestDataProviderEnum:
             == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
         )
 
+    def test_from_string_valid_auto(self):
+        """Test that legacy provider parser accepts AUTO for role-based jobs."""
+        assert DataProvider.from_string("auto") == DataProvider.AUTO
+
     def test_from_string_case_insensitive(self):
         """Test that provider parsing is case-insensitive."""
         assert DataProvider.from_string("CRSP") == DataProvider.CRSP
@@ -729,6 +733,17 @@ class TestBacktestJobConfigFromDict:
         }
         config = BacktestJobConfig.from_dict(data)
         assert config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+
+    def test_from_dict_provider_auto(self):
+        """Test that auto provider is preserved for worker-side role resolution."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "auto",
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.AUTO
 
     def test_from_dict_invalid_provider_raises(self):
         """Test that invalid provider in dict raises ValueError."""

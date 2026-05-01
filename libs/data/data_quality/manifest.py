@@ -86,6 +86,16 @@ class SyncManifest(BaseModel):
     manifest_version: int = 1
     previous_checksum: str | None = None
 
+    # Provider provenance (optional for legacy manifests)
+    provider_id: str | None = None
+    provider_version: str | None = None
+    source_feed: str | None = None
+    adjustment_mode: str | None = None
+    manifest_id: str | None = None
+    symbol_set_hash: str | None = None
+    sync_started_at: datetime | None = None
+    sync_finished_at: datetime | None = None
+
     model_config = {"frozen": False}
 
     @field_validator("sync_timestamp")
@@ -97,6 +107,19 @@ class SyncManifest(BaseModel):
         offset = v.utcoffset()
         if offset is None or offset.total_seconds() != 0:
             raise ValueError("sync_timestamp must be UTC (offset == 0)")
+        return v
+
+    @field_validator("sync_started_at", "sync_finished_at")
+    @classmethod
+    def validate_optional_utc(cls, v: datetime | None) -> datetime | None:
+        """Ensure optional run timestamps are UTC when present."""
+        if v is None:
+            return v
+        if v.tzinfo is None:
+            raise ValueError("sync run timestamps must be timezone-aware")
+        offset = v.utcoffset()
+        if offset is None or offset.total_seconds() != 0:
+            raise ValueError("sync run timestamps must be UTC (offset == 0)")
         return v
 
     @field_validator("end_date")
@@ -532,6 +555,10 @@ class ManifestManager:
             # Update version and previous checksum
             manifest.manifest_version = current.manifest_version + 1
             manifest.previous_checksum = current.checksum
+
+        manifest.manifest_id = (
+            f"{manifest.dataset}@v{manifest.manifest_version}:{manifest.checksum}"
+        )
 
         # Atomic write new manifest
         manifest_path = self._manifest_path(manifest.dataset)

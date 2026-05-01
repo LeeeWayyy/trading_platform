@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
 import redis.asyncio as redis_asyncio
 import redis.exceptions
 
+from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 from libs.platform.web_console_auth.permissions import (
     Permission,
     has_dataset_permission,
@@ -30,6 +33,7 @@ _REFRESH_LOCK_TTL_SECONDS = 60
 _REFRESH_TIMEOUT_SECONDS = 45
 _REFRESH_LOCK_KEY_PREFIX = "data_source_status:refresh"
 _VALID_DATA_MODES: tuple[Literal["mock", "real"], ...] = ("mock", "real")
+_ALPACA_SIP_MANIFEST_DATASETS = ("alpaca_sip_daily", "alpaca_sip_corp_actions")
 
 _DATA_SOURCES: tuple[dict[str, Any], ...] = (
     {
@@ -64,7 +68,7 @@ _DATA_SOURCES: tuple[dict[str, Any], ...] = (
         "provider_type": "commercial",
         "is_production_ready": False,
         "dataset_key": "alpaca_sip",
-        "tables": ["alpaca_sip_daily"],
+        "tables": ["alpaca_sip_daily", "alpaca_sip_corp_actions"],
         "status": "unknown",
         "minutes_ago": 0,
         "row_count": 0,
@@ -296,6 +300,8 @@ class DataSourceStatusService:
         now = datetime.now(UTC)
         sources: list[DataSourceStatusDTO] = []
         for spec in _DATA_SOURCES:
+            if spec["name"] == "alpaca_sip":
+                spec = self._alpaca_sip_spec_from_manifests(spec)
             minutes_ago = int(spec["minutes_ago"])
             last_update: datetime | None = now - timedelta(minutes=minutes_ago)
             age_seconds: float | None = float(minutes_ago * 60)
@@ -319,6 +325,44 @@ class DataSourceStatusService:
                 )
             )
         return sources
+
+    def _alpaca_sip_spec_from_manifests(self, spec: dict[str, Any]) -> dict[str, Any]:
+        manifests = self._load_alpaca_sip_manifests()
+        if not manifests:
+            return spec
+
+        latest = max(manifest.sync_timestamp for manifest in manifests)
+        now = datetime.now(UTC)
+        age_seconds = max(0.0, (now - latest).total_seconds())
+        validation_statuses = {manifest.validation_status for manifest in manifests}
+        status = "ok" if validation_statuses == {"passed"} else "error"
+        error_message = (
+            None
+            if status == "ok"
+            else f"SIP manifest validation statuses: {', '.join(sorted(validation_statuses))}"
+        )
+
+        updated = dict(spec)
+        updated["status"] = status
+        updated["minutes_ago"] = max(0, int(age_seconds // 60))
+        updated["row_count"] = sum(manifest.row_count for manifest in manifests)
+        updated["error_rate_pct"] = 0.0 if status == "ok" else 100.0
+        updated["error_message"] = error_message
+        return updated
+
+    def _load_alpaca_sip_manifests(self) -> list[SyncManifest]:
+        data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
+        manager = ManifestManager(
+            storage_path=data_root / "manifests",
+            lock_dir=data_root / "locks",
+            data_root=data_root,
+        )
+        manifests: list[SyncManifest] = []
+        for dataset in _ALPACA_SIP_MANIFEST_DATASETS:
+            manifest = manager.load_manifest(dataset)
+            if manifest is not None:
+                manifests.append(manifest)
+        return manifests
 
 
 def _validate_source_name(name: str) -> None:

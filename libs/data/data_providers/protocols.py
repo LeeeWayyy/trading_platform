@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import polars as pl
 
+from libs.data.data_providers.registry import ProviderCapabilities, ProviderType, get_provider_spec
+
 if TYPE_CHECKING:
     from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
     from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
@@ -187,22 +189,47 @@ class DataProvider(Protocol):
 
     @property
     def is_production_ready(self) -> bool:
-        """Whether provider is suitable for production backtests.
-
-        Returns:
-            True for CRSP (survivorship-bias-free)
-            False for yfinance (lacks survivorship handling)
-        """
+        """Whether provider is suitable for production backtests."""
         ...
 
     @property
     def supports_universe(self) -> bool:
-        """Whether provider supports get_universe operation.
+        """Whether provider supports any universe operation."""
+        ...
 
-        Returns:
-            True for CRSP (has point-in-time universe)
-            False for yfinance (no universe concept)
-        """
+    @property
+    def supports_pit_universe(self) -> bool:
+        """Whether provider supports point-in-time universe membership."""
+        ...
+
+    @property
+    def supports_active_universe(self) -> bool:
+        """Whether provider supports active-list universe membership."""
+        ...
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        """Whether provider exposes corporate-action data."""
+        ...
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        """Whether provider supports intraday bar data."""
+        ...
+
+    @property
+    def production_feed_parity(self) -> bool:
+        """Whether provider is from the execution-feed source family."""
+        ...
+
+    @property
+    def survivorship_safe(self) -> bool:
+        """Whether provider can support survivorship-safe research."""
+        ...
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """Granular capability metadata."""
         ...
 
     def get_daily_prices(
@@ -294,12 +321,40 @@ class YFinanceDataProviderAdapter:
     @property
     def is_production_ready(self) -> bool:
         """yfinance lacks survivorship handling."""
-        return False
+        return get_provider_spec(ProviderType.YFINANCE).production_allowed
 
     @property
     def supports_universe(self) -> bool:
         """yfinance has no universe concept."""
-        return False
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.YFINANCE).capabilities
 
     def get_daily_prices(
         self,
@@ -416,12 +471,40 @@ class AlpacaSIPDataProviderAdapter:
     @property
     def is_production_ready(self) -> bool:
         """Alpaca SIP lacks survivorship handling in Phase 1."""
-        return False
+        return get_provider_spec(ProviderType.ALPACA_SIP).production_allowed
 
     @property
     def supports_universe(self) -> bool:
         """Alpaca SIP has no point-in-time universe in Phase 1."""
-        return False
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.ALPACA_SIP).capabilities
 
     def get_daily_prices(
         self,
@@ -520,12 +603,40 @@ class HybridDataProviderAdapter:
     @property
     def is_production_ready(self) -> bool:
         """Hybrid remains research-only until strategy harnesses are migrated."""
-        return False
+        return get_provider_spec(ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES).production_allowed
 
     @property
     def supports_universe(self) -> bool:
         """Universe queries are served by CRSP."""
-        return True
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES).capabilities
 
     def get_daily_prices(
         self,
@@ -584,12 +695,40 @@ class CRSPDataProviderAdapter:
     @property
     def is_production_ready(self) -> bool:
         """CRSP is survivorship-bias-free."""
-        return True
+        return get_provider_spec(ProviderType.CRSP).production_allowed
 
     @property
     def supports_universe(self) -> bool:
         """CRSP has point-in-time universe."""
-        return True
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.CRSP).capabilities
 
     def get_daily_prices(
         self,

@@ -5,10 +5,13 @@ Enforces RBAC, dataset-level access, and rate limiting at server-side.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import (
     Permission,
@@ -26,6 +29,7 @@ from .schemas.data_management import (
 )
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
+_ALPACA_SIP_MANIFEST_DATASETS = ("alpaca_sip_daily", "alpaca_sip_corp_actions")
 
 
 class RateLimitExceeded(RuntimeError):
@@ -61,13 +65,7 @@ class DataSyncService:
 
         now = datetime.now(UTC)
         mock = [
-            SyncStatusDTO(
-                dataset=name,
-                last_sync=now,
-                row_count=1000,
-                validation_status="ok",
-                schema_version="v1",
-            )
+            self._mock_or_manifest_status(name, now)
             for name in _SUPPORTED_DATASETS
         ]
         return [item for item in mock if has_dataset_permission(user, item.dataset)]
@@ -217,6 +215,52 @@ class DataSyncService:
             max_requests=max_requests,
             window_seconds=window,
         )
+
+    def _mock_or_manifest_status(self, dataset: str, now: datetime) -> SyncStatusDTO:
+        if dataset != "alpaca_sip":
+            return SyncStatusDTO(
+                dataset=dataset,
+                last_sync=now,
+                row_count=1000,
+                validation_status="ok",
+                schema_version="v1",
+            )
+
+        manifests = self._load_alpaca_sip_manifests()
+        if not manifests:
+            return SyncStatusDTO(
+                dataset=dataset,
+                last_sync=None,
+                row_count=0,
+                validation_status="missing",
+                schema_version=None,
+            )
+
+        latest = max(manifest.sync_timestamp for manifest in manifests)
+        statuses = {manifest.validation_status for manifest in manifests}
+        validation_status = "ok" if statuses == {"passed"} else ",".join(sorted(statuses))
+        schema_versions = sorted({manifest.schema_version for manifest in manifests})
+        return SyncStatusDTO(
+            dataset=dataset,
+            last_sync=latest,
+            row_count=sum(manifest.row_count for manifest in manifests),
+            validation_status=validation_status,
+            schema_version=",".join(schema_versions),
+        )
+
+    def _load_alpaca_sip_manifests(self) -> list[SyncManifest]:
+        data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
+        manager = ManifestManager(
+            storage_path=data_root / "manifests",
+            lock_dir=data_root / "locks",
+            data_root=data_root,
+        )
+        manifests: list[SyncManifest] = []
+        for dataset in _ALPACA_SIP_MANIFEST_DATASETS:
+            manifest = manager.load_manifest(dataset)
+            if manifest is not None:
+                manifests.append(manifest)
+        return manifests
 
 
 __all__ = ["DataSyncService", "RateLimitExceeded"]

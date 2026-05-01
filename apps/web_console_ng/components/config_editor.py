@@ -26,6 +26,10 @@ from typing import Any
 
 from nicegui import ui
 
+from libs.data.data_providers.registry import (
+    provider_display_inverse_map_with_options,
+    provider_display_map_with_options,
+)
 from libs.trading.backtest.job_queue import HYBRID_CRSP_SIP_MIN_START_DATE, BacktestJobConfig
 
 logger = logging.getLogger(__name__)
@@ -33,13 +37,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Provider display ↔ enum mapping
 # ---------------------------------------------------------------------------
-PROVIDER_DISPLAY: dict[str, str] = {
-    "crsp": "CRSP (production)",
-    "yfinance": "Yahoo Finance (dev only)",
-    "alpaca_sip": "Alpaca SIP (local, non-PIT)",
-    "hybrid_crsp_universe_sip_prices": "Hybrid CRSP Universe + Alpaca SIP Prices (research)",
-}
-PROVIDER_DISPLAY_INVERSE: dict[str, str] = {v: k for k, v in PROVIDER_DISPLAY.items()}
+PROVIDER_DISPLAY: dict[str, str] = provider_display_map_with_options(include_auto=True)
+PROVIDER_DISPLAY_INVERSE: dict[str, str] = provider_display_inverse_map_with_options(
+    include_auto=True
+)
 
 # Known config keys – derived from the dataclass to stay in sync
 _KNOWN_CONFIG_KEYS: set[str] = set(BacktestJobConfig.__dataclass_fields__.keys())

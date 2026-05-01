@@ -32,7 +32,6 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import date
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -49,6 +48,7 @@ from libs.data.data_providers.protocols import (
     ProviderUnavailableError,
     YFinanceDataProviderAdapter,
 )
+from libs.data.data_providers.registry import ProviderType, get_provider_spec
 
 if TYPE_CHECKING:
     from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
@@ -56,24 +56,6 @@ if TYPE_CHECKING:
     from libs.data.data_providers.yfinance_provider import YFinanceProvider
 
 logger = logging.getLogger(__name__)
-
-
-class ProviderType(str, Enum):
-    """Available data provider types.
-
-    Values:
-        YFINANCE: Free data for development (NOT for production).
-        CRSP: Production-ready academic data from WRDS.
-        ALPACA_SIP: Local Alpaca SIP bars for explicit research/backtests.
-        HYBRID_CRSP_UNIVERSE_SIP_PRICES: CRSP universe + Alpaca SIP prices.
-        AUTO: Automatically select based on environment and availability.
-    """
-
-    YFINANCE = "yfinance"
-    CRSP = "crsp"
-    ALPACA_SIP = "alpaca_sip"
-    HYBRID_CRSP_UNIVERSE_SIP_PRICES = "hybrid_crsp_universe_sip_prices"
-    AUTO = "auto"
 
 
 # Valid environment values for FetcherConfig
@@ -192,7 +174,7 @@ class FetcherConfig:
         # Parse provider type
         provider_str = os.getenv("DATA_PROVIDER", "auto").lower()
         try:
-            provider = ProviderType(provider_str)
+            provider = ProviderType.from_string(provider_str)
         except ValueError:
             logger.warning(
                 "Invalid DATA_PROVIDER value, using AUTO",
@@ -341,16 +323,17 @@ class UnifiedDataFetcher:
                     provider_name=self._config.provider.value,
                     available_providers=[p.value for p in self._adapters.keys()],
                 )
-            # CRITICAL: Block non-production-ready providers in production
-            if self._config.environment == "production" and not provider.is_production_ready:
+            provider_spec = get_provider_spec(self._config.provider)
+            # CRITICAL: Block non-production providers in production.
+            if self._config.environment == "production" and not provider_spec.production_allowed:
                 raise ProductionProviderRequiredError(
-                    f"Production environment requires a production-ready provider. "
-                    f"'{provider.name}' is not suitable for production. "
+                    "Production environment requires a provider explicitly approved "
+                    f"for production. '{provider.name}' is not suitable for production. "
                     f"Use CRSP or change environment."
                 )
-            if require_universe and not provider.supports_universe:
+            if require_universe and not provider.supports_pit_universe:
                 raise ProviderNotSupportedError(
-                    f"Provider '{provider.name}' does not support universe queries.",
+                    f"Provider '{provider.name}' does not support point-in-time universe queries.",
                     provider_name=provider.name,
                     operation="get_universe",
                 )

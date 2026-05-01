@@ -130,6 +130,14 @@ def test_full_sync_writes_corporate_actions_and_manifest(
     assert manifest.dataset == "alpaca_sip_corp_actions"
     assert manifest.row_count == 2
     assert len(manifest.file_paths) == 1
+    assert manifest.provider_id == "alpaca_sip"
+    assert manifest.provider_version == "1.0"
+    assert manifest.source_feed == "sip"
+    assert manifest.adjustment_mode == "all"
+    assert manifest.manifest_id == f"alpaca_sip_corp_actions@v1:{manifest.checksum}"
+    assert manifest.symbol_set_hash is not None
+    assert manifest.sync_started_at is not None
+    assert manifest.sync_finished_at is not None
     partition = Path(manifest.file_paths[0])
     assert partition.exists()
     assert partition.parent.parent == sync_paths["storage"] / "snapshots"

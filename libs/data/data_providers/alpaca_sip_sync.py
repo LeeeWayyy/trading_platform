@@ -23,6 +23,11 @@ from libs.data.data_providers.alpaca_sip_local_provider import (
     ALPACA_SIP_COLUMNS,
     ALPACA_SIP_SCHEMA,
 )
+from libs.data.data_providers.registry import (
+    ProviderType,
+    compute_symbol_set_hash,
+    get_provider_spec,
+)
 from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
@@ -165,6 +170,7 @@ class AlpacaSIPSyncManager:
         end_year: int | None = None,
     ) -> SyncManifest:
         """Sync yearly daily-bar partitions for the requested symbols."""
+        sync_started_at = datetime.datetime.now(datetime.UTC)
         normalized_symbols = self._normalize_symbols(symbols)
         resolved_end_year = end_year or datetime.datetime.now(datetime.UTC).year
         self._validate_year_range(start_year, resolved_end_year)
@@ -210,6 +216,8 @@ class AlpacaSIPSyncManager:
                 start_date=min(start for start, _end in partition_dates),
                 end_date=max(end for _start, end in partition_dates),
                 symbols=normalized_symbols,
+                sync_started_at=sync_started_at,
+                sync_finished_at=datetime.datetime.now(datetime.UTC),
             )
             self.manifest_manager.save_manifest(manifest, lock_token)
 
@@ -451,8 +459,7 @@ class AlpacaSIPSyncManager:
         start_year: int,
         end_year: int,
     ) -> str:
-        """Build a unique, filesystem-safe snapshot id for one full sync attempt."""
-        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        """Build a deterministic, filesystem-safe snapshot id for one sync input set."""
         params_hash = hashlib.sha256(
             "|".join(
                 [
@@ -464,7 +471,7 @@ class AlpacaSIPSyncManager:
                 ]
             ).encode()
         ).hexdigest()[:12]
-        return f"{timestamp}_{params_hash}"
+        return params_hash
 
     @staticmethod
     def _frame_date_bounds(df: pl.DataFrame) -> tuple[datetime.date | None, datetime.date | None]:
@@ -568,8 +575,11 @@ class AlpacaSIPSyncManager:
         start_date: datetime.date,
         end_date: datetime.date,
         symbols: Sequence[str],
+        sync_started_at: datetime.datetime,
+        sync_finished_at: datetime.datetime,
     ) -> SyncManifest:
         checksum = self._compute_combined_checksum(file_paths)
+        spec = get_provider_spec(ProviderType.ALPACA_SIP)
         query_hash = hashlib.sha256(
             "|".join(
                 [
@@ -594,6 +604,13 @@ class AlpacaSIPSyncManager:
             wrds_query_hash=query_hash,
             file_paths=file_paths,
             validation_status="passed",
+            provider_id=spec.provider_id.value,
+            provider_version=spec.provider_version,
+            source_feed=self.feed,
+            adjustment_mode=self.adjustment,
+            symbol_set_hash=compute_symbol_set_hash(list(symbols)),
+            sync_started_at=sync_started_at,
+            sync_finished_at=sync_finished_at,
         )
 
     def _check_disk_space(self, estimated_rows: int) -> None:

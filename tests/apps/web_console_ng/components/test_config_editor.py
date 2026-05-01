@@ -167,6 +167,22 @@ class TestValidateBacktestParams:
         assert len(result.warnings) == 1
         assert "Alpaca SIP" in result.warnings[0]
 
+    def test_auto_provider_with_role_config_is_valid(self, valid_config: dict[str, Any]) -> None:
+        valid_config["provider"] = "auto"
+        valid_config["extra_params"] = {
+            "universe": ["AAPL", "MSFT"],
+            "data": {
+                "universe_source": "auto",
+                "price_source": "auto",
+                "corp_actions_source": "auto",
+                "requires_pit_universe": False,
+            },
+        }
+
+        result = validate_backtest_params(valid_config)
+
+        assert result.is_valid
+
     def test_hybrid_rejects_start_date_before_sip_lookback_boundary(
         self, valid_config: dict[str, Any]
     ) -> None:
@@ -198,6 +214,7 @@ class TestProviderMapping:
         assert "yfinance" in PROVIDER_DISPLAY
         assert "alpaca_sip" in PROVIDER_DISPLAY
         assert "hybrid_crsp_universe_sip_prices" in PROVIDER_DISPLAY
+        assert "auto" in PROVIDER_DISPLAY
 
     def test_inverse_roundtrip(self) -> None:
         for key, display in PROVIDER_DISPLAY.items():
@@ -322,6 +339,26 @@ class TestFormJsonRoundTrip:
         )
         fs = json_to_form_state(raw)
         assert fs.provider_display_label == "Alpaca SIP (local, non-PIT)"
+
+    def test_json_to_form_auto_preserves_role_config(self) -> None:
+        raw = json.dumps(
+            {
+                "alpha_name": "momentum_1m",
+                "start_date": "2024-01-01",
+                "end_date": "2025-12-31",
+                "weight_method": "quantile",
+                "provider": "auto",
+                "extra_params": {
+                    "universe": ["AAPL", "MSFT"],
+                    "data": {"requires_pit_universe": False},
+                },
+            }
+        )
+
+        fs = json_to_form_state(raw)
+
+        assert fs.provider_display_label == "Auto (role-resolved)"
+        assert fs.extra_params_hidden["data"] == {"requires_pit_universe": False}
 
     def test_json_to_form_with_extras(self) -> None:
         raw = json.dumps(

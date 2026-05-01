@@ -24,7 +24,18 @@ from rq import get_current_job
 from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
 from libs.data.data_providers.compustat_local_provider import CompustatLocalProvider
 from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
-from libs.data.data_providers.unified_fetcher import FetcherConfig, ProviderType, UnifiedDataFetcher
+from libs.data.data_providers.registry import (
+    ProviderType,
+    build_manifest_id,
+    compute_data_signature,
+    compute_symbol_set_hash,
+    get_provider_spec,
+    provider_ids_for_roles,
+    provider_versions_for_ids,
+    source_feeds_for_provider_ids,
+)
+from libs.data.data_providers.role_resolver import DataRoleConfig, resolve_data_roles
+from libs.data.data_providers.unified_fetcher import FetcherConfig, UnifiedDataFetcher
 from libs.data.data_providers.yfinance_provider import YFinanceProvider
 from libs.data.data_quality.exceptions import DataNotFoundError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
@@ -63,18 +74,6 @@ ENV_NORMALIZATION = {
     "ci": "development",
 }
 ALLOWED_NON_PIT_ENVIRONMENTS = frozenset(ENV_NORMALIZATION.keys())
-DEFAULT_NON_PIT_UNIVERSE: tuple[str, ...] = (
-    "SPY",
-    "QQQ",
-    "IWM",
-    "AAPL",
-    "MSFT",
-    "GOOGL",
-    "AMZN",
-    "NVDA",
-    "META",
-    "TSLA",
-)
 
 
 def _resolve_non_pit_environment(provider_name: str) -> str:
@@ -99,10 +98,14 @@ def _resolve_non_pit_environment(provider_name: str) -> str:
 
 
 def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
-    """Normalize explicit or default ticker universe for non-PIT backtests."""
-    raw_universe: str | list[str] | tuple[str, ...] | None = extra_params.get(
-        "universe", DEFAULT_NON_PIT_UNIVERSE
-    )
+    """Normalize an explicit ticker universe for non-PIT backtests."""
+    if "universe" not in extra_params:
+        raise ValueError(
+            "Non-PIT backtests require an explicit symbol universe. "
+            "Set extra_params.universe; implicit default universes are not allowed."
+        )
+
+    raw_universe: str | list[str] | tuple[str, ...] | None = extra_params.get("universe")
 
     if isinstance(raw_universe, str):
         universe = [symbol.strip().upper() for symbol in raw_universe.split(",") if symbol.strip()]
@@ -119,6 +122,30 @@ def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
         raise ValueError("Universe cannot be empty after normalization")
 
     return universe
+
+
+def _optional_symbol_universe(extra_params: dict[str, Any]) -> list[str] | None:
+    """Return an explicit symbol universe when provided."""
+    if "universe" not in extra_params:
+        return None
+    return _resolve_symbol_universe(extra_params)
+
+
+def _resolve_auto_provider(job_config: BacktestJobConfig) -> None:
+    """Resolve provider=AUTO into the legacy provider execution paths."""
+    if job_config.provider != DataProvider.AUTO:
+        return
+
+    role_mapping = job_config.extra_params.get("data")
+    if role_mapping is not None and not isinstance(role_mapping, dict):
+        raise ValueError("extra_params.data must be an object when provider=auto")
+
+    explicit_symbols = _optional_symbol_universe(job_config.extra_params)
+    role_config = DataRoleConfig.from_mapping(role_mapping)
+    resolved_roles = resolve_data_roles(role_config, explicit_symbols=explicit_symbols)
+    provider = resolved_roles.to_provider_type()
+    job_config.provider = provider
+    job_config.extra_params["resolved_data_roles"] = resolved_roles.to_metadata()
 
 
 def _resolve_hybrid_symbol_universe(
@@ -168,8 +195,17 @@ def _load_alpaca_sip_manifest(manifest_manager: ManifestManager) -> SyncManifest
 
 def _alpaca_sip_dataset_version_ids(manifest: SyncManifest) -> dict[str, str]:
     """Build metadata required to reproduce Alpaca SIP simple backtests."""
+    spec = get_provider_spec(DataProvider.ALPACA_SIP)
+    manifest_id = getattr(manifest, "manifest_id", None) or build_manifest_id(
+        manifest.dataset, manifest.manifest_version, manifest.checksum
+    )
     return {
         "version": f"manifest-v{manifest.manifest_version}",
+        "provider_id": spec.provider_id.value,
+        "provider_version": spec.provider_version,
+        "source_feed": spec.source_feed or "",
+        "adjustment_mode": spec.default_adjustment_mode or "",
+        "manifest_id": manifest_id,
         "alpaca_sip_daily_dataset": manifest.dataset,
         "alpaca_sip_daily_manifest_version": str(manifest.manifest_version),
         "alpaca_sip_daily_checksum": manifest.checksum,
@@ -178,6 +214,109 @@ def _alpaca_sip_dataset_version_ids(manifest: SyncManifest) -> dict[str, str]:
         "alpaca_sip_daily_end_date": manifest.end_date.isoformat(),
         "alpaca_sip_daily_row_count": str(manifest.row_count),
     }
+
+
+def _legacy_provider_roles(provider: DataProvider, *, explicit_universe: bool) -> dict[str, str]:
+    """Map legacy provider field to role-based provenance metadata."""
+    if provider == DataProvider.CRSP:
+        return {
+            "universe_source": "crsp",
+            "price_source": "crsp",
+            "corp_actions_source": "crsp",
+        }
+    if provider == DataProvider.YFINANCE:
+        return {
+            "universe_source": "explicit_symbols",
+            "price_source": "yfinance",
+            "corp_actions_source": "none",
+        }
+    if provider == DataProvider.ALPACA_SIP:
+        return {
+            "universe_source": "explicit_symbols",
+            "price_source": "alpaca_sip",
+            "corp_actions_source": "alpaca_sip",
+        }
+    if provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+        return {
+            "universe_source": "explicit_symbols" if explicit_universe else "crsp",
+            "price_source": "alpaca_sip",
+            "corp_actions_source": "alpaca_sip",
+        }
+    raise ValueError(f"Unsupported provider for data signature: {provider}")
+
+
+def _manifest_ids_from_dataset_versions(dataset_version_ids: dict[str, Any]) -> dict[str, str]:
+    """Extract manifest IDs from existing dataset-version metadata."""
+    if "manifest_id" in dataset_version_ids:
+        return {"alpaca_sip_daily": str(dataset_version_ids["manifest_id"])}
+
+    manifest_ids: dict[str, str] = {}
+    for key, value in dataset_version_ids.items():
+        if key.endswith("_manifest_id"):
+            manifest_ids[key[: -len("_manifest_id")]] = str(value)
+        elif key.endswith("_manifest_version"):
+            dataset = key[: -len("_manifest_version")]
+            checksum = dataset_version_ids.get(f"{dataset}_checksum", "unknown")
+            manifest_ids[dataset] = build_manifest_id(dataset, value, str(checksum))
+        elif key in {"crsp", "compustat"}:
+            manifest_ids[key] = f"{key}@v{value}:unknown"
+    return manifest_ids
+
+
+def _attach_data_signature(
+    result: BacktestResult,
+    provider: DataProvider,
+    *,
+    universe: list[str] | None,
+    explicit_universe: bool,
+    role_metadata: dict[str, Any] | None = None,
+) -> None:
+    """Attach deterministic provider/manifest signature metadata to a result."""
+    spec = get_provider_spec(provider)
+    roles = (
+        {
+            "universe_source": str(role_metadata["universe_source"]),
+            "price_source": str(role_metadata["price_source"]),
+            "corp_actions_source": str(role_metadata["corp_actions_source"]),
+        }
+        if role_metadata
+        else _legacy_provider_roles(provider, explicit_universe=explicit_universe)
+    )
+    dataset_version_ids = dict(result.dataset_version_ids or {})
+    manifest_ids = _manifest_ids_from_dataset_versions(dataset_version_ids)
+    provider_ids = provider_ids_for_roles(roles)
+    provider_versions = provider_versions_for_ids(provider_ids)
+    source_feeds = source_feeds_for_provider_ids(provider_ids)
+    symbol_set_hash = (
+        compute_symbol_set_hash(universe)
+        if universe is not None
+        else compute_symbol_set_hash([f"snapshot:{result.snapshot_id}"])
+    )
+    payload: dict[str, Any] = {
+        "roles": roles,
+        "provider_ids": provider_ids,
+        "provider_versions": provider_versions,
+        "manifest_ids": manifest_ids,
+        "source_feeds": source_feeds,
+        "source_feed": spec.source_feed or "none",
+        "adjustment_mode": spec.default_adjustment_mode or "none",
+        "symbol_set_hash": symbol_set_hash,
+    }
+    if role_metadata:
+        payload["role_resolution"] = role_metadata
+    data_signature = compute_data_signature(payload)
+    dataset_version_ids["provider_roles"] = json.dumps(roles, sort_keys=True)
+    dataset_version_ids["provider_ids"] = json.dumps(provider_ids, sort_keys=True)
+    dataset_version_ids["provider_versions"] = json.dumps(provider_versions, sort_keys=True)
+    dataset_version_ids["provider_id"] = spec.provider_id.value
+    dataset_version_ids["provider_version"] = spec.provider_version
+    dataset_version_ids["source_feed"] = spec.source_feed or ""
+    dataset_version_ids["adjustment_mode"] = spec.default_adjustment_mode or ""
+    dataset_version_ids["symbol_set_hash"] = symbol_set_hash
+    dataset_version_ids["data_signature"] = data_signature
+    result.dataset_version_ids = dataset_version_ids
+    result.data_signature = data_signature
+    result.data_signature_payload = payload
 
 
 class BacktestWorker:
@@ -512,6 +651,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
     with db_pool.connection() as conn:
         job_config = BacktestJobConfig.from_dict(config)
         job_id = job_config.compute_job_id(created_by)
+        _resolve_auto_provider(job_config)
         current_job = get_current_job()
         job_timeout = (
             int(current_job.timeout or BacktestJobQueue.DEFAULT_TIMEOUT)
@@ -528,6 +668,8 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 _validate_hybrid_start_date(job_config.start_date)
             metrics_adapter = AlphaMetricsAdapter()
             alpha = create_alpha(job_config.alpha_name)
+            signature_universe: list[str] | None = None
+            signature_explicit_universe = "universe" in job_config.extra_params
 
             # Common setup
             worker.update_db_status(job_id, "running", started_at=datetime.now(UTC))
@@ -580,11 +722,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             ):
                 # Simple Backtest Path for research-only providers.
                 # SECURITY: fail closed because these paths are not production PIT backtests.
-                provider_label = {
-                    DataProvider.YFINANCE: "Yahoo Finance",
-                    DataProvider.ALPACA_SIP: "Alpaca SIP",
-                    DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES: "Hybrid CRSP/SIP",
-                }[job_config.provider]
+                provider_label = get_provider_spec(job_config.provider).display_name
                 environment = _resolve_non_pit_environment(provider_label)
                 simple_dataset_version_ids: dict[str, str] | None = None
 
@@ -694,6 +832,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     if job_config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
                     else _resolve_symbol_universe(job_config.extra_params)
                 )
+                signature_universe = universe
 
                 result = simple_backtester.run_backtest(
                     alpha=alpha,
@@ -713,6 +852,18 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             else:
                 # This should never happen due to enum validation in from_dict
                 raise ValueError(f"Unknown provider: {job_config.provider}")
+
+            _attach_data_signature(
+                result,
+                job_config.provider,
+                universe=signature_universe,
+                explicit_universe=signature_explicit_universe,
+                role_metadata=(
+                    job_config.extra_params.get("resolved_data_roles")
+                    if isinstance(job_config.extra_params.get("resolved_data_roles"), dict)
+                    else None
+                ),
+            )
 
             # Extract cost model configuration from extra_params (if provided)
             cost_config: CostModelConfig | None = None
@@ -1056,6 +1207,8 @@ def _write_summary_json(
         "hit_rate": _sanitize_float(result.hit_rate),
         "snapshot_id": result.snapshot_id,
         "dataset_version_ids": result.dataset_version_ids,
+        "data_signature": getattr(result, "data_signature", None),
+        "data_signature_payload": getattr(result, "data_signature_payload", {}),
     }
 
     # Include cost model data if provided (sanitize nested floats for strict JSON)

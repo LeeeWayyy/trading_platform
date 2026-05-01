@@ -16,6 +16,10 @@ from redis import Redis
 from rq import Queue, Retry
 from rq.job import Job, NoSuchJobError  # type: ignore[attr-defined]
 
+from libs.data.data_providers.registry import ProviderType
+
+DataProvider = ProviderType
+
 HYBRID_CRSP_SIP_MIN_START_DATE = date(2016, 4, 1)
 
 
@@ -33,35 +37,6 @@ class JobPriority(str, Enum):
     HIGH = "high"
     NORMAL = "normal"
     LOW = "low"
-
-
-class DataProvider(str, Enum):
-    """Data provider for backtests.
-
-    CRSP: Production-grade point-in-time data (recommended for real backtests).
-    YFINANCE: Development/testing only - no PIT compliance, limited universe.
-    ALPACA_SIP: Local Alpaca SIP bars - explicit non-PIT execution-feed parity.
-    HYBRID_CRSP_UNIVERSE_SIP_PRICES: CRSP universe + local Alpaca SIP prices.
-    """
-
-    CRSP = "crsp"
-    YFINANCE = "yfinance"
-    ALPACA_SIP = "alpaca_sip"
-    HYBRID_CRSP_UNIVERSE_SIP_PRICES = "hybrid_crsp_universe_sip_prices"
-
-    @classmethod
-    def from_string(cls, value: str) -> DataProvider:
-        """Parse provider string with validation.
-
-        Raises:
-            ValueError: If provider string is not a valid DataProvider.
-        """
-        normalized = value.lower().strip()
-        try:
-            return cls(normalized)
-        except ValueError as e:
-            valid = [p.value for p in cls]
-            raise ValueError(f"Invalid data provider: '{value}'. Must be one of: {valid}") from e
 
 
 def _resolve_rq_finished_status(job: Job) -> tuple[str, str | None]:

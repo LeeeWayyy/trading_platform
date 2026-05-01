@@ -147,6 +147,14 @@ def test_full_sync_writes_partition_and_manifest(
     assert manifest.start_date == datetime.date(2024, 1, 3)
     assert manifest.end_date == datetime.date(2024, 1, 3)
     assert manifest.file_paths == [str(partition)]
+    assert manifest.provider_id == "alpaca_sip"
+    assert manifest.provider_version == "1.0"
+    assert manifest.source_feed == "sip"
+    assert manifest.adjustment_mode == "all"
+    assert manifest.manifest_id == f"alpaca_sip_daily@v1:{manifest.checksum}"
+    assert manifest.symbol_set_hash is not None
+    assert manifest.sync_started_at is not None
+    assert manifest.sync_finished_at is not None
 
     saved_manifest = manifest_manager.load_manifest("alpaca_sip_daily")
     assert saved_manifest is not None

@@ -932,6 +932,7 @@ class TestProviderRouting:
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
                 "provider": "yfinance",  # Yahoo Finance provider
+                "extra_params": {"universe": "aapl, msft"},
             },
             created_by="test_user",
         )
@@ -1178,6 +1179,69 @@ class TestProviderRouting:
                 },
                 created_by="test_user",
             )
+
+    @pytest.mark.unit()
+    def test_missing_non_pit_universe_raises(self):
+        """Non-PIT providers must not fall back to an implicit default universe."""
+        with pytest.raises(ValueError, match="explicit symbol universe"):
+            worker_module._resolve_symbol_universe({})
+
+    @pytest.mark.unit()
+    def test_auto_provider_resolves_to_sip_when_crsp_unavailable(self, monkeypatch):
+        """provider=auto bridges role config to the existing SIP execution path."""
+        monkeypatch.setenv("CRSP_AVAILABLE", "false")
+        monkeypatch.setenv("HISTORICAL_UNIVERSE_SOURCE_DEFAULT", "explicit_symbols")
+        monkeypatch.setenv("HISTORICAL_PRICE_SOURCE_DEFAULT", "alpaca_sip")
+        monkeypatch.setenv("HISTORICAL_CORP_ACTIONS_SOURCE_DEFAULT", "alpaca_sip")
+
+        config = worker_module.BacktestJobConfig(
+            alpha_name="test",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            provider=worker_module.DataProvider.AUTO,
+            extra_params={
+                "universe": "aapl, msft",
+                "data": {"requires_pit_universe": False},
+            },
+        )
+
+        worker_module._resolve_auto_provider(config)
+
+        assert config.provider == worker_module.DataProvider.ALPACA_SIP
+        assert config.extra_params["resolved_data_roles"]["universe_source"] == "explicit_symbols"
+        assert config.extra_params["resolved_data_roles"]["price_source"] == "alpaca_sip"
+
+    @pytest.mark.unit()
+    def test_data_signature_records_provider_ids_per_role(self):
+        """Data signatures distinguish roles from concrete provider IDs."""
+        result = types.SimpleNamespace(
+            dataset_version_ids={
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+            },
+            snapshot_id="snap",
+        )
+
+        worker_module._attach_data_signature(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            universe=["AAPL", "MSFT"],
+            explicit_universe=True,
+            role_metadata={
+                "universe_source": "explicit_symbols",
+                "price_source": "alpaca_sip",
+                "corp_actions_source": "alpaca_sip",
+                "requires_pit_universe": "false",
+            },
+        )
+
+        payload = result.data_signature_payload
+        assert payload["roles"]["universe_source"] == "explicit_symbols"
+        assert payload["provider_ids"]["universe_source"] == "explicit_symbols"
+        assert payload["provider_ids"]["price_source"] == "alpaca_sip"
+        assert payload["provider_versions"]["alpaca_sip"] == "1.0"
+        assert payload["provider_versions"]["explicit_symbols"] == "N/A"
+        assert result.dataset_version_ids["data_signature"] == result.data_signature
+        assert json.loads(result.dataset_version_ids["provider_ids"])["price_source"] == "alpaca_sip"
 
 
 # =============================================================================
@@ -1916,6 +1980,7 @@ class TestWorkerEdgeCases:
                 "end_date": "2024-01-31",
                 "provider": "yfinance",  # Yahoo Finance
                 "extra_params": {
+                    "universe": "aapl, msft",
                     "cost_model": {"enabled": True},
                 },
             },
@@ -3004,6 +3069,7 @@ class TestYFinanceEdgeCases:
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
                 "provider": "yfinance",
+                "extra_params": {"universe": "aapl, msft"},
             },
             created_by="test_user",
         )
@@ -3118,6 +3184,11 @@ class TestYFinanceEdgeCases:
         assert captured_dataset_version_ids == [
             {
                 "version": "manifest-v7",
+                "provider_id": "alpaca_sip",
+                "provider_version": "1.0",
+                "source_feed": "sip",
+                "adjustment_mode": "all",
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
                 "alpaca_sip_daily_dataset": "alpaca_sip_daily",
                 "alpaca_sip_daily_manifest_version": "7",
                 "alpaca_sip_daily_checksum": "sip-checksum",

@@ -62,6 +62,8 @@ from apps.web_console_ng.core.request_query import (
     get_request_query_param,
 )
 from apps.web_console_ng.ui.helpers import safe_classes
+from libs.data.data_providers.registry import ProviderType as RegistryProviderType
+from libs.data.data_providers.registry import get_provider_spec
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
@@ -609,6 +611,14 @@ async def _render_new_backtest_form(
                             f"start dates on or after {HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} "
                             "to preserve the simple backtest lookback window."
                         )
+                    elif provider_value == DataProvider.AUTO.value:
+                        status_label.set_text("Auto resolves data roles at worker runtime")
+                        safe_classes(status_label, replace="text-xs text-blue-600")
+                        provider_help.set_text(
+                            "Auto uses extra_params.data roles plus environment defaults. "
+                            "When CRSP is unavailable, it can route prices to local Alpaca SIP "
+                            "only if an explicit symbol universe is supplied."
+                        )
                     else:
                         status_label.set_text("Yahoo Finance uses cached data in data/yfinance")
                         safe_classes(status_label, replace="text-xs text-blue-600")
@@ -768,6 +778,8 @@ async def _render_new_backtest_form(
             # CRSP provider uses PIT-compliant CRSP ADV data; non-PIT providers are skipped.
             if provider == DataProvider.CRSP:
                 adv_source = "crsp"
+            elif provider == DataProvider.AUTO:
+                adv_source = "crsp"
             elif provider == DataProvider.ALPACA_SIP:
                 adv_source = "alpaca"
             elif provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
@@ -908,6 +920,7 @@ async def _render_new_backtest_form(
                 DataProvider.YFINANCE,
                 DataProvider.ALPACA_SIP,
                 DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+                DataProvider.AUTO,
             ):
                 raw_universe_value = universe_input.value
                 raw_universe = ""
@@ -993,7 +1006,13 @@ async def _render_new_backtest_form(
             # Add cost model configuration if enabled (T9.2)
             cost_config = build_cost_config(data_provider)
             if cost_config is not None:
-                if data_provider != DataProvider.CRSP:
+                if data_provider == DataProvider.AUTO:
+                    ui.notify(
+                        "Cost model enabled with Auto provider. Cost calculations will run "
+                        "only if Auto resolves to CRSP; non-PIT routes will skip costs.",
+                        type="warning",
+                    )
+                elif data_provider != DataProvider.CRSP:
                     # Warn user that cost model will be skipped for non-PIT providers.
                     ui.notify(
                         "Cost model enabled but the selected provider lacks PIT ADV data. "
@@ -2024,6 +2043,8 @@ def _render_export_buttons(
                 "n_symbols_avg": result.n_symbols_avg,
             },
             "dataset_version_ids": result.dataset_version_ids,
+            "data_signature": getattr(result, "data_signature", None),
+            "data_signature_payload": getattr(result, "data_signature_payload", {}),
             "snapshot_id": result.snapshot_id,
         }
 
@@ -2083,6 +2104,95 @@ def _render_export_buttons(
             ui.button("Download Net Returns Parquet", on_click=download_net_returns_parquet)
 
 
+def _parse_json_mapping(value: Any) -> dict[str, Any]:
+    """Parse JSON object strings used in dataset provenance metadata."""
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _backtest_provenance_lines(result: Any) -> list[str]:
+    """Build user-visible data-provenance lines for backtest reports."""
+    dataset_version_ids = getattr(result, "dataset_version_ids", None)
+    if not isinstance(dataset_version_ids, dict):
+        dataset_version_ids = {}
+
+    lines: list[str] = []
+    provider = dataset_version_ids.get("provider_id") or dataset_version_ids.get("provider")
+    if provider:
+        lines.append(f"Data Source: {str(provider).upper()}")
+
+    provider_roles = _parse_json_mapping(dataset_version_ids.get("provider_roles"))
+    payload = getattr(result, "data_signature_payload", None)
+    if not provider_roles and isinstance(payload, dict):
+        provider_roles = _parse_json_mapping(payload.get("roles"))
+
+    if provider_roles:
+        lines.append(
+            "Data Roles: "
+            f"universe={provider_roles.get('universe_source', '-')}, "
+            f"prices={provider_roles.get('price_source', '-')}, "
+            f"corp_actions={provider_roles.get('corp_actions_source', '-')}"
+        )
+
+    data_signature = getattr(result, "data_signature", None) or dataset_version_ids.get(
+        "data_signature"
+    )
+    if data_signature:
+        lines.append(f"Data Signature: {str(data_signature)[:16]}")
+
+    manifest_ids = {}
+    if isinstance(payload, dict):
+        manifest_ids = _parse_json_mapping(payload.get("manifest_ids"))
+    if not manifest_ids:
+        manifest_ids = {
+            key[: -len("_manifest_id")]: value
+            for key, value in dataset_version_ids.items()
+            if str(key).endswith("_manifest_id")
+        }
+    if manifest_ids:
+        manifest_text = ", ".join(f"{key}={value}" for key, value in sorted(manifest_ids.items()))
+        lines.append(f"Manifest IDs: {manifest_text}")
+
+    source_feed = dataset_version_ids.get("source_feed")
+    adjustment = dataset_version_ids.get("adjustment_mode")
+    if source_feed or adjustment:
+        lines.append(f"Feed/Adjustment: {source_feed or '-'} / {adjustment or '-'}")
+
+    if provider:
+        try:
+            spec = get_provider_spec(RegistryProviderType.from_string(str(provider)))
+            caps = spec.capabilities
+            lines.append(
+                "Capabilities: "
+                f"pit_universe={str(caps.supports_pit_universe).lower()}, "
+                f"production_feed_parity={str(caps.production_feed_parity).lower()}, "
+                f"survivorship_safe={str(caps.survivorship_safe).lower()}"
+            )
+        except ValueError:
+            pass
+
+    role_values = {str(value) for value in provider_roles.values()}
+    provider_value = str(provider or "")
+    if (
+        provider_value in {"alpaca_sip", "hybrid_crsp_universe_sip_prices"}
+        or "alpaca_sip" in role_values
+        or "explicit_symbols" in role_values
+    ):
+        lines.append(
+            "Survivorship disclosure: SIP or explicit-symbol backtests are not "
+            "survivorship-free and do not provide point-in-time universe membership."
+        )
+
+    return lines
+
+
 def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
     """Render complete backtest result with metrics and charts."""
 
@@ -2093,11 +2203,11 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
         f"Days: {result.n_days} | "
         f"Avg Symbols: {result.n_symbols_avg:.0f}"
     ).classes("text-sm text-gray-500 mb-4")
-    provider = None
-    if isinstance(getattr(result, "dataset_version_ids", None), dict):
-        provider = result.dataset_version_ids.get("provider")
-    if provider:
-        ui.label(f"Data Source: {provider.upper()}").classes("text-sm text-gray-500 mb-4")
+    for line in _backtest_provenance_lines(result):
+        style = "text-sm text-gray-500 mb-1"
+        if line.startswith("Survivorship disclosure:"):
+            style = "text-xs text-amber-600 mb-1"
+        ui.label(line).classes(style)
 
     # Metrics summary
     ic_note = None

@@ -1298,6 +1298,7 @@ async def test_render_new_backtest_form_creates_ui_elements(
     # Check for key UI elements
     provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
     assert "Alpaca SIP (local, non-PIT)" in provider_select.kwargs["options"]
+    assert "Auto (role-resolved)" in provider_select.kwargs["options"]
     assert any(s.label == "Alpha Signal" for s in dummy_ui.selects)
     assert any(s.label == "Weight Method" for s in dummy_ui.selects)
     assert any(s.label == "Priority" for s in dummy_ui.selects)
@@ -1408,6 +1409,45 @@ async def test_submit_job_alpaca_sip_provider(
 
     assert len(captured_configs) == 1
     assert captured_configs[0].provider.value == "alpaca_sip"
+    assert captured_configs[0].extra_params["universe"] == ["AAPL", "MSFT"]
+    assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+async def test_submit_job_auto_provider_keeps_explicit_universe(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test submit_job sends Auto provider with explicit universe for role resolution."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+    captured_configs: list[Any] = []
+
+    class DummyQueue:
+        def enqueue(self, config: Any, *_: Any, **__: Any) -> Any:
+            captured_configs.append(config)
+            return SimpleNamespace(id="job123")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Auto (role-resolved)"
+    universe_input.value = "aapl, msft"
+
+    await _call(submit_button._on_click)
+
+    assert len(captured_configs) == 1
+    assert captured_configs[0].provider.value == "auto"
     assert captured_configs[0].extra_params["universe"] == ["AAPL", "MSFT"]
     assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
 
@@ -1867,7 +1907,21 @@ async def test_render_backtest_result_with_metrics(
         coverage=0.95,
         turnover_result=SimpleNamespace(average_turnover=0.25),
         daily_ic=None,
-        dataset_version_ids={"provider": "crsp"},
+        dataset_version_ids={
+            "provider": "crsp",
+            "provider_roles": json.dumps(
+                {
+                    "universe_source": "crsp",
+                    "price_source": "crsp",
+                    "corp_actions_source": "crsp",
+                }
+            ),
+            "data_signature": "abcdef1234567890deadbeef",
+            "source_feed": "crsp",
+            "adjustment_mode": "crsp_ret",
+        },
+        data_signature="abcdef1234567890deadbeef",
+        data_signature_payload={},
         daily_prices=None,
         daily_signals=None,
         daily_returns=None,
@@ -1881,6 +1935,8 @@ async def test_render_backtest_result_with_metrics(
     # Should show metrics
     assert any("alpha1" in label.text for label in dummy_ui.labels)
     assert any("CRSP" in label.text for label in dummy_ui.labels)
+    assert any("Data Signature: abcdef1234567890" in label.text for label in dummy_ui.labels)
+    assert any("Data Roles: universe=crsp" in label.text for label in dummy_ui.labels)
 
 
 @pytest.mark.asyncio()
