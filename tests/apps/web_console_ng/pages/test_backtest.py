@@ -1919,6 +1919,9 @@ async def test_render_backtest_result_with_metrics(
             "data_signature": "abcdef1234567890deadbeef",
             "source_feed": "crsp",
             "adjustment_mode": "crsp_ret",
+            "alpaca_feed_delta_status": "passed",
+            "alpaca_feed_delta_hash": "1234567890abcdefdeadbeef",
+            "alpaca_feed_delta_timeframe": "1Day",
         },
         data_signature="abcdef1234567890deadbeef",
         data_signature_payload={},
@@ -1937,6 +1940,7 @@ async def test_render_backtest_result_with_metrics(
     assert any("CRSP" in label.text for label in dummy_ui.labels)
     assert any("Data Signature: abcdef1234567890" in label.text for label in dummy_ui.labels)
     assert any("Data Roles: universe=crsp" in label.text for label in dummy_ui.labels)
+    assert any("IEX-vs-SIP Monitor: status=passed" in label.text for label in dummy_ui.labels)
 
 
 @pytest.mark.asyncio()

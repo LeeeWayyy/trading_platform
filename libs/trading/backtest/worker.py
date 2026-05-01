@@ -292,6 +292,11 @@ def _attach_data_signature(
         if universe is not None
         else compute_symbol_set_hash([f"snapshot:{result.snapshot_id}"])
     )
+    adjustment_mode = (
+        str(role_metadata.get("adjustment_mode"))
+        if role_metadata and role_metadata.get("adjustment_mode")
+        else spec.default_adjustment_mode or "none"
+    )
     payload: dict[str, Any] = {
         "roles": roles,
         "provider_ids": provider_ids,
@@ -299,7 +304,7 @@ def _attach_data_signature(
         "manifest_ids": manifest_ids,
         "source_feeds": source_feeds,
         "source_feed": spec.source_feed or "none",
-        "adjustment_mode": spec.default_adjustment_mode or "none",
+        "adjustment_mode": adjustment_mode,
         "symbol_set_hash": symbol_set_hash,
     }
     if role_metadata:
@@ -311,12 +316,95 @@ def _attach_data_signature(
     dataset_version_ids["provider_id"] = spec.provider_id.value
     dataset_version_ids["provider_version"] = spec.provider_version
     dataset_version_ids["source_feed"] = spec.source_feed or ""
-    dataset_version_ids["adjustment_mode"] = spec.default_adjustment_mode or ""
+    dataset_version_ids["adjustment_mode"] = adjustment_mode
     dataset_version_ids["symbol_set_hash"] = symbol_set_hash
     dataset_version_ids["data_signature"] = data_signature
     result.dataset_version_ids = dataset_version_ids
     result.data_signature = data_signature
     result.data_signature_payload = payload
+
+
+def _load_alpaca_feed_delta_metadata(data_root: Path) -> dict[str, str]:
+    """Load the latest available IEX-vs-SIP monitor metadata, if present."""
+    report_path = _resolve_alpaca_feed_delta_report_path(data_root)
+    if report_path is None:
+        return {}
+
+    try:
+        payload = json.loads(report_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        structlog.get_logger(__name__).warning(
+            "alpaca_feed_delta_report_unreadable",
+            path=str(report_path),
+            error=str(exc),
+        )
+        return {}
+
+    if not isinstance(payload, dict) or payload.get("report_type") != "alpaca_feed_delta":
+        return {}
+
+    tolerances = payload.get("tolerances")
+    tolerance_version = (
+        str(tolerances.get("version"))
+        if isinstance(tolerances, dict) and tolerances.get("version")
+        else ""
+    )
+    metadata = {
+        "alpaca_feed_delta_report": str(report_path),
+        "alpaca_feed_delta_status": str(payload.get("status", "unknown")),
+        "alpaca_feed_delta_hash": str(payload.get("content_hash", "")),
+        "alpaca_feed_delta_start": str(payload.get("start", "")),
+        "alpaca_feed_delta_end": str(payload.get("end", "")),
+        "alpaca_feed_delta_timeframe": str(payload.get("timeframe", "")),
+        "alpaca_feed_delta_tolerance_version": tolerance_version,
+    }
+    return {key: value for key, value in metadata.items() if value}
+
+
+def _resolve_alpaca_feed_delta_report_path(data_root: Path) -> Path | None:
+    configured = os.getenv("ALPACA_FEED_DELTA_REPORT", "").strip()
+    if configured:
+        path = Path(configured)
+        resolved = path.resolve() if path.is_absolute() else (data_root / path).resolve()
+        if not resolved.is_relative_to(data_root.resolve()):
+            structlog.get_logger(__name__).warning(
+                "alpaca_feed_delta_report_outside_data_root",
+                path=str(resolved),
+                data_root=str(data_root.resolve()),
+            )
+            return None
+        return resolved if resolved.exists() else None
+
+    quality_dir = data_root / "quality"
+    if not quality_dir.exists():
+        return None
+    candidates = sorted(
+        quality_dir.glob("alpaca_iex_sip_delta*.json"),
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _attach_alpaca_quality_metadata(
+    result: BacktestResult,
+    provider: DataProvider,
+    data_root: Path,
+) -> None:
+    """Attach non-signature SIP data-quality report status when available."""
+    if provider not in (
+        DataProvider.ALPACA_SIP,
+        DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+    ):
+        return
+
+    metadata = _load_alpaca_feed_delta_metadata(data_root)
+    if not metadata:
+        return
+
+    dataset_version_ids = dict(result.dataset_version_ids or {})
+    dataset_version_ids.update(metadata)
+    result.dataset_version_ids = dataset_version_ids
 
 
 class BacktestWorker:
@@ -853,6 +941,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 # This should never happen due to enum validation in from_dict
                 raise ValueError(f"Unknown provider: {job_config.provider}")
 
+            _attach_alpaca_quality_metadata(result, job_config.provider, data_root)
             _attach_data_signature(
                 result,
                 job_config.provider,

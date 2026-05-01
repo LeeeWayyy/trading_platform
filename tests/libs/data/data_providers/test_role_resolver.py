@@ -24,6 +24,27 @@ def test_auto_resolves_to_sip_with_explicit_symbols_when_crsp_unavailable() -> N
     assert roles.to_provider_type() == ProviderType.ALPACA_SIP
 
 
+def test_string_false_requires_pit_universe_is_parsed() -> None:
+    roles = resolve_data_roles(
+        DataRoleConfig.from_mapping({"requires_pit_universe": "false"}),
+        explicit_symbols=["AAPL"],
+        environ={
+            "CRSP_AVAILABLE": "false",
+            "HISTORICAL_UNIVERSE_SOURCE_DEFAULT": "explicit_symbols",
+            "HISTORICAL_PRICE_SOURCE_DEFAULT": "alpaca_sip",
+            "HISTORICAL_CORP_ACTIONS_SOURCE_DEFAULT": "alpaca_sip",
+        },
+    )
+
+    assert roles.requires_pit_universe is False
+    assert roles.to_provider_type() == ProviderType.ALPACA_SIP
+
+
+def test_invalid_requires_pit_universe_string_fails() -> None:
+    with pytest.raises(ValueError, match="Invalid requires_pit_universe"):
+        DataRoleConfig.from_mapping({"requires_pit_universe": "maybe"})
+
+
 def test_auto_explicit_symbols_without_symbol_list_fails_loudly() -> None:
     with pytest.raises(ValueError, match="requires an explicit symbol list"):
         resolve_data_roles(
@@ -46,6 +67,22 @@ def test_requires_pit_universe_blocks_non_crsp_universe() -> None:
                 "CRSP_AVAILABLE": "false",
                 "HISTORICAL_UNIVERSE_SOURCE_DEFAULT": "explicit_symbols",
             },
+        )
+
+
+def test_crsp_price_source_fails_when_crsp_unavailable() -> None:
+    with pytest.raises(ValueError, match="price_source"):
+        resolve_data_roles(
+            DataRoleConfig.from_mapping(
+                {
+                    "universe_source": "explicit_symbols",
+                    "price_source": "crsp",
+                    "corp_actions_source": "none",
+                    "requires_pit_universe": False,
+                }
+            ),
+            explicit_symbols=["AAPL"],
+            environ={"CRSP_AVAILABLE": "false"},
         )
 
 

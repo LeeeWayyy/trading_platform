@@ -1230,6 +1230,7 @@ class TestProviderRouting:
                 "universe_source": "explicit_symbols",
                 "price_source": "alpaca_sip",
                 "corp_actions_source": "alpaca_sip",
+                "adjustment_mode": "raw",
                 "requires_pit_universe": "false",
             },
         )
@@ -1240,8 +1241,43 @@ class TestProviderRouting:
         assert payload["provider_ids"]["price_source"] == "alpaca_sip"
         assert payload["provider_versions"]["alpaca_sip"] == "1.0"
         assert payload["provider_versions"]["explicit_symbols"] == "N/A"
+        assert payload["adjustment_mode"] == "raw"
+        assert result.dataset_version_ids["adjustment_mode"] == "raw"
         assert result.dataset_version_ids["data_signature"] == result.data_signature
-        assert json.loads(result.dataset_version_ids["provider_ids"])["price_source"] == "alpaca_sip"
+        assert (
+            json.loads(result.dataset_version_ids["provider_ids"])["price_source"] == "alpaca_sip"
+        )
+
+    @pytest.mark.unit()
+    def test_alpaca_feed_delta_metadata_attached_when_report_exists(self, tmp_path):
+        """SIP reports surface the latest available IEX-vs-SIP monitor status."""
+        quality_dir = tmp_path / "quality"
+        quality_dir.mkdir()
+        report_path = quality_dir / "alpaca_iex_sip_delta_test.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "report_type": "alpaca_feed_delta",
+                    "status": "warning",
+                    "content_hash": "abc123",
+                    "start": "2024-04-22T00:00:00+00:00",
+                    "end": "2024-04-26T00:00:00+00:00",
+                    "timeframe": "1Day",
+                    "tolerances": {"version": "alpaca-iex-sip-delta-v1"},
+                }
+            )
+        )
+        result = types.SimpleNamespace(dataset_version_ids={"provider": "alpaca_sip"})
+
+        worker_module._attach_alpaca_quality_metadata(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            tmp_path,
+        )
+
+        assert result.dataset_version_ids["alpaca_feed_delta_status"] == "warning"
+        assert result.dataset_version_ids["alpaca_feed_delta_hash"] == "abc123"
+        assert result.dataset_version_ids["alpaca_feed_delta_timeframe"] == "1Day"
 
 
 # =============================================================================

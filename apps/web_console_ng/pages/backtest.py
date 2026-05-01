@@ -1430,16 +1430,12 @@ async def _render_backtest_results(
                 status_icon = (
                     "check_circle"
                     if job["status"] == "completed"
-                    else "cancel"
-                    if job["status"] == "failed"
-                    else "warning"
+                    else "cancel" if job["status"] == "failed" else "warning"
                 )
                 status_color = (
                     "text-green-600"
                     if job["status"] == "completed"
-                    else "text-red-600"
-                    if job["status"] == "failed"
-                    else "text-yellow-600"
+                    else "text-red-600" if job["status"] == "failed" else "text-yellow-600"
                 )
 
                 with ui.expansion(
@@ -2164,6 +2160,16 @@ def _backtest_provenance_lines(result: Any) -> list[str]:
     adjustment = dataset_version_ids.get("adjustment_mode")
     if source_feed or adjustment:
         lines.append(f"Feed/Adjustment: {source_feed or '-'} / {adjustment or '-'}")
+
+    feed_delta_status = dataset_version_ids.get("alpaca_feed_delta_status")
+    if feed_delta_status:
+        feed_delta_hash = str(dataset_version_ids.get("alpaca_feed_delta_hash") or "")
+        feed_delta_timeframe = str(dataset_version_ids.get("alpaca_feed_delta_timeframe") or "-")
+        suffix = f", hash={feed_delta_hash[:16]}" if feed_delta_hash else ""
+        lines.append(
+            "IEX-vs-SIP Monitor: "
+            f"status={feed_delta_status}, timeframe={feed_delta_timeframe}{suffix}"
+        )
 
     if provider:
         try:

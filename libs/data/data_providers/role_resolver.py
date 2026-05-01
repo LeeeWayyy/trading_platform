@@ -39,7 +39,10 @@ class DataRoleConfig:
             price_source=str(data.get("price_source", "auto")).lower().strip(),
             corp_actions_source=str(data.get("corp_actions_source", "auto")).lower().strip(),
             adjustment_mode=str(data.get("adjustment_mode", "all")).lower().strip(),
-            requires_pit_universe=bool(data.get("requires_pit_universe", True)),
+            requires_pit_universe=_parse_bool(
+                data.get("requires_pit_universe", True),
+                field_name="requires_pit_universe",
+            ),
         )
         config.validate()
         return config
@@ -144,8 +147,17 @@ def resolve_data_roles(
             f"Resolved universe_source={universe_source}."
         )
 
-    if universe_source == "crsp" and not crsp_available:
-        raise ValueError("CRSP universe requested but CRSP_AVAILABLE=false")
+    crsp_roles = [
+        role_name
+        for role_name, source in (
+            ("universe_source", universe_source),
+            ("price_source", price_source),
+            ("corp_actions_source", corp_actions_source),
+        )
+        if source == "crsp"
+    ]
+    if crsp_roles and not crsp_available:
+        raise ValueError("CRSP role requested but CRSP_AVAILABLE=false: " + ", ".join(crsp_roles))
 
     return ResolvedDataRoles(
         universe_source=universe_source,
@@ -179,3 +191,15 @@ def _env_bool(value: str | None, *, default: bool) -> bool:
     if value is None:
         return default
     return value.lower().strip() in {"1", "true", "yes", "y"}
+
+
+def _parse_bool(value: object, *, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.lower().strip()
+        if normalized in {"1", "true", "yes", "y"}:
+            return True
+        if normalized in {"0", "false", "no", "n"}:
+            return False
+    raise ValueError(f"Invalid {field_name}: expected boolean, got {value!r}")
