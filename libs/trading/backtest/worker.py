@@ -34,7 +34,6 @@ from libs.data.data_providers.registry import (
     provider_versions_for_ids,
     source_feeds_for_provider_ids,
 )
-from libs.data.data_providers.role_resolver import DataRoleConfig, resolve_data_roles
 from libs.data.data_providers.unified_fetcher import FetcherConfig, UnifiedDataFetcher
 from libs.data.data_providers.yfinance_provider import YFinanceProvider
 from libs.data.data_quality.exceptions import DataNotFoundError
@@ -56,6 +55,9 @@ from libs.trading.backtest.job_queue import (
     BacktestJobConfig,
     BacktestJobQueue,
     DataProvider,
+)
+from libs.trading.backtest.job_queue import (
+    resolve_auto_provider as _resolve_auto_provider,
 )
 from libs.trading.backtest.param_search import SearchResult
 from libs.trading.backtest.result_storage import (
@@ -122,30 +124,6 @@ def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
         raise ValueError("Universe cannot be empty after normalization")
 
     return universe
-
-
-def _optional_symbol_universe(extra_params: dict[str, Any]) -> list[str] | None:
-    """Return an explicit symbol universe when provided."""
-    if "universe" not in extra_params:
-        return None
-    return _resolve_symbol_universe(extra_params)
-
-
-def _resolve_auto_provider(job_config: BacktestJobConfig) -> None:
-    """Resolve provider=AUTO into the legacy provider execution paths."""
-    if job_config.provider != DataProvider.AUTO:
-        return
-
-    role_mapping = job_config.extra_params.get("data")
-    if role_mapping is not None and not isinstance(role_mapping, dict):
-        raise ValueError("extra_params.data must be an object when provider=auto")
-
-    explicit_symbols = _optional_symbol_universe(job_config.extra_params)
-    role_config = DataRoleConfig.from_mapping(role_mapping)
-    resolved_roles = resolve_data_roles(role_config, explicit_symbols=explicit_symbols)
-    provider = resolved_roles.to_provider_type()
-    job_config.provider = provider
-    job_config.extra_params["resolved_data_roles"] = resolved_roles.to_metadata()
 
 
 def _resolve_hybrid_symbol_universe(
@@ -750,7 +728,6 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
     with db_pool.connection() as conn:
         job_config = BacktestJobConfig.from_dict(config)
         job_id = job_config.compute_job_id(created_by)
-        _resolve_auto_provider(job_config)
         current_job = get_current_job()
         job_timeout = (
             int(current_job.timeout or BacktestJobQueue.DEFAULT_TIMEOUT)
@@ -760,6 +737,15 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
         worker = BacktestWorker(redis, db_pool)
 
         try:
+            _resolve_auto_provider(job_config)
+            resolved_job_id = job_config.compute_job_id(created_by)
+            if resolved_job_id != job_id:
+                raise RuntimeError(
+                    "provider=auto job_id changed after provider resolution; "
+                    "AUTO jobs must be resolved before enqueue. "
+                    f"queued_job_id={job_id} resolved_job_id={resolved_job_id}"
+                )
+            job_id = resolved_job_id
             worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
 
             data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()

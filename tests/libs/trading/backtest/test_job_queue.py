@@ -160,6 +160,44 @@ def test_enqueue_creates_job_and_db_record(redis_mock):
     redis_mock.delete.assert_called_with(f"backtest:lock:{job_id}")
 
 
+def test_enqueue_resolves_auto_provider_before_hashing(redis_mock, monkeypatch):
+    monkeypatch.setenv("CRSP_AVAILABLE", "false")
+    monkeypatch.setenv("HISTORICAL_UNIVERSE_SOURCE_DEFAULT", "explicit_symbols")
+    monkeypatch.setenv("HISTORICAL_PRICE_SOURCE_DEFAULT", "alpaca_sip")
+    monkeypatch.setenv("HISTORICAL_CORP_ACTIONS_SOURCE_DEFAULT", "alpaca_sip")
+    db_pool = MagicMock()
+    queue = _make_queue(redis_mock, db_pool)
+    queue._create_db_job = MagicMock()
+    queue._fetch_db_job = MagicMock(return_value=None)
+    queue._safe_fetch_job = MagicMock(return_value=None)
+
+    fake_job = MagicMock()
+    queue.queues[JobPriority.NORMAL].enqueue.return_value = fake_job
+    config = BacktestJobConfig(
+        "alpha1",
+        date(2024, 1, 1),
+        date(2024, 1, 31),
+        provider=DataProvider.AUTO,
+        extra_params={"universe": ["AAPL"], "data": {"requires_pit_universe": False}},
+    )
+    auto_job_id = config.compute_job_id("alice")
+
+    job = queue.enqueue(config, created_by="alice")
+
+    resolved_job_id = config.compute_job_id("alice")
+    assert job is fake_job
+    assert config.provider == DataProvider.ALPACA_SIP
+    assert config.extra_params["resolved_data_roles"]["price_source"] == "alpaca_sip"
+    assert resolved_job_id != auto_job_id
+    queue._create_db_job.assert_called_once_with(
+        resolved_job_id, config, "alice", queue.DEFAULT_TIMEOUT, is_rerun=False
+    )
+    queue.queues[JobPriority.NORMAL].enqueue.assert_called_once()
+    assert queue.queues[JobPriority.NORMAL].enqueue.call_args.kwargs["job_id"] == resolved_job_id
+    enqueued_config = queue.queues[JobPriority.NORMAL].enqueue.call_args.kwargs["kwargs"]["config"]
+    assert enqueued_config["provider"] == "alpaca_sip"
+
+
 def test_enqueue_idempotent_returns_existing(redis_mock):
     db_pool = MagicMock()
     queue = _make_queue(redis_mock, db_pool)

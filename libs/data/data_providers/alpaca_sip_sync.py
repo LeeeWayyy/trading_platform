@@ -112,6 +112,7 @@ class AlpacaSIPSyncManager:
     DEFAULT_DATA_ROOT = Path("data")
     DEFAULT_STORAGE_PATH = Path("data/alpaca/sip/daily")
     BYTES_PER_ROW_ESTIMATE = 160
+    MAX_PAGES_PER_REQUEST = 1000
 
     def __init__(
         self,
@@ -353,7 +354,14 @@ class AlpacaSIPSyncManager:
         rows: list[dict[str, Any]] = []
         for chunk in self._chunks(normalized_symbols, self.request_chunk_size):
             page_token: str | None = None
+            page_count = 0
             while True:
+                page_count += 1
+                if page_count > self.MAX_PAGES_PER_REQUEST:
+                    raise RuntimeError(
+                        "Alpaca SIP bars pagination exceeded "
+                        f"{self.MAX_PAGES_PER_REQUEST} pages for year={year}"
+                    )
                 response = self._fetch_bars(chunk, year, page_token=page_token)
                 rows.extend(self._rows_from_response(response))
                 page_token = self._next_page_token_from_response(response)

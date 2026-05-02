@@ -205,6 +205,38 @@ def test_full_sync_writes_corporate_actions_and_manifest(
     assert client.requests[1]["page_token"] == "page-2"
 
 
+def test_full_sync_chunks_large_symbol_requests(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {"corporate_actions": []},
+            {"corporate_actions": []},
+            {"corporate_actions": []},
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+    manager.SYMBOL_REQUEST_CHUNK_SIZE = 2
+
+    manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["aapl", "MSFT", "NVDA", "TSLA", "GOOG"],
+    )
+
+    assert [request["symbols"] for request in client.requests] == [
+        "AAPL,MSFT",
+        "NVDA,TSLA",
+        "GOOG",
+    ]
+
+
 def test_full_sync_allows_empty_result_manifest(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,
@@ -576,6 +608,39 @@ def test_full_sync_deduplicates_present_ids_and_preserves_missing_ids(
     row_with_id = df.filter(pl.col("id") == "ca-1")
     assert row_with_id["process_date"].to_list() == [datetime.date(2024, 2, 2)]
     assert row_with_id["cash"].to_list() == [0.3]
+
+
+def test_fetch_all_pages_rejects_unbounded_pagination(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {"corporate_actions": [], "next_page_token": "again"},
+            {"corporate_actions": [], "next_page_token": "again"},
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+    manager.MAX_PAGES_PER_REQUEST = 1
+
+    with pytest.raises(RuntimeError, match="pagination exceeded"):
+        manager._fetch_all_pages({"start": "2024-01-01", "end": "2024-12-31"})
+
+
+def test_actions_from_payload_rejects_excessive_nesting() -> None:
+    nested: dict[str, Any] = {"id": "ca-deep", "symbol": "AAPL", "process_date": "2024-02-15"}
+    for _ in range(AlpacaCorporateActionsSyncManager.MAX_ACTION_NESTING_DEPTH + 1):
+        nested = {"items": [nested]}
+
+    with pytest.raises(ValueError, match="too deeply nested"):
+        AlpacaCorporateActionsSyncManager._actions_from_payload(
+            {"corporate_actions": {"cash_dividends": nested}}
+        )
 
 
 def test_full_sync_blocks_on_critical_disk_before_fetch(

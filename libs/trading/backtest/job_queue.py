@@ -17,6 +17,7 @@ from rq import Queue, Retry
 from rq.job import Job, NoSuchJobError  # type: ignore[attr-defined]
 
 from libs.data.data_providers.registry import ProviderType
+from libs.data.data_providers.role_resolver import DataRoleConfig, resolve_data_roles
 
 DataProvider = ProviderType
 
@@ -37,6 +38,54 @@ class JobPriority(str, Enum):
     HIGH = "high"
     NORMAL = "normal"
     LOW = "low"
+
+
+def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
+    if "universe" not in extra_params:
+        raise ValueError(
+            "Non-PIT backtests require an explicit symbol universe. "
+            "Set extra_params.universe; implicit default universes are not allowed."
+        )
+
+    raw_universe: str | list[str] | tuple[str, ...] | None = extra_params.get("universe")
+
+    if isinstance(raw_universe, str):
+        universe = [symbol.strip().upper() for symbol in raw_universe.split(",") if symbol.strip()]
+    elif isinstance(raw_universe, list | tuple):
+        universe = [
+            symbol.strip().upper()
+            for symbol in raw_universe
+            if isinstance(symbol, str) and symbol.strip()
+        ]
+    else:
+        universe = []
+
+    if not universe:
+        raise ValueError("Universe cannot be empty after normalization")
+
+    return universe
+
+
+def _optional_symbol_universe(extra_params: dict[str, Any]) -> list[str] | None:
+    if "universe" not in extra_params:
+        return None
+    return _resolve_symbol_universe(extra_params)
+
+
+def resolve_auto_provider(config: BacktestJobConfig) -> None:
+    """Resolve provider=AUTO before idempotency hashing or worker execution."""
+    if config.provider != DataProvider.AUTO:
+        return
+
+    role_mapping = config.extra_params.get("data")
+    if role_mapping is not None and not isinstance(role_mapping, dict):
+        raise ValueError("extra_params.data must be an object when provider=auto")
+
+    explicit_symbols = _optional_symbol_universe(config.extra_params)
+    role_config = DataRoleConfig.from_mapping(role_mapping)
+    resolved_roles = resolve_data_roles(role_config, explicit_symbols=explicit_symbols)
+    config.provider = resolved_roles.to_provider_type()
+    config.extra_params["resolved_data_roles"] = resolved_roles.to_metadata()
 
 
 def _resolve_rq_finished_status(job: Job) -> tuple[str, str | None]:
@@ -239,7 +288,8 @@ class BacktestJobQueue:
         - User-triggered reruns must call enqueue(..., is_rerun=True) to reset retry_count to 0 (automatic retries handled by RQ retry hook)
         - Healing must NOT bump retry_count; only the RQ retry hook increments it to avoid double-counting.
         """
-        job_id = config.compute_job_id(created_by)  # Include user in hash
+        resolve_auto_provider(config)
+        job_id = config.compute_job_id(created_by)  # Include user and resolved provider in hash
 
         job_timeout = timeout or self.DEFAULT_TIMEOUT
         if not 300 <= job_timeout <= 14_400:

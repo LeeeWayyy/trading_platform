@@ -583,6 +583,40 @@ def test_run_backtest_failure_sets_status(monkeypatch):
 
 
 @pytest.mark.unit()
+def test_run_backtest_auto_resolution_failure_sets_status(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+    class DummyPool:
+        def connection(self):
+            conn = MagicMock()
+            conn.__enter__.return_value = conn
+            conn.__exit__.return_value = False
+            conn.cursor.return_value = MagicMock()
+            return conn
+
+    redis = MagicMock()
+    redis.pipeline.return_value = MagicMock()
+    worker_update = MagicMock()
+    raw_config = {
+        "alpha_name": "a1",
+        "start_date": "2024-01-01",
+        "end_date": "2024-01-02",
+        "provider": "auto",
+        "extra_params": {"data": []},
+    }
+    expected_job_id = worker_module.BacktestJobConfig.from_dict(raw_config).compute_job_id("me")
+    monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+    monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+    monkeypatch.setattr(worker_module.BacktestWorker, "update_db_status", worker_update)
+
+    with pytest.raises(ValueError, match="extra_params.data"):
+        worker_module.run_backtest(raw_config, created_by="me")
+
+    assert worker_update.call_args.args[:2] == (expected_job_id, "failed")
+    assert "extra_params.data" in worker_update.call_args.kwargs["error_message"]
+
+
+@pytest.mark.unit()
 def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
     class DummyDF:
         columns = ["date", "permno", "signal", "weight", "ic", "rank_ic"]

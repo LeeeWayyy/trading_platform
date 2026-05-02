@@ -421,6 +421,35 @@ def test_sync_year_partition_fetches_paginated_bar_responses(
     assert df["close"].to_list() == [100.0, 101.0]
 
 
+def test_sync_year_partition_rejects_unbounded_pagination(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    class LoopingSyncManager(AlpacaSIPSyncManager):
+        MAX_PAGES_PER_REQUEST = 1
+
+        def _fetch_bars(
+            self,
+            symbols: Sequence[str],
+            year: int,
+            *,
+            page_token: str | None = None,
+        ) -> FakeResponse:
+            assert list(symbols) == ["AAPL"]
+            assert year == 2024
+            return FakeResponse({"AAPL": []}, next_page_token="again")
+
+    manager = LoopingSyncManager(
+        client=FakeAlpacaClient([]),
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    with pytest.raises(RuntimeError, match="pagination exceeded"):
+        manager.sync_year_partition(["AAPL"], 2024)
+
+
 def test_full_sync_rejects_empty_symbols(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,

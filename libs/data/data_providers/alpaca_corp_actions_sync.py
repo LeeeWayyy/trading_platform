@@ -238,6 +238,9 @@ class AlpacaCorporateActionsSyncManager:
     BYTES_PER_ROW_ESTIMATE = 1024
     UNFILTERED_ROWS_PER_YEAR_ESTIMATE = 50_000
     FILTERED_ROWS_PER_SYMBOL_YEAR_ESTIMATE = 25
+    SYMBOL_REQUEST_CHUNK_SIZE = 200
+    MAX_PAGES_PER_REQUEST = 1000
+    MAX_ACTION_NESTING_DEPTH = 64
 
     def __init__(
         self,
@@ -363,7 +366,14 @@ class AlpacaCorporateActionsSyncManager:
                     ids=normalized_ids,
                 )
             )
-            actions = self._fetch_all_pages(base_params)
+            actions = self._fetch_actions(
+                start_date=start_date,
+                end_date=end_date,
+                symbols=normalized_symbols,
+                ca_types=normalized_types,
+                ids=normalized_ids,
+                base_params=base_params,
+            )
             self._check_disk_space(estimated_rows=max(1, len(actions)))
             df = self._rows_to_frame([self._row_from_action(action) for action in actions])
             self._atomic_write_parquet(df, output_path)
@@ -470,7 +480,14 @@ class AlpacaCorporateActionsSyncManager:
     def _fetch_all_pages(self, base_params: Mapping[str, str | int]) -> list[Mapping[str, Any]]:
         params: dict[str, str | int] = dict(base_params)
         actions: list[Mapping[str, Any]] = []
+        page_count = 0
         while True:
+            page_count += 1
+            if page_count > self.MAX_PAGES_PER_REQUEST:
+                raise RuntimeError(
+                    "Alpaca corporate actions pagination exceeded "
+                    f"{self.MAX_PAGES_PER_REQUEST} pages"
+                )
             payload = self.client.get_corporate_actions(params)
             actions.extend(self._actions_from_payload(payload))
             next_page_token = self._next_page_token(payload)
@@ -478,6 +495,30 @@ class AlpacaCorporateActionsSyncManager:
                 break
             params["page_token"] = next_page_token
         return actions
+
+    def _fetch_actions(
+        self,
+        *,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        symbols: Sequence[str],
+        ca_types: Sequence[str],
+        ids: Sequence[str],
+        base_params: Mapping[str, str | int],
+    ) -> list[Mapping[str, Any]]:
+        if symbols and not ids:
+            actions: list[Mapping[str, Any]] = []
+            for symbol_chunk in self._chunks(symbols, self.SYMBOL_REQUEST_CHUNK_SIZE):
+                chunk_params = self._build_base_params(
+                    start_date=start_date,
+                    end_date=end_date,
+                    symbols=symbol_chunk,
+                    ca_types=ca_types,
+                    ids=[],
+                )
+                actions.extend(self._fetch_all_pages(chunk_params))
+            return actions
+        return self._fetch_all_pages(base_params)
 
     @staticmethod
     def _actions_from_payload(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -513,43 +554,31 @@ class AlpacaCorporateActionsSyncManager:
         action_type: str,
         value: Any,
     ) -> None:
-        if isinstance(value, list | tuple):
-            for item in value:
-                AlpacaCorporateActionsSyncManager._append_action_candidate(
-                    candidates,
-                    action_type=action_type,
-                    value=item,
-                )
-            return
+        stack: list[tuple[Any, int]] = [(value, 0)]
+        while stack:
+            current, depth = stack.pop()
+            if depth > AlpacaCorporateActionsSyncManager.MAX_ACTION_NESTING_DEPTH:
+                raise ValueError("Corporate actions payload is too deeply nested")
 
-        if isinstance(value, Mapping):
-            if AlpacaCorporateActionsSyncManager._looks_like_action_mapping(value):
-                enriched = dict(value)
-                enriched.setdefault("ca_type", action_type)
-                candidates.append(enriched)
-                return
-            nested_containers = [
-                value[key]
-                for key in ACTION_CONTAINER_KEYS
-                if isinstance(value.get(key), Mapping | list | tuple)
-            ]
-            if nested_containers:
-                for item in nested_containers:
-                    AlpacaCorporateActionsSyncManager._append_action_candidate(
-                        candidates,
-                        action_type=action_type,
-                        value=item,
-                    )
-                return
-            for item in value.values():
-                AlpacaCorporateActionsSyncManager._append_action_candidate(
-                    candidates,
-                    action_type=action_type,
-                    value=item,
-                )
-            return
+            if isinstance(current, list | tuple):
+                stack.extend((item, depth + 1) for item in reversed(current))
+                continue
 
-        return
+            if isinstance(current, Mapping):
+                if AlpacaCorporateActionsSyncManager._looks_like_action_mapping(current):
+                    enriched = dict(current)
+                    enriched.setdefault("ca_type", action_type)
+                    candidates.append(enriched)
+                    continue
+                nested_containers = [
+                    current[key]
+                    for key in ACTION_CONTAINER_KEYS
+                    if isinstance(current.get(key), Mapping | list | tuple)
+                ]
+                if nested_containers:
+                    stack.extend((item, depth + 1) for item in reversed(nested_containers))
+                    continue
+                stack.extend((item, depth + 1) for item in reversed(tuple(current.values())))
 
     @staticmethod
     def _next_page_token(payload: Mapping[str, Any]) -> str | None:
@@ -671,6 +700,10 @@ class AlpacaCorporateActionsSyncManager:
     @staticmethod
     def _normalize_symbols(symbols: Sequence[str]) -> list[str]:
         return AlpacaCorporateActionsSyncManager._normalize_values(symbols, upper=True)
+
+    @staticmethod
+    def _chunks(values: Sequence[str], chunk_size: int) -> list[list[str]]:
+        return [list(values[i : i + chunk_size]) for i in range(0, len(values), chunk_size)]
 
     @staticmethod
     def _normalize_values(values: Sequence[str], *, upper: bool) -> list[str]:
