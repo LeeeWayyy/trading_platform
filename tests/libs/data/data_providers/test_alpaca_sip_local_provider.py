@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -310,6 +311,57 @@ class TestAlpacaSIPLocalProvider:
 
         assert result.is_empty()
 
+    def test_close_invalidates_cached_connection(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        first_result = provider.get_daily_prices(date(2023, 1, 3), date(2023, 1, 4))
+        first_connection = provider._connection_for_current_thread()
+        provider.close()
+        second_result = provider.get_daily_prices(date(2023, 1, 3), date(2023, 1, 4))
+        second_connection = provider._connection_for_current_thread()
+
+        assert first_result.height == 3
+        assert second_result.height == 3
+        assert first_connection is not second_connection
+
+    def test_close_allows_queries_from_multiple_threads(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        def query_symbol(symbol: str) -> tuple[str, int]:
+            df = provider.get_daily_prices(
+                start_date=date(2023, 1, 3),
+                end_date=date(2024, 1, 2),
+                symbols=[symbol],
+            )
+            return symbol, df.height
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = dict(executor.map(query_symbol, ["AAPL", "MSFT"]))
+
+        provider.close()
+        after_close = provider.get_daily_prices(
+            start_date=date(2023, 1, 3),
+            end_date=date(2024, 1, 2),
+            symbols=["AAPL"],
+        )
+
+        assert results == {"AAPL": 3, "MSFT": 1}
+        assert after_close.height == 3
+
 
 class TestAlpacaSIPDataProviderAdapter:
     """Tests for unified-schema adapter behavior."""
@@ -331,7 +383,7 @@ class TestAlpacaSIPDataProviderAdapter:
         assert adapter.supports_universe is False
         assert adapter.is_production_ready is False
 
-    def test_adapter_returns_unified_schema_and_derived_returns(
+    def test_adapter_returns_unified_schema_and_adjusted_returns(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
     ) -> None:
         data_root, manifest_manager, _ = mock_alpaca_sip_data
@@ -350,6 +402,27 @@ class TestAlpacaSIPDataProviderAdapter:
         assert df["ret"].to_list()[1] == pytest.approx(0.02)
         assert df["close"].to_list() == [100.0, 101.0]
         assert df["adj_close"].to_list() == [100.0, 102.0]
+
+    def test_adapter_keeps_raw_snapshot_returns_null(self) -> None:
+        provider = MagicMock()
+        provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "date": [date(2023, 1, 3), date(2023, 1, 4)],
+                "symbol": ["AAPL", "AAPL"],
+                "open": [100.0, 102.0],
+                "high": [101.0, 103.0],
+                "low": [99.0, 101.0],
+                "close": [100.0, 101.0],
+                "volume": [1_000_000.0, 1_100_000.0],
+                "adj_close": [None, None],
+                "ret": [None, None],
+            }
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2023, 1, 3), date(2023, 1, 4))
+
+        assert df["ret"].to_list() == [None, None]
 
     def test_adapter_rejects_empty_symbols(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]

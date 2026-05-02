@@ -27,7 +27,7 @@ class DataRoleConfig:
     universe_source: str = "auto"
     price_source: str = "auto"
     corp_actions_source: str = "auto"
-    adjustment_mode: str = "all"
+    adjustment_mode: str = "raw"
     requires_pit_universe: bool = True
 
     @classmethod
@@ -38,7 +38,7 @@ class DataRoleConfig:
             universe_source=str(data.get("universe_source", "auto")).lower().strip(),
             price_source=str(data.get("price_source", "auto")).lower().strip(),
             corp_actions_source=str(data.get("corp_actions_source", "auto")).lower().strip(),
-            adjustment_mode=str(data.get("adjustment_mode", "all")).lower().strip(),
+            adjustment_mode=str(data.get("adjustment_mode", "raw")).lower().strip(),
             requires_pit_universe=_parse_bool(
                 data.get("requires_pit_universe", True),
                 field_name="requires_pit_universe",

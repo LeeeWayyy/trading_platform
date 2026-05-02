@@ -63,6 +63,13 @@ ALPACA_CORP_ACTIONS_SCHEMA: dict[str, type[pl.DataType]] = {
     "new_symbol": pl.Utf8,
     "raw": pl.Utf8,
 }
+ACTION_CONTAINER_KEYS = (
+    "items",
+    "data",
+    "corporate_actions",
+    "announcements",
+    "results",
+)
 
 
 @dataclass(frozen=True)
@@ -214,6 +221,8 @@ class AlpacaCorporateActionsSyncManager:
     DEFAULT_STORAGE_PATH = Path("data/alpaca/sip/corp_actions")
     DEFAULT_LIMIT = 1000
     BYTES_PER_ROW_ESTIMATE = 1024
+    UNFILTERED_ROWS_PER_YEAR_ESTIMATE = 50_000
+    FILTERED_ROWS_PER_SYMBOL_YEAR_ESTIMATE = 25
 
     def __init__(
         self,
@@ -313,6 +322,15 @@ class AlpacaCorporateActionsSyncManager:
             writer_id=f"alpaca-corp-actions-sync:{os.getpid()}",
             timeout_seconds=60.0,
         ) as lock_token:
+            self._check_disk_space(
+                estimated_rows=self._estimate_pre_fetch_rows(
+                    start_date=start_date,
+                    end_date=end_date,
+                    symbols=normalized_symbols,
+                    ca_types=normalized_types,
+                    ids=normalized_ids,
+                )
+            )
             actions = self._fetch_all_pages(base_params)
             self._check_disk_space(estimated_rows=max(1, len(actions)))
             df = self._rows_to_frame([self._row_from_action(action) for action in actions])
@@ -431,30 +449,20 @@ class AlpacaCorporateActionsSyncManager:
 
     @staticmethod
     def _actions_from_payload(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-        raw_actions = (
-            payload.get("corporate_actions")
-            or payload.get("announcements")
-            or payload.get("data")
-            or []
-        )
+        raw_actions: Any = []
+        for key in ("corporate_actions", "announcements", "data", "items", "results"):
+            value = payload.get(key)
+            if value is not None:
+                raw_actions = value
+                break
         if isinstance(raw_actions, dict):
             candidates: list[Any] = []
             for action_type, value in raw_actions.items():
-                if isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, Mapping):
-                            enriched = dict(item)
-                            enriched.setdefault("ca_type", str(action_type))
-                            candidates.append(enriched)
-                        else:
-                            candidates.append(item)
-                else:
-                    if isinstance(value, Mapping):
-                        enriched = dict(value)
-                        enriched.setdefault("ca_type", str(action_type))
-                        candidates.append(enriched)
-                    else:
-                        candidates.append(value)
+                AlpacaCorporateActionsSyncManager._append_action_candidate(
+                    candidates,
+                    action_type=str(action_type),
+                    value=value,
+                )
             raw_actions = candidates
         if not isinstance(raw_actions, list):
             raise ValueError("Unexpected corporate actions response shape")
@@ -465,6 +473,51 @@ class AlpacaCorporateActionsSyncManager:
                 raise ValueError(f"Unexpected corporate action item: {type(action).__name__}")
             actions.append(action)
         return actions
+
+    @staticmethod
+    def _append_action_candidate(
+        candidates: list[Any],
+        *,
+        action_type: str,
+        value: Any,
+    ) -> None:
+        if isinstance(value, list | tuple):
+            for item in value:
+                AlpacaCorporateActionsSyncManager._append_action_candidate(
+                    candidates,
+                    action_type=action_type,
+                    value=item,
+                )
+            return
+
+        if isinstance(value, Mapping):
+            if AlpacaCorporateActionsSyncManager._looks_like_action_mapping(value):
+                enriched = dict(value)
+                enriched.setdefault("ca_type", action_type)
+                candidates.append(enriched)
+                return
+            nested_containers = [
+                value[key]
+                for key in ACTION_CONTAINER_KEYS
+                if isinstance(value.get(key), Mapping | list | tuple)
+            ]
+            if nested_containers:
+                for item in nested_containers:
+                    AlpacaCorporateActionsSyncManager._append_action_candidate(
+                        candidates,
+                        action_type=action_type,
+                        value=item,
+                    )
+                return
+            for item in value.values():
+                AlpacaCorporateActionsSyncManager._append_action_candidate(
+                    candidates,
+                    action_type=action_type,
+                    value=item,
+                )
+            return
+
+        candidates.append(value)
 
     @staticmethod
     def _next_page_token(payload: Mapping[str, Any]) -> str | None:
@@ -517,11 +570,10 @@ class AlpacaCorporateActionsSyncManager:
             return False
 
         type_text = str(row.get("ca_type") or "").lower()
-        raw_text = str(row.get("raw") or "").lower()
-        return any(
-            token.lower() in type_text or token.lower() in raw_text
-            for token in check.expected_type_tokens
-        )
+        normalized_type = type_text.replace("-", "_").replace(" ", "_")
+        # Match only the structured type field so raw payload labels cannot
+        # create false positives for known-event checks.
+        return any(token.lower() in normalized_type for token in check.expected_type_tokens)
 
     def _rows_to_frame(self, rows: list[dict[str, Any]]) -> pl.DataFrame:
         if not rows:
@@ -625,8 +677,12 @@ class AlpacaCorporateActionsSyncManager:
 
     @staticmethod
     def _validate_date_range(start_date: datetime.date, end_date: datetime.date) -> None:
-        if start_date < datetime.date(2016, 1, 1):
-            raise ValueError("Alpaca SIP corporate-action sync starts at 2016-01-01")
+        spec = get_provider_spec(ProviderType.ALPACA_SIP)
+        history_start = spec.capabilities.history_start or datetime.date(2016, 1, 1)
+        if start_date < history_start:
+            raise ValueError(
+                "Alpaca SIP corporate-action sync starts at " f"{history_start.isoformat()}"
+            )
         if end_date < start_date:
             raise ValueError("end_date must be >= start_date")
         today = datetime.datetime.now(datetime.UTC).date()
@@ -755,3 +811,64 @@ class AlpacaCorporateActionsSyncManager:
             logger.warning("Alpaca corporate-actions sync disk warning: %s", status.message)
         elif status.level == "critical":
             logger.critical("Alpaca corporate-actions sync disk critical: %s", status.message)
+            raise DiskSpaceError(status.message)
+
+    @staticmethod
+    def _looks_like_action_mapping(value: Mapping[str, Any]) -> bool:
+        if any(isinstance(value.get(key), Mapping | list | tuple) for key in ACTION_CONTAINER_KEYS):
+            return False
+
+        def has_scalar(*fields: str) -> bool:
+            return any(
+                field in value and not isinstance(value[field], Mapping | list | tuple)
+                for field in fields
+            )
+
+        has_identifier = has_scalar("id", "ca_id")
+        has_symbol = has_scalar("symbol", "ticker", "cusip")
+        has_type = has_scalar("ca_type", "type", "corporate_action_type")
+        has_date = has_scalar(
+            "process_date",
+            "ex_date",
+            "record_date",
+            "payable_date",
+            "declaration_date",
+            "ex_dividend_date",
+            "payment_date",
+        )
+        return (
+            has_identifier or (has_type and (has_symbol or has_date)) or (has_symbol and has_date)
+        )
+
+    @staticmethod
+    def _estimate_pre_fetch_rows(
+        *,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        symbols: Sequence[str],
+        ca_types: Sequence[str],
+        ids: Sequence[str],
+    ) -> int:
+        date_span_days = max(1, (end_date - start_date).days + 1)
+        type_factor = max(1, len(ca_types))
+        year_factor = max(1, (date_span_days + 365) // 366)
+        if ids:
+            return max(len(ids), len(ids) * year_factor)
+        if not symbols:
+            return (
+                AlpacaCorporateActionsSyncManager.UNFILTERED_ROWS_PER_YEAR_ESTIMATE
+                * type_factor
+                * year_factor
+            )
+        symbol_factor = len(symbols)
+        # Corporate actions are sparse, but the pre-fetch gate must still scale
+        # with the request bounds so obviously unsafe syncs fail before API use.
+        month_factor = max(1, (date_span_days + 30) // 31)
+        monthly_floor = symbol_factor * type_factor * month_factor
+        conservative_symbol_estimate = (
+            symbol_factor
+            * type_factor
+            * year_factor
+            * AlpacaCorporateActionsSyncManager.FILTERED_ROWS_PER_SYMBOL_YEAR_ESTIMATE
+        )
+        return max(monthly_floor, conservative_symbol_estimate)

@@ -33,9 +33,10 @@ The Phase 1 provider has these semantics:
   `symbol`, `open`, `high`, `low`, `close`, and `volume`.
 - Optional local columns include `trade_count`, `vwap`, `adj_close`, and `ret`.
 - The adapter emits the existing unified schema from ADR-016.
-- If `ret` is absent, the adapter derives it from `adj_close` when available,
-  otherwise from `close`. The first row per symbol is null unless the caller
-  requested sufficient lookback data.
+- If `ret` is absent, the adapter derives it only from `adj_close` when that
+  adjusted series is available. Raw `close` is not used for derived returns
+  because it is not split/dividend adjusted. The first row per symbol is null
+  unless the caller requested sufficient lookback data.
 - `supports_universe` is `False`.
 - `is_production_ready` is `False` until survivorship and strategy migration
   work is complete.
@@ -56,8 +57,10 @@ The Phase 2 daily-bar sync foundation has these semantics:
   `data/alpaca/sip/daily/YYYY.parquet`.
 - Sync uses the same `SyncManifest` format and dataset name consumed by
   `AlpacaSIPLocalProvider`.
-- The default feed is `sip`; the default adjustment policy is `all`, and
-  `adj_close` is populated from the returned close for that adjusted response.
+- The default feed is `sip`; canonical daily-bar sync uses `adjustment=raw`.
+  Stored OHLC values remain unadjusted, and `adj_close`/`ret` stay null until a
+  read-time adjustment layer is available. Integrity and feed-delta tools may
+  still request adjusted Alpaca responses for comparison checks.
 - Corporate-actions ingestion uses a direct Alpaca market-data REST wrapper
   because the installed `alpaca-py==0.15.0` package does not expose a
   corporate-actions request/client method. The dataset name is

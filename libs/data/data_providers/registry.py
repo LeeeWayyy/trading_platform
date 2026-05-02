@@ -34,9 +34,7 @@ class ProviderType(str, Enum):
             provider = cls(normalized)
         except ValueError as exc:
             valid = [p.value for p in cls if allow_auto or p is not cls.AUTO]
-            raise ValueError(
-                f"Invalid data provider: '{value}'. Must be one of: {valid}"
-            ) from exc
+            raise ValueError(f"Invalid data provider: '{value}'. Must be one of: {valid}") from exc
 
         if provider is cls.AUTO and not allow_auto:
             valid = [p.value for p in cls if p is not cls.AUTO]
@@ -133,7 +131,7 @@ _PROVIDER_SPECS: dict[ProviderType, ProviderSpec] = {
         simple_backtest=True,
         requires_explicit_universe=True,
         source_feed="sip",
-        default_adjustment_mode="all",
+        default_adjustment_mode="raw",
     ),
     ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES: ProviderSpec(
         provider_id=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
@@ -153,14 +151,16 @@ _PROVIDER_SPECS: dict[ProviderType, ProviderSpec] = {
         simple_backtest=True,
         requires_explicit_universe=False,
         source_feed="sip",
-        default_adjustment_mode="all",
+        default_adjustment_mode="raw",
     ),
 }
 
 
 def get_provider_spec(provider: ProviderType | str) -> ProviderSpec:
     """Return the registered spec for a provider."""
-    provider_type = provider if isinstance(provider, ProviderType) else ProviderType.from_string(provider)
+    provider_type = (
+        provider if isinstance(provider, ProviderType) else ProviderType.from_string(provider)
+    )
     if provider_type is ProviderType.AUTO:
         raise ValueError("AUTO has no concrete provider spec")
     return _PROVIDER_SPECS[provider_type]
@@ -199,17 +199,18 @@ def provider_display_inverse_map_with_options(*, include_auto: bool = False) -> 
     return {v: k for k, v in provider_display_map_with_options(include_auto=include_auto).items()}
 
 
-def provider_ids_for_roles(roles: Mapping[str, str]) -> dict[str, str]:
+def provider_ids_for_roles(roles: Mapping[str, str], *, strict: bool = False) -> dict[str, str]:
     """Convert resolved data roles to provider/source IDs for signatures."""
     role_to_id = {
-        "universe_source": roles.get("universe_source", "unknown"),
-        "price_source": roles.get("price_source", "unknown"),
-        "corp_actions_source": roles.get("corp_actions_source", "unknown"),
+        "universe_source": _role_source_to_provider_id(
+            roles.get("universe_source", ""), strict=strict
+        ),
+        "price_source": _role_source_to_provider_id(roles.get("price_source", ""), strict=strict),
+        "corp_actions_source": _role_source_to_provider_id(
+            roles.get("corp_actions_source", ""), strict=strict
+        ),
     }
-    return {
-        role: _role_source_to_provider_id(source)
-        for role, source in role_to_id.items()
-    }
+    return role_to_id
 
 
 def provider_versions_for_ids(provider_ids: Mapping[str, str]) -> dict[str, str]:
@@ -236,14 +237,21 @@ def source_feeds_for_provider_ids(provider_ids: Mapping[str, str]) -> dict[str, 
     return feeds
 
 
-def _role_source_to_provider_id(source: str) -> str:
-    if source in {"crsp", "alpaca_sip", "yfinance"}:
-        return source
-    if source == "alpaca_sip_active_assets":
+def _role_source_to_provider_id(source: str, *, strict: bool) -> str:
+    normalized = source.strip()
+    if not normalized:
+        if not strict:
+            return "unknown"
+        raise ValueError("Missing data role source in provider provenance")
+    if normalized in {"crsp", "alpaca_sip", "yfinance"}:
+        return normalized
+    if normalized == "alpaca_sip_active_assets":
         return ProviderType.ALPACA_SIP.value
-    if source in {"explicit_symbols", "none"}:
-        return source
-    return "unknown"
+    if normalized in {"explicit_symbols", "none"}:
+        return normalized
+    if not strict:
+        return "unknown"
+    raise ValueError(f"Unknown data role source in provider provenance: {normalized}")
 
 
 def build_manifest_id(dataset: str, manifest_version: int | str, checksum: str) -> str:

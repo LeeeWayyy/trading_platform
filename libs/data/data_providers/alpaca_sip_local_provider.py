@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 import threading
+import weakref
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 import polars as pl
@@ -103,7 +104,10 @@ class AlpacaSIPLocalProvider:
                 f"storage_path '{storage_path}' must be within data_root '{self.data_root}'"
             )
 
-        self._thread_local: threading.local = threading.local()
+        self._thread_local = threading.local()
+        self._connection_lock = threading.Lock()
+        self._connections: weakref.WeakSet[duckdb.DuckDBPyConnection] = weakref.WeakSet()
+        self._connection_generation = 0
 
     def get_daily_prices(
         self,
@@ -223,7 +227,6 @@ class AlpacaSIPLocalProvider:
         columns: list[str] | None,
     ) -> pl.DataFrame:
         """Execute a parameterized DuckDB query over selected partitions."""
-        conn = self._ensure_connection()
         col_expr = "*" if columns is None else ", ".join(columns)
 
         params: dict[str, Any] = {
@@ -244,17 +247,34 @@ class AlpacaSIPLocalProvider:
             ORDER BY date, symbol
         """
 
+        conn = self._connection_for_current_thread()
         return conn.execute(query, params).pl()
 
-    def _ensure_connection(self) -> duckdb.DuckDBPyConnection:
-        """Get or create a thread-local DuckDB connection."""
-        conn = getattr(self._thread_local, "conn", None)
-        if conn is None:
-            conn = duckdb.connect(":memory:", read_only=False)
-            conn.execute("PRAGMA disable_object_cache")
-            conn.execute("PRAGMA memory_limit='2GB'")
-            conn.execute("PRAGMA threads=4")
-            self._thread_local.conn = conn
+    def _connection_for_current_thread(self) -> duckdb.DuckDBPyConnection:
+        """Get or create a cached DuckDB connection scoped to the current thread."""
+        cached_conn = cast(
+            duckdb.DuckDBPyConnection | None,
+            getattr(self._thread_local, "connection", None),
+        )
+        cached_generation = getattr(self._thread_local, "connection_generation", None)
+        if cached_conn is not None and cached_generation == self._connection_generation:
+            return cached_conn
+
+        with self._connection_lock:
+            generation = self._connection_generation
+            conn = self._new_connection()
+            self._connections.add(conn)
+            self._thread_local.connection = conn
+            self._thread_local.connection_generation = generation
+            return conn
+
+    @staticmethod
+    def _new_connection() -> duckdb.DuckDBPyConnection:
+        """Create a short-lived DuckDB connection for one query."""
+        conn = duckdb.connect(":memory:", read_only=False)
+        conn.execute("PRAGMA disable_object_cache")
+        conn.execute("PRAGMA memory_limit='2GB'")
+        conn.execute("PRAGMA threads=4")
         return conn
 
     def _empty_result(self, columns: list[str] | None) -> pl.DataFrame:
@@ -266,12 +286,18 @@ class AlpacaSIPLocalProvider:
         return pl.DataFrame(schema=schema)
 
     def close(self) -> None:
-        """Close the thread-local DuckDB connection for the current thread."""
-        conn = getattr(self._thread_local, "conn", None)
-        if conn is not None:
+        """Close all cached DuckDB connections owned by this provider."""
+        with self._connection_lock:
+            self._connection_generation += 1
+            connections = list(self._connections)
+            self._connections.clear()
+        if hasattr(self._thread_local, "connection"):
+            del self._thread_local.connection
+        if hasattr(self._thread_local, "connection_generation"):
+            del self._thread_local.connection_generation
+        for conn in connections:
             conn.close()
-            self._thread_local.conn = None
-            logger.debug("DuckDB connection closed for Alpaca SIP provider")
+        logger.debug("Closed %d Alpaca SIP DuckDB connection(s)", len(connections))
 
     def __enter__(self) -> AlpacaSIPLocalProvider:
         """Context manager entry."""

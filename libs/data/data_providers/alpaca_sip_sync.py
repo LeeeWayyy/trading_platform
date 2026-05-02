@@ -123,7 +123,7 @@ class AlpacaSIPSyncManager:
         request_chunk_size: int = 200,
         request_interval_seconds: float = 0.0,
         feed: str = "sip",
-        adjustment: str = "all",
+        adjustment: str = "raw",
     ) -> None:
         """Initialize the sync manager.
 
@@ -135,8 +135,8 @@ class AlpacaSIPSyncManager:
             request_chunk_size: Number of symbols per Alpaca request.
             request_interval_seconds: Sleep between API requests for throttling.
             feed: Alpaca data feed. Phase 2 defaults to ``sip``.
-            adjustment: Alpaca adjustment policy. Defaults to ``all`` so
-                ``adj_close`` can be populated from the returned close.
+            adjustment: Alpaca adjustment policy. Canonical SIP syncs currently
+                require ``raw`` so the stored OHLC columns remain unadjusted.
         """
         if request_chunk_size < 1:
             raise ValueError("request_chunk_size must be >= 1")
@@ -151,6 +151,11 @@ class AlpacaSIPSyncManager:
         self.request_interval_seconds = request_interval_seconds
         self.feed = feed.lower().strip()
         self.adjustment = adjustment.lower().strip()
+        if self.adjustment != "raw":
+            raise ValueError(
+                "Alpaca SIP canonical sync currently requires adjustment='raw'. "
+                "Use integrity/feed-delta commands for adjusted comparison checks."
+            )
 
         if not self.storage_path.is_relative_to(self.data_root):
             raise ValueError(
@@ -169,7 +174,7 @@ class AlpacaSIPSyncManager:
         request_chunk_size: int = 200,
         request_interval_seconds: float = 0.0,
         feed: str | None = None,
-        adjustment: str = "all",
+        adjustment: str = "raw",
     ) -> AlpacaSIPSyncManager:
         """Build a manager from standard Alpaca environment variables."""
         if not ALPACA_AVAILABLE:
@@ -344,6 +349,7 @@ class AlpacaSIPSyncManager:
         """Fetch and write one yearly daily-bar partition."""
         normalized_symbols = self._normalize_symbols(symbols)
         self._validate_year_range(year, year)
+        self._check_disk_space(estimated_rows=max(1, len(normalized_symbols) * 252))
         rows: list[dict[str, Any]] = []
         for chunk in self._chunks(normalized_symbols, self.request_chunk_size):
             response = self._fetch_bars(chunk, year)
@@ -357,6 +363,7 @@ class AlpacaSIPSyncManager:
             raise ValueError(
                 f"output_dir '{partition_dir}' must be within storage_path '{self.storage_path}'"
             )
+        self._check_disk_space(estimated_rows=max(1, df.height))
         output_path = partition_dir / f"{year}.parquet"
         checksum = self._atomic_write_parquet(df, output_path)
         start_date, end_date = self._frame_date_bounds(df)
@@ -469,7 +476,7 @@ class AlpacaSIPSyncManager:
             "volume": self._required_float(bar, "volume", "v"),
             "trade_count": self._optional_float(bar, "trade_count", "n"),
             "vwap": self._optional_float(bar, "vwap", "vw"),
-            "adj_close": close if self.adjustment == "all" else None,
+            "adj_close": None,
             "ret": None,
         }
 
@@ -543,8 +550,12 @@ class AlpacaSIPSyncManager:
 
     @staticmethod
     def _validate_year_range(start_year: int, end_year: int) -> None:
-        if start_year < 2016:
-            raise ValueError("Alpaca SIP historical coverage starts around 2016")
+        spec = get_provider_spec(ProviderType.ALPACA_SIP)
+        history_start = spec.capabilities.history_start
+        if history_start is not None and start_year < history_start.year:
+            raise ValueError(
+                "Alpaca SIP historical coverage starts around " f"{history_start.isoformat()}"
+            )
         if end_year < start_year:
             raise ValueError("end_year must be >= start_year")
         current_year = datetime.datetime.now(datetime.UTC).year
@@ -722,6 +733,7 @@ class AlpacaSIPSyncManager:
             logger.warning("Alpaca SIP sync disk warning: %s", status.message)
         elif status.level == "critical":
             logger.critical("Alpaca SIP sync disk critical: %s", status.message)
+            raise DiskSpaceError(status.message)
 
 
 class SyncedPartition:

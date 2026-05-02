@@ -10,7 +10,9 @@ import polars as pl
 import pytest
 
 from libs.data.data_providers.alpaca_sip_sync import AlpacaSIPSyncManager
+from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
+from libs.data.data_quality.types import DiskSpaceStatus
 
 
 class FakeBar:
@@ -141,7 +143,7 @@ def test_full_sync_writes_partition_and_manifest(
     assert partition.name == "2024.parquet"
     df = pl.read_parquet(partition)
     assert df["symbol"].to_list() == ["AAPL", "MSFT"]
-    assert df["adj_close"].to_list() == [100.0, 200.0]
+    assert df["adj_close"].to_list() == [None, None]
     assert df["ret"].null_count() == 2
     assert manifest.row_count == 2
     assert manifest.start_date == datetime.date(2024, 1, 3)
@@ -150,7 +152,7 @@ def test_full_sync_writes_partition_and_manifest(
     assert manifest.provider_id == "alpaca_sip"
     assert manifest.provider_version == "1.0"
     assert manifest.source_feed == "sip"
-    assert manifest.adjustment_mode == "all"
+    assert manifest.adjustment_mode == "raw"
     assert manifest.manifest_id == f"alpaca_sip_daily@v1:{manifest.checksum}"
     assert manifest.symbol_set_hash is not None
     assert manifest.sync_started_at is not None
@@ -165,7 +167,85 @@ def test_full_sync_writes_partition_and_manifest(
     first_request_fields = client.requests[0].to_request_fields()
     assert first_request_fields["symbol_or_symbols"] == ["AAPL"]
     assert first_request_fields["feed"].value == "sip"
-    assert first_request_fields["adjustment"].value == "all"
+    assert first_request_fields["adjustment"].value == "raw"
+
+
+def test_manager_rejects_non_raw_canonical_adjustment(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    with pytest.raises(ValueError, match="requires adjustment='raw'"):
+        AlpacaSIPSyncManager(
+            client=FakeAlpacaClient([]),
+            storage_path=sync_paths["storage"],
+            manifest_manager=manifest_manager,
+            data_root=sync_paths["data_root"],
+            adjustment="all",
+        )
+
+
+def test_full_sync_blocks_on_critical_disk_status(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeAlpacaClient([])
+    manager = AlpacaSIPSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    def critical_space(_required_bytes: int) -> DiskSpaceStatus:
+        return DiskSpaceStatus(
+            level="critical",
+            free_bytes=10,
+            total_bytes=100,
+            used_pct=0.90,
+            message="critical test disk status",
+        )
+
+    monkeypatch.setattr(manifest_manager, "check_disk_space", critical_space)
+
+    with pytest.raises(DiskSpaceError, match="critical test disk status"):
+        manager.full_sync(["AAPL"], start_year=2024, end_year=2024)
+
+    assert client.requests == []
+
+
+def test_sync_year_partition_blocks_on_critical_disk_before_write(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timestamp = datetime.datetime(2024, 1, 3, tzinfo=datetime.UTC)
+    client = FakeAlpacaClient(
+        [FakeResponse({"AAPL": [FakeBar(symbol="AAPL", timestamp=timestamp, close=100.0)]})]
+    )
+    manager = AlpacaSIPSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    def critical_space(_required_bytes: int) -> DiskSpaceStatus:
+        return DiskSpaceStatus(
+            level="critical",
+            free_bytes=10,
+            total_bytes=100,
+            used_pct=0.90,
+            message="critical partition disk status",
+        )
+
+    monkeypatch.setattr(manifest_manager, "check_disk_space", critical_space)
+
+    with pytest.raises(DiskSpaceError, match="critical partition disk status"):
+        manager.sync_year_partition(["AAPL"], 2024)
+
+    assert client.requests == []
+    assert not (sync_paths["storage"] / "2024.parquet").exists()
 
 
 def test_full_sync_failure_does_not_replace_existing_manifest(

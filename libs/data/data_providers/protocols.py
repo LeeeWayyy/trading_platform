@@ -457,6 +457,9 @@ class AlpacaSIPDataProviderAdapter:
     Alpaca SIP Phase 1 is an explicit, local, ticker-based provider. It improves
     execution-feed parity for post-2016 research, but it does not provide a
     point-in-time universe or survivorship guarantees.
+
+    Raw SIP close is not split/dividend-adjusted. Returns are only propagated
+    when already present or derived from a non-null adjusted close series.
     """
 
     def __init__(self, provider: AlpacaSIPLocalProvider) -> None:
@@ -551,14 +554,18 @@ class AlpacaSIPDataProviderAdapter:
         for column in float_cols:
             df = df.with_columns(pl.col(column).cast(pl.Float64))
 
+        adjusted_close = pl.col("adj_close")
+        previous_adjusted_close = adjusted_close.shift(1).over("symbol")
         df = (
             df.sort(["symbol", "date"])
-            .with_columns(pl.coalesce(["adj_close", "close"]).alias("__return_price"))
             .with_columns(
-                pl.col("__return_price").pct_change().over("symbol").alias("__calculated_ret")
+                pl.when(adjusted_close.is_not_null() & previous_adjusted_close.is_not_null())
+                .then((adjusted_close / previous_adjusted_close) - 1.0)
+                .otherwise(None)
+                .alias("__adjusted_ret")
             )
-            .with_columns(pl.coalesce(["ret", "__calculated_ret"]).alias("ret"))
-            .drop(["__return_price", "__calculated_ret"])
+            .with_columns(pl.coalesce(["ret", "__adjusted_ret"]).alias("ret"))
+            .drop("__adjusted_ret")
         )
 
         return df.select(UNIFIED_COLUMNS)

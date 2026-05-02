@@ -19,6 +19,7 @@ import pytest
 from libs.data.data_providers.protocols import (
     UNIFIED_COLUMNS,
     UNIFIED_SCHEMA,
+    AlpacaSIPDataProviderAdapter,
     ConfigurationError,
     CRSPDataProviderAdapter,
     DataProvider,
@@ -250,6 +251,32 @@ class TestCRSPSchemaNormalization:
         """CRSP adapter sets adj_close to null (prc is NOT split-adjusted)."""
         df = crsp_adapter.get_daily_prices(["AAPL"], date(2024, 1, 1), date(2024, 1, 31))
         assert df["adj_close"].is_null().all()
+
+
+class TestAlpacaSIPSchemaNormalization:
+    """Test Alpaca SIP adapter schema normalization."""
+
+    def test_partial_adjusted_close_does_not_bridge_returns(self) -> None:
+        """Alpaca SIP derived returns stay null across adjusted-close gaps."""
+        provider = MagicMock()
+        provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+                "symbol": ["aapl", "aapl", "aapl"],
+                "open": [100.0, 110.0, 121.0],
+                "high": [100.0, 110.0, 121.0],
+                "low": [100.0, 110.0, 121.0],
+                "close": [100.0, 110.0, 121.0],
+                "volume": [50000000.0, 48000000.0, 47000000.0],
+                "adj_close": [100.0, None, 121.0],
+                "ret": [None, None, None],
+            }
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2024, 1, 2), date(2024, 1, 4))
+
+        assert df["ret"].to_list() == [None, None, None]
 
 
 class TestSchemaConsistency:

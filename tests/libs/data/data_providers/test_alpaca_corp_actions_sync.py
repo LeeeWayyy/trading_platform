@@ -13,7 +13,9 @@ from libs.data.data_providers.alpaca_corp_actions_sync import (
     AlpacaCorporateActionsSyncManager,
     CorporateActionRoundTripCheck,
 )
+from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
+from libs.data.data_quality.types import DiskSpaceStatus
 
 
 class FakeCorporateActionsClient:
@@ -134,7 +136,7 @@ def test_full_sync_writes_corporate_actions_and_manifest(
     assert manifest.provider_id == "alpaca_sip"
     assert manifest.provider_version == "1.0"
     assert manifest.source_feed == "sip"
-    assert manifest.adjustment_mode == "all"
+    assert manifest.adjustment_mode == "raw"
     assert manifest.manifest_id == f"alpaca_sip_corp_actions@v1:{manifest.checksum}"
     assert manifest.symbol_set_hash is not None
     assert manifest.sync_started_at is not None
@@ -226,6 +228,287 @@ def test_full_sync_preserves_grouped_live_payload_types(
     assert df["ca_type"].to_list() == ["cash_dividends"]
     assert df["cash"].to_list() == [0.24]
     assert '"rate": 0.24' in df["raw"][0]
+
+
+def test_full_sync_flattens_grouped_dict_payloads(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "cash_dividends": {
+                        "ca-div-1": {
+                            "id": "ca-div-1",
+                            "symbol": "AAPL",
+                            "process_date": "2024-02-15",
+                            "rate": 0.24,
+                        },
+                        "ca-div-2": {
+                            "id": "ca-div-2",
+                            "symbol": "MSFT",
+                            "process_date": "2024-03-15",
+                            "rate": 0.75,
+                        },
+                    }
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL", "MSFT"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == ["ca-div-1", "ca-div-2"]
+    assert df["ca_type"].to_list() == ["cash_dividends", "cash_dividends"]
+
+
+def test_full_sync_flattens_grouped_dict_payloads_with_action_field_keys(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "stock_splits": {
+                        "symbol": {
+                            "id": "ca-split-1",
+                            "symbol": "AAPL",
+                            "process_date": "2024-06-15",
+                            "old_rate": 1.0,
+                            "new_rate": 4.0,
+                        }
+                    }
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == ["ca-split-1"]
+    assert df["symbol"].to_list() == ["AAPL"]
+    assert df["ca_type"].to_list() == ["stock_splits"]
+
+
+def test_full_sync_flattens_nested_grouped_list_payloads(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "cash_dividends": {
+                        "AAPL": [
+                            {
+                                "id": "ca-div-1",
+                                "symbol": "AAPL",
+                                "process_date": "2024-02-15",
+                                "rate": 0.24,
+                            }
+                        ],
+                        "MSFT": [
+                            {
+                                "id": "ca-div-2",
+                                "symbol": "MSFT",
+                                "process_date": "2024-03-15",
+                                "rate": 0.75,
+                            }
+                        ],
+                    }
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL", "MSFT"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == ["ca-div-1", "ca-div-2"]
+    assert df["ca_type"].to_list() == ["cash_dividends", "cash_dividends"]
+
+
+@pytest.mark.parametrize("container_key", ["items", "results"])
+def test_full_sync_reads_top_level_action_container_aliases(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+    container_key: str,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                container_key: [
+                    {
+                        "id": f"ca-{container_key}",
+                        "symbol": "AAPL",
+                        "process_date": "2024-02-15",
+                        "rate": 0.24,
+                    }
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == [f"ca-{container_key}"]
+
+
+def test_full_sync_ignores_wrapper_scalars_when_flattening_items(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "cash_dividends": {
+                        "id": "page-summary-1",
+                        "type": "response-wrapper",
+                        "items": [
+                            {
+                                "id": "ca-div-1",
+                                "symbol": "AAPL",
+                                "process_date": "2024-02-15",
+                                "rate": 0.24,
+                            }
+                        ],
+                    }
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == ["ca-div-1"]
+    assert df["ca_type"].to_list() == ["cash_dividends"]
+
+
+def test_full_sync_blocks_on_critical_disk_before_fetch(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeCorporateActionsClient([{"corporate_actions": [{"id": "ca-1"}]}])
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    def critical_space(_required_bytes: int) -> DiskSpaceStatus:
+        return DiskSpaceStatus(
+            level="critical",
+            free_bytes=10,
+            total_bytes=100,
+            used_pct=0.90,
+            message="critical test disk status",
+        )
+
+    monkeypatch.setattr(manifest_manager, "check_disk_space", critical_space)
+
+    with pytest.raises(DiskSpaceError, match="critical test disk status"):
+        manager.full_sync(
+            start_date=datetime.date(2024, 1, 1),
+            end_date=datetime.date(2024, 12, 31),
+            symbols=["AAPL"],
+        )
+
+    assert client.requests == []
+
+
+def test_pre_fetch_estimate_scales_unfiltered_syncs() -> None:
+    estimate = AlpacaCorporateActionsSyncManager._estimate_pre_fetch_rows(
+        start_date=datetime.date(2020, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=[],
+        ca_types=[],
+        ids=[],
+    )
+
+    assert estimate >= 250_000
+
+
+def test_pre_fetch_estimate_scales_filtered_syncs() -> None:
+    estimate = AlpacaCorporateActionsSyncManager._estimate_pre_fetch_rows(
+        start_date=datetime.date(2020, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=[f"SYM{i}" for i in range(50)],
+        ca_types=["cash_dividend", "stock_split", "merger", "spinoff", "name_change"],
+        ids=[],
+    )
+
+    assert estimate >= 31_250
+
+
+def test_pre_fetch_estimate_scales_id_requests_with_date_span() -> None:
+    estimate = AlpacaCorporateActionsSyncManager._estimate_pre_fetch_rows(
+        start_date=datetime.date(2020, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=[],
+        ca_types=[],
+        ids=["ca-1", "ca-2"],
+    )
+
+    assert estimate > 2
 
 
 def test_full_sync_rejects_ids_with_filters(
@@ -349,6 +632,83 @@ def test_round_trip_checks_fail_when_expected_type_missing(
     assert report.status == "failed"
     assert report.results[0].raw_action_count == 1
     assert report.results[0].matched_action_count == 0
+
+
+def test_round_trip_checks_ignore_tokens_outside_structured_type(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    check = CorporateActionRoundTripCheck(
+        label="AAPL split",
+        symbol="AAPL",
+        start_date=datetime.date(2020, 8, 1),
+        end_date=datetime.date(2020, 9, 15),
+        expected_type_tokens=("split",),
+    )
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": [
+                    {
+                        "id": "div-1",
+                        "symbol": "AAPL",
+                        "ca_type": "cash_dividend",
+                        "process_date": "2020-08-31",
+                        "description": "reverse split-off completed",
+                    }
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    report = manager.run_round_trip_checks([check])
+
+    assert report.status == "failed"
+    assert report.results[0].matched_action_count == 0
+
+
+def test_round_trip_checks_match_any_structured_type_token(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    check = CorporateActionRoundTripCheck(
+        label="AAPL cash dividend",
+        symbol="AAPL",
+        start_date=datetime.date(2024, 2, 1),
+        end_date=datetime.date(2024, 2, 20),
+        expected_type_tokens=("dividend", "cash"),
+    )
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": [
+                    {
+                        "id": "div-1",
+                        "symbol": "AAPL",
+                        "ca_type": "dividend",
+                        "process_date": "2024-02-15",
+                    }
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    report = manager.run_round_trip_checks([check])
+
+    assert report.status == "passed"
+    assert report.results[0].matched_action_count == 1
 
 
 def test_verify_integrity_rejects_manifest_path_outside_storage(

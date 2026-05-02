@@ -224,7 +224,11 @@ def _build_parser() -> argparse.ArgumentParser:
     full_sync.add_argument("--chunk-size", type=int, default=200)
     full_sync.add_argument("--throttle-seconds", type=float, default=0.0)
     full_sync.add_argument("--feed", default="sip")
-    full_sync.add_argument("--adjustment", default="all")
+    full_sync.add_argument(
+        "--adjustment",
+        default="raw",
+        help="Canonical sync adjustment mode. Only raw is supported until read-time adjustments land.",
+    )
     full_sync.set_defaults(func=_run_full_sync)
 
     status = subparsers.add_parser("status", help="Show current manifest status.")

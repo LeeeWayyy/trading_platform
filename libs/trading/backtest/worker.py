@@ -275,16 +275,23 @@ def _attach_data_signature(
     spec = get_provider_spec(provider)
     roles = (
         {
-            "universe_source": str(role_metadata["universe_source"]),
-            "price_source": str(role_metadata["price_source"]),
-            "corp_actions_source": str(role_metadata["corp_actions_source"]),
+            "universe_source": str(role_metadata.get("universe_source") or ""),
+            "price_source": str(role_metadata.get("price_source") or ""),
+            "corp_actions_source": str(role_metadata.get("corp_actions_source") or ""),
         }
         if role_metadata
         else _legacy_provider_roles(provider, explicit_universe=explicit_universe)
     )
     dataset_version_ids = dict(result.dataset_version_ids or {})
     manifest_ids = _manifest_ids_from_dataset_versions(dataset_version_ids)
-    provider_ids = provider_ids_for_roles(roles)
+    provider_role_validation_error: str | None = None
+    try:
+        provider_ids = provider_ids_for_roles(roles, strict=True)
+    except ValueError as exc:
+        if role_metadata is None:
+            raise
+        provider_role_validation_error = str(exc)
+        provider_ids = provider_ids_for_roles(roles, strict=False)
     provider_versions = provider_versions_for_ids(provider_ids)
     source_feeds = source_feeds_for_provider_ids(provider_ids)
     symbol_set_hash = (
@@ -309,6 +316,8 @@ def _attach_data_signature(
     }
     if role_metadata:
         payload["role_resolution"] = role_metadata
+    if provider_role_validation_error is not None:
+        payload["provider_role_validation_error"] = provider_role_validation_error
     data_signature = compute_data_signature(payload)
     dataset_version_ids["provider_roles"] = json.dumps(roles, sort_keys=True)
     dataset_version_ids["provider_ids"] = json.dumps(provider_ids, sort_keys=True)
@@ -319,6 +328,8 @@ def _attach_data_signature(
     dataset_version_ids["adjustment_mode"] = adjustment_mode
     dataset_version_ids["symbol_set_hash"] = symbol_set_hash
     dataset_version_ids["data_signature"] = data_signature
+    if provider_role_validation_error is not None:
+        dataset_version_ids["provider_role_validation_error"] = provider_role_validation_error
     result.dataset_version_ids = dataset_version_ids
     result.data_signature = data_signature
     result.data_signature_payload = payload

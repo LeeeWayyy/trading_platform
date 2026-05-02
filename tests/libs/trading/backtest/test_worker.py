@@ -1249,6 +1249,34 @@ class TestProviderRouting:
         )
 
     @pytest.mark.unit()
+    def test_data_signature_marks_legacy_unknown_role_metadata(self):
+        """Legacy role metadata remains reproducible while surfacing unknown roles."""
+        result = types.SimpleNamespace(
+            dataset_version_ids={
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+            },
+            snapshot_id="snap",
+        )
+
+        worker_module._attach_data_signature(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            universe=["AAPL"],
+            explicit_universe=True,
+            role_metadata={
+                "universe_source": "legacy_custom_universe",
+                "price_source": "alpaca_sip",
+                "adjustment_mode": "raw",
+            },
+        )
+
+        payload = result.data_signature_payload
+        assert payload["provider_ids"]["universe_source"] == "unknown"
+        assert payload["provider_ids"]["corp_actions_source"] == "unknown"
+        assert "provider_role_validation_error" in payload
+        assert "provider_role_validation_error" in result.dataset_version_ids
+
+    @pytest.mark.unit()
     def test_alpaca_feed_delta_metadata_attached_when_report_exists(self, tmp_path):
         """SIP reports surface the latest available IEX-vs-SIP monitor status."""
         quality_dir = tmp_path / "quality"
@@ -3223,7 +3251,7 @@ class TestYFinanceEdgeCases:
                 "provider_id": "alpaca_sip",
                 "provider_version": "1.0",
                 "source_feed": "sip",
-                "adjustment_mode": "all",
+                "adjustment_mode": "raw",
                 "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
                 "alpaca_sip_daily_dataset": "alpaca_sip_daily",
                 "alpaca_sip_daily_manifest_version": "7",

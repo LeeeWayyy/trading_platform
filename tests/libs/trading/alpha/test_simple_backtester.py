@@ -155,6 +155,213 @@ class TestDataPreparation:
         assert "permno" in result.columns
         assert "prc" in result.columns
 
+    def test_prepare_data_falls_back_to_close_when_adj_close_is_null(self, mock_fetcher):
+        """Test non-SIP data can compute returns when adjusted closes are unavailable."""
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 110.0,
+                    "high": 110.0,
+                    "low": 110.0,
+                    "close": 110.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 3),
+                    "symbol": "AAPL",
+                    "open": 121.0,
+                    "high": 121.0,
+                    "low": 121.0,
+                    "close": 121.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        result = backtester._prepare_data(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 3),
+            symbols=["AAPL"],
+        ).sort("date")
+
+        returns = result["ret"].to_list()
+        assert returns[0] is None
+        assert returns[1] == pytest.approx(0.1)
+        assert returns[2] == pytest.approx(0.1)
+        assert result["prc"].to_list() == [100.0, 110.0, 121.0]
+
+    def test_prepare_data_does_not_mix_partial_adjusted_close_with_raw_close(self, mock_fetcher):
+        """Test partially adjusted non-SIP data does not compute mixed-series returns."""
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "adj_close": 100.0,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 110.0,
+                    "high": 110.0,
+                    "low": 110.0,
+                    "close": 110.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 3),
+                    "symbol": "AAPL",
+                    "open": 121.0,
+                    "high": 121.0,
+                    "low": 121.0,
+                    "close": 121.0,
+                    "adj_close": 121.0,
+                    "volume": 1000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        result = backtester._prepare_data(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 3),
+            symbols=["AAPL"],
+        ).sort("date")
+
+        assert result["ret"].to_list() == [None, None, None]
+        assert result["prc"].to_list() == [100.0, 110.0, 121.0]
+
+    def test_prepare_data_does_not_fill_crsp_missing_ret_from_raw_close(self, mock_fetcher):
+        """Test CRSP-like raw close is not used when adjusted returns are missing."""
+        mock_fetcher.get_active_provider.return_value = "crsp"
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": None,
+                    "high": None,
+                    "low": None,
+                    "close": 100.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": None,
+                    "high": None,
+                    "low": None,
+                    "close": 110.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        result = backtester._prepare_data(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 2),
+            symbols=["AAPL"],
+        ).sort("date")
+
+        assert result["ret"].to_list() == [None, None]
+        assert result["prc"].to_list() == [100.0, 110.0]
+
+    def test_prepare_data_rejects_sip_without_adjusted_close(self, mock_fetcher):
+        """Test raw SIP snapshots cannot silently drive split-unsafe backtests."""
+        mock_fetcher.get_active_provider.return_value = "alpaca_sip"
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 25.0,
+                    "high": 25.0,
+                    "low": 25.0,
+                    "close": 25.0,
+                    "adj_close": None,
+                    "volume": 4000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        with pytest.raises(ValueError, match="Raw SIP-priced backtests via alpaca_sip"):
+            backtester._prepare_data(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 2),
+                symbols=["AAPL"],
+            )
+
+    def test_prepare_data_rejects_sip_partially_adjusted_close(self, mock_fetcher):
+        """Test SIP cannot fall back to raw close for partially adjusted rows."""
+        mock_fetcher.get_active_provider.return_value = "alpaca_sip"
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "adj_close": 100.0,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 25.0,
+                    "high": 25.0,
+                    "low": 25.0,
+                    "close": 25.0,
+                    "adj_close": None,
+                    "volume": 4000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        with pytest.raises(ValueError, match="Every returned row must have adj_close"):
+            backtester._prepare_data(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 2),
+                symbols=["AAPL"],
+            )
+
     def test_prepare_data_empty_input(self, mock_fetcher):
         """Test handling of empty data from fetcher."""
         mock_fetcher.get_daily_prices.return_value = pl.DataFrame()
@@ -338,6 +545,164 @@ class TestRunBacktest:
 
             # Should only count the 2 successfully processed days
             assert result.n_days == 2
+
+    def test_daily_prices_fall_back_to_close_when_adj_close_is_null(
+        self, mock_fetcher, mock_metrics
+    ):
+        """Test non-SIP data still produces usable price artifacts."""
+        dates = [date(2024, 1, i) for i in range(1, 4)]
+        rows = []
+        for offset, d in enumerate(dates):
+            rows.extend(
+                [
+                    {
+                        "date": d,
+                        "symbol": "AAPL",
+                        "open": 100.0 + offset,
+                        "high": 101.0 + offset,
+                        "low": 99.0 + offset,
+                        "close": 100.0 + offset,
+                        "adj_close": None,
+                        "volume": 1000000,
+                    },
+                    {
+                        "date": d,
+                        "symbol": "MSFT",
+                        "open": 200.0 + offset,
+                        "high": 201.0 + offset,
+                        "low": 199.0 + offset,
+                        "close": 200.0 + offset,
+                        "adj_close": None,
+                        "volume": 1000000,
+                    },
+                ]
+            )
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(rows)
+        backtester = SimpleBacktester(mock_fetcher, mock_metrics)
+
+        mock_alpha = MagicMock()
+        mock_alpha.name = "test_alpha"
+
+        def compute_signal(prices, fundamentals, as_of_date):
+            return pl.DataFrame(
+                {
+                    "date": [as_of_date, as_of_date],
+                    "permno": [1, 2],
+                    "signal": [0.5, -0.5],
+                }
+            )
+
+        mock_alpha.compute.side_effect = compute_signal
+
+        with patch.object(
+            backtester,
+            "_compute_forward_returns",
+            side_effect=lambda prices, as_of_date, horizon: pl.DataFrame(
+                {
+                    "date": [as_of_date, as_of_date],
+                    "permno": [1, 2],
+                    "return": [0.01, -0.01],
+                }
+            ),
+        ):
+            result = backtester.run_backtest(
+                alpha=mock_alpha,
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 3),
+                universe=["AAPL", "MSFT"],
+            )
+
+        prices = result.daily_prices.sort(["date", "symbol"])
+        assert prices["price"].null_count() == 0
+        assert prices.filter(pl.col("symbol") == "AAPL")["price"].to_list() == [
+            100.0,
+            101.0,
+            102.0,
+        ]
+        assert prices.filter(pl.col("symbol") == "MSFT")["price"].to_list() == [
+            200.0,
+            201.0,
+            202.0,
+        ]
+
+    def test_daily_prices_do_not_mix_partial_adjusted_close_with_raw_close(
+        self, mock_fetcher, mock_metrics
+    ):
+        """Test price artifacts do not bridge adjusted-close gaps with raw close."""
+        dates = [date(2024, 1, i) for i in range(1, 4)]
+        rows = []
+        aapl_adjusted = [100.0, None, 121.0]
+        for offset, d in enumerate(dates):
+            rows.extend(
+                [
+                    {
+                        "date": d,
+                        "symbol": "AAPL",
+                        "open": 100.0 + offset * 10.0,
+                        "high": 101.0 + offset * 10.0,
+                        "low": 99.0 + offset * 10.0,
+                        "close": 100.0 + offset * 10.0,
+                        "adj_close": aapl_adjusted[offset],
+                        "volume": 1000000,
+                    },
+                    {
+                        "date": d,
+                        "symbol": "MSFT",
+                        "open": 200.0 + offset,
+                        "high": 201.0 + offset,
+                        "low": 199.0 + offset,
+                        "close": 200.0 + offset,
+                        "adj_close": None,
+                        "volume": 1000000,
+                    },
+                ]
+            )
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(rows)
+        backtester = SimpleBacktester(mock_fetcher, mock_metrics)
+
+        mock_alpha = MagicMock()
+        mock_alpha.name = "test_alpha"
+
+        def compute_signal(prices, fundamentals, as_of_date):
+            return pl.DataFrame(
+                {
+                    "date": [as_of_date, as_of_date],
+                    "permno": [1, 2],
+                    "signal": [0.5, -0.5],
+                }
+            )
+
+        mock_alpha.compute.side_effect = compute_signal
+
+        with patch.object(
+            backtester,
+            "_compute_forward_returns",
+            side_effect=lambda prices, as_of_date, horizon: pl.DataFrame(
+                {
+                    "date": [as_of_date, as_of_date],
+                    "permno": [1, 2],
+                    "return": [0.01, -0.01],
+                }
+            ),
+        ):
+            result = backtester.run_backtest(
+                alpha=mock_alpha,
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 3),
+                universe=["AAPL", "MSFT"],
+            )
+
+        prices = result.daily_prices.sort(["date", "symbol"])
+        assert prices.filter(pl.col("symbol") == "AAPL")["price"].to_list() == [
+            100.0,
+            None,
+            121.0,
+        ]
+        assert prices.filter(pl.col("symbol") == "MSFT")["price"].to_list() == [
+            200.0,
+            201.0,
+            202.0,
+        ]
 
 
 class TestResultMetadata:

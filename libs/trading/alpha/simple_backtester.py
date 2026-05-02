@@ -42,6 +42,7 @@ from typing import Literal
 
 import polars as pl
 
+from libs.data.data_providers.registry import ProviderType, get_provider_spec
 from libs.data.data_providers.unified_fetcher import UnifiedDataFetcher
 from libs.trading.alpha.alpha_definition import AlphaDefinition
 from libs.trading.alpha.exceptions import MissingForwardReturnError
@@ -54,6 +55,28 @@ logger = logging.getLogger(__name__)
 # Buffer days for data fetching to ensure sufficient lookback/forward data
 _LOOKBACK_BUFFER_DAYS = 90  # Buffer before start_date for returns calculation
 _FORWARD_BUFFER_DAYS = 90  # Buffer after end_date for forward returns
+
+
+def _requires_complete_adjusted_close(provider_name: str) -> bool:
+    """Return whether a provider's raw prices need complete adjusted closes."""
+    try:
+        provider_type = ProviderType.from_string(provider_name, allow_auto=False)
+    except ValueError:
+        return False
+
+    spec = get_provider_spec(provider_type)
+    return bool(spec.capabilities.production_feed_parity and spec.default_adjustment_mode == "raw")
+
+
+def _allows_close_return_fallback(provider_name: str) -> bool:
+    """Return whether close can safely backfill returns when adj_close is absent."""
+    try:
+        provider_type = ProviderType.from_string(provider_name, allow_auto=False)
+    except ValueError:
+        return False
+
+    spec = get_provider_spec(provider_type)
+    return spec.default_adjustment_mode == "provider_adjusted"
 
 
 class SimpleBacktester:
@@ -154,6 +177,7 @@ class SimpleBacktester:
             "Fetching data from %s to %s for %d symbols", fetch_start, fetch_end, len(symbols)
         )
 
+        provider_name = str(self._fetcher.get_active_provider())
         raw_df = self._fetcher.get_daily_prices(symbols, fetch_start, fetch_end)
 
         if raw_df.is_empty():
@@ -163,10 +187,55 @@ class SimpleBacktester:
         # Sort by symbol, date to ensure correct shift
         df = raw_df.sort(["symbol", "date"])
 
-        # Calculate daily return: (adj_close / prev_adj_close) - 1
-        # Use adj_close for returns to handle splits/dividends
+        requires_adjusted_close = _requires_complete_adjusted_close(provider_name)
+        allows_close_fallback = _allows_close_return_fallback(provider_name)
+        temporary_columns = ["_return_price"]
+        if "adj_close" not in df.columns:
+            if requires_adjusted_close:
+                raise ValueError(
+                    f"Raw SIP-priced backtests via {provider_name} require an "
+                    "adjusted close series. Run a read-time adjustment layer before "
+                    "using raw SIP snapshots."
+                )
+            return_price = pl.col("close") if allows_close_fallback else pl.lit(None)
+        else:
+            missing_adjusted_close_count = int(
+                df.select(pl.col("adj_close").is_null().sum()).item()
+            )
+            if requires_adjusted_close and missing_adjusted_close_count:
+                raise ValueError(
+                    f"Raw SIP-priced backtests via {provider_name} require an "
+                    "adjusted close series. Every returned row must have adj_close "
+                    "populated before backtesting."
+                )
+            return_price = (
+                pl.col("adj_close")
+                if requires_adjusted_close or not allows_close_fallback
+                else pl.when(pl.col("_adj_close_non_null_count") == 0)
+                .then(pl.col("close"))
+                .otherwise(pl.col("adj_close"))
+            )
+            if not requires_adjusted_close and allows_close_fallback:
+                df = df.with_columns(
+                    pl.col("adj_close")
+                    .is_not_null()
+                    .sum()
+                    .over("symbol")
+                    .alias("_adj_close_non_null_count")
+                )
+                temporary_columns.append("_adj_close_non_null_count")
+
+        # Prefer adjusted close when present, with close as a non-SIP fallback.
+        df = df.with_columns(return_price.cast(pl.Float64).alias("_return_price"))
+
+        # Calculate daily return from the best available close series.
+        return_price_col = pl.col("_return_price")
+        previous_return_price = return_price_col.shift(1).over("symbol")
         df = df.with_columns(
-            [pl.col("adj_close").pct_change().over("symbol").alias("calculated_ret")]
+            pl.when(return_price_col.is_not_null() & previous_return_price.is_not_null())
+            .then((return_price_col / previous_return_price) - 1.0)
+            .otherwise(None)
+            .alias("calculated_ret")
         )
 
         # Use calculated ret if 'ret' is null or missing
@@ -181,6 +250,8 @@ class SimpleBacktester:
         mapping_df = pl.DataFrame(permno_rows, schema={"symbol": pl.Utf8, "permno": pl.Int64})
 
         df = df.join(mapping_df, on="symbol", how="left")
+
+        df = df.drop([column for column in temporary_columns if column in df.columns])
 
         # Rename close -> prc for alpha compatibility
         df = df.rename({"close": "prc"})
@@ -455,15 +526,29 @@ class SimpleBacktester:
             ]
         )
 
-        # Persist price series for detail views (Yahoo only)
+        # Persist price series for detail views.
         prices_in_period = prices.filter(pl.col("date").is_between(start_date, end_date))
-        price_col = "adj_close" if "adj_close" in prices_in_period.columns else "prc"
+        if "adj_close" in prices_in_period.columns:
+            prices_in_period = prices_in_period.with_columns(
+                pl.col("adj_close")
+                .is_not_null()
+                .sum()
+                .over("symbol")
+                .alias("_artifact_adj_close_non_null_count")
+            )
+            price_expr = (
+                pl.when(pl.col("_artifact_adj_close_non_null_count") == 0)
+                .then(pl.col("prc"))
+                .otherwise(pl.col("adj_close"))
+            )
+        else:
+            price_expr = pl.col("prc")
         daily_prices = prices_in_period.select(
             [
                 pl.col("date").cast(pl.Date),
                 pl.col("permno").cast(pl.Int64),
                 pl.col("symbol").cast(pl.Utf8),
-                pl.col(price_col).cast(pl.Float64).alias("price"),
+                price_expr.cast(pl.Float64).alias("price"),
             ]
         )
 
