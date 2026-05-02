@@ -188,10 +188,18 @@ def test_resolve_table_paths_uses_alpaca_manifest_paths(
     partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
     partition.parent.mkdir(parents=True)
     partition.write_bytes(b"PAR1")
+    corp_storage_root = data_root / "alpaca" / "sip" / "corp_actions"
+    corp_partition = corp_storage_root / "snapshots" / "sync-1" / "corporate_actions.parquet"
+    corp_partition.parent.mkdir(parents=True)
+    corp_partition.write_bytes(b"PAR1")
     manifest_dir = data_root / "manifests"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "alpaca_sip_daily.json").write_text(
         json.dumps({"file_paths": [str(partition)]}),
+        encoding="utf-8",
+    )
+    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+        json.dumps({"file_paths": [str(corp_partition)]}),
         encoding="utf-8",
     )
     monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
@@ -199,6 +207,7 @@ def test_resolve_table_paths_uses_alpaca_manifest_paths(
     paths = module._resolve_table_paths()
 
     assert paths["alpaca_sip_daily"] == (str(partition),)
+    assert paths["alpaca_sip_corp_actions"] == (str(corp_partition),)
 
 
 def test_create_query_connection_handles_manifest_path_list(
@@ -226,18 +235,38 @@ def test_create_query_connection_handles_manifest_path_list(
     partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2024.parquet"
     partition.parent.mkdir(parents=True)
     partition.write_bytes(b"PAR1")
+    corp_partition = (
+        data_root
+        / "alpaca"
+        / "sip"
+        / "corp_actions"
+        / "snapshots"
+        / "sync-1"
+        / "corporate_actions.parquet"
+    )
+    corp_partition.parent.mkdir(parents=True)
+    corp_partition.write_bytes(b"PAR1")
     fake_conn = FakeConn()
     monkeypatch.setattr(module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
     monkeypatch.setattr(
-        module, "_resolve_table_paths", lambda: {"alpaca_sip_daily": (str(partition),)}
+        module,
+        "_resolve_table_paths",
+        lambda: {
+            "alpaca_sip_daily": (str(partition),),
+            "alpaca_sip_corp_actions": (str(corp_partition),),
+        },
     )
 
-    module._create_query_connection("alpaca_sip", available_tables={"alpaca_sip_daily"})
+    module._create_query_connection(
+        "alpaca_sip",
+        available_tables={"alpaca_sip_daily", "alpaca_sip_corp_actions"},
+    )
 
     view_statements = [stmt for stmt in fake_conn.statements if "CREATE OR REPLACE VIEW" in stmt]
-    assert len(view_statements) == 1
-    assert f"read_parquet(['{partition}'])" in view_statements[0]
+    assert len(view_statements) == 2
+    assert any(f"read_parquet(['{partition}'])" in stmt for stmt in view_statements)
+    assert any(f"read_parquet(['{corp_partition}'])" in stmt for stmt in view_statements)
 
 
 def test_can_query_dataset_default_deny_for_unmapped(operator_user: dict[str, str]) -> None:

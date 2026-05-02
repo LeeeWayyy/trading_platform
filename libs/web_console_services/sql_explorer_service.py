@@ -299,11 +299,17 @@ def _validate_path_safe(path: str) -> None:
         raise ValueError(f"Path not under allowed data root: {path} (resolved to {resolved})")
 
 
-def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:
-    """Return manifest-pinned SIP partitions, with snapshot glob as fallback."""
+def _resolve_alpaca_sip_snapshot_paths(
+    data_root: str,
+    *,
+    storage_leaf: str,
+    manifest_name: str,
+    unreadable_log_event: str,
+) -> _TablePathSpec:
+    """Return manifest-pinned SIP snapshot partitions, with snapshot glob as fallback."""
     data_root_path = _Path(data_root)
-    storage_root = (data_root_path / "alpaca" / "sip" / "daily").resolve()
-    manifest_path = data_root_path / "manifests" / "alpaca_sip_daily.json"
+    storage_root = (data_root_path / "alpaca" / "sip" / storage_leaf).resolve()
+    manifest_path = data_root_path / "manifests" / manifest_name
 
     if manifest_path.exists():
         try:
@@ -311,7 +317,7 @@ def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:
             file_paths = manifest.get("file_paths", [])
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
-                "sql_explorer_alpaca_sip_manifest_unreadable",
+                unreadable_log_event,
                 extra={"manifest_path": str(manifest_path), "error": str(exc)},
             )
         else:
@@ -336,6 +342,26 @@ def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:
                 return tuple(sorted(resolved_paths))
 
     return f"{storage_root}/snapshots/*/*.parquet"
+
+
+def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:
+    """Return manifest-pinned SIP daily partitions, with snapshot glob as fallback."""
+    return _resolve_alpaca_sip_snapshot_paths(
+        data_root,
+        storage_leaf="daily",
+        manifest_name="alpaca_sip_daily.json",
+        unreadable_log_event="sql_explorer_alpaca_sip_daily_manifest_unreadable",
+    )
+
+
+def _resolve_alpaca_sip_corp_actions_paths(data_root: str) -> _TablePathSpec:
+    """Return manifest-pinned SIP corporate-action partitions, with snapshot glob fallback."""
+    return _resolve_alpaca_sip_snapshot_paths(
+        data_root,
+        storage_leaf="corp_actions",
+        manifest_name="alpaca_sip_corp_actions.json",
+        unreadable_log_event="sql_explorer_alpaca_sip_corp_actions_manifest_unreadable",
+    )
 
 
 def _resolve_alpaca_sip_manifest_path(
@@ -382,6 +408,7 @@ def _resolve_table_paths() -> dict[str, _TablePathSpec]:
         "taq_trades": f"{data_root}/taq/aggregates/1min_bars/*.parquet",
         "taq_quotes": f"{data_root}/taq/aggregates/spread_stats/*.parquet",
         "alpaca_sip_daily": _resolve_alpaca_sip_daily_paths(data_root),
+        "alpaca_sip_corp_actions": _resolve_alpaca_sip_corp_actions_paths(data_root),
     }
 
 

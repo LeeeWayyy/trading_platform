@@ -672,6 +672,7 @@ class AlpacaSIPSyncManager:
         with open(path, "rb") as handle:
             for chunk in iter(lambda: handle.read(8192), b""):
                 hasher.update(chunk)
+        with open(path, "r+b") as handle:
             os.fsync(handle.fileno())
         return hasher.hexdigest()
 
