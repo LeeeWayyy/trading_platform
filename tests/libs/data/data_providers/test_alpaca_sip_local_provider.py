@@ -121,6 +121,47 @@ class TestAlpacaSIPLocalProvider:
 
         assert provider.storage_path == storage_path.resolve()
 
+    def test_duckdb_connection_settings_are_configurable(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+            duckdb_memory_limit="512MB",
+            duckdb_threads=2,
+        )
+
+        assert provider._duckdb_memory_limit == "512MB"
+        assert provider._duckdb_threads == 2
+        provider.close()
+
+    def test_invalid_duckdb_connection_settings_raise(
+        self,
+        mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        monkeypatch.setenv("ALPACA_SIP_DUCKDB_MEMORY_LIMIT", "2GB'; drop table x; --")
+
+        with pytest.raises(ValueError, match="duckdb_memory_limit"):
+            AlpacaSIPLocalProvider(
+                storage_path=data_root / "alpaca" / "sip" / "daily",
+                manifest_manager=manifest_manager,
+                data_root=data_root,
+            )
+
+        with pytest.raises(ValueError, match="duckdb_threads"):
+            AlpacaSIPLocalProvider(
+                storage_path=data_root / "alpaca" / "sip" / "daily",
+                manifest_manager=manifest_manager,
+                data_root=data_root,
+                duckdb_memory_limit="2GB",
+                duckdb_threads=0,
+            )
+
     def test_path_outside_data_root_rejected(self, tmp_path: Path) -> None:
         data_root = tmp_path / "data"
         data_root.mkdir()

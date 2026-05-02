@@ -70,6 +70,28 @@ ACTION_CONTAINER_KEYS = (
     "announcements",
     "results",
 )
+ACTION_TYPE_KEYS = frozenset(
+    {
+        "cash_dividend",
+        "cash_dividends",
+        "stock_dividend",
+        "stock_dividends",
+        "stock_split",
+        "stock_splits",
+        "reverse_split",
+        "reverse_splits",
+        "merger",
+        "mergers",
+        "spinoff",
+        "spinoffs",
+        "name_change",
+        "name_changes",
+        "rights_distribution",
+        "rights_distributions",
+        "redemption",
+        "redemptions",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -530,10 +552,12 @@ class AlpacaCorporateActionsSyncManager:
                 break
         if isinstance(raw_actions, dict):
             candidates: list[Any] = []
-            for action_type, value in raw_actions.items():
+            for raw_action_type, value in raw_actions.items():
                 AlpacaCorporateActionsSyncManager._append_action_candidate(
                     candidates,
-                    action_type=str(action_type),
+                    action_type=AlpacaCorporateActionsSyncManager._action_type_from_payload_key(
+                        raw_action_type
+                    ),
                     value=value,
                 )
             raw_actions = candidates
@@ -551,7 +575,7 @@ class AlpacaCorporateActionsSyncManager:
     def _append_action_candidate(
         candidates: list[Any],
         *,
-        action_type: str,
+        action_type: str | None,
         value: Any,
     ) -> None:
         stack: list[tuple[Any, int]] = [(value, 0)]
@@ -567,7 +591,8 @@ class AlpacaCorporateActionsSyncManager:
             if isinstance(current, Mapping):
                 if AlpacaCorporateActionsSyncManager._looks_like_action_mapping(current):
                     enriched = dict(current)
-                    enriched.setdefault("ca_type", action_type)
+                    if action_type:
+                        enriched.setdefault("ca_type", action_type)
                     candidates.append(enriched)
                     continue
                 nested_containers = [
@@ -579,6 +604,27 @@ class AlpacaCorporateActionsSyncManager:
                     stack.extend((item, depth + 1) for item in reversed(nested_containers))
                     continue
                 stack.extend((item, depth + 1) for item in reversed(tuple(current.values())))
+
+    @staticmethod
+    def _action_type_from_payload_key(key: object) -> str | None:
+        key_text = str(key).strip()
+        normalized = key_text.lower().replace("-", "_").replace(" ", "_")
+        if normalized in ACTION_TYPE_KEYS:
+            return normalized
+        if AlpacaCorporateActionsSyncManager._looks_like_symbol_key(key_text):
+            return None
+        return key_text
+
+    @staticmethod
+    def _looks_like_symbol_key(key: str) -> bool:
+        symbol = key.strip()
+        if not 1 <= len(symbol) <= 12:
+            return False
+        if symbol.upper() != symbol:
+            return False
+        return any(char.isalpha() for char in symbol) and all(
+            char.isalnum() or char in {".", "-"} for char in symbol
+        )
 
     @staticmethod
     def _next_page_token(payload: Mapping[str, Any]) -> str | None:

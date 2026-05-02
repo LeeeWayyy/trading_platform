@@ -1283,6 +1283,32 @@ class TestProviderRouting:
         )
 
     @pytest.mark.unit()
+    def test_data_signature_role_metadata_is_json_safe(self):
+        """Role metadata is sanitized before canonical signature serialization."""
+        result = types.SimpleNamespace(
+            dataset_version_ids={
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+            },
+            snapshot_id="snap",
+        )
+
+        worker_module._attach_data_signature(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            universe=["AAPL"],
+            explicit_universe=True,
+            role_metadata={
+                "universe_source": "explicit_symbols",
+                "price_source": "alpaca_sip",
+                "corp_actions_source": "alpaca_sip",
+                "generated_on": date(2024, 1, 1),
+            },
+        )
+
+        assert result.data_signature_payload["role_resolution"]["generated_on"] == "2024-01-01"
+        assert result.dataset_version_ids["data_signature"] == result.data_signature
+
+    @pytest.mark.unit()
     def test_data_signature_marks_legacy_unknown_role_metadata(self):
         """Legacy role metadata remains reproducible while surfacing unknown roles."""
         result = types.SimpleNamespace(

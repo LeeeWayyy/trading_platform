@@ -434,6 +434,45 @@ def test_full_sync_flattens_nested_grouped_list_payloads(
     assert df["ca_type"].to_list() == ["cash_dividends", "cash_dividends"]
 
 
+def test_full_sync_does_not_use_symbol_group_keys_as_action_types(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "AAPL": [
+                        {
+                            "id": "ca-aapl-1",
+                            "symbol": "AAPL",
+                            "process_date": "2024-02-15",
+                            "rate": 0.24,
+                        }
+                    ]
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == ["ca-aapl-1"]
+    assert df["symbol"].to_list() == ["AAPL"]
+    assert df["ca_type"].to_list() == [None]
+
+
 @pytest.mark.parametrize("container_key", ["items", "results"])
 def test_full_sync_reads_top_level_action_container_aliases(
     sync_paths: dict[str, Path],

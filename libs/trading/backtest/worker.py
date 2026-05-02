@@ -241,6 +241,15 @@ def _manifest_ids_from_dataset_versions(dataset_version_ids: dict[str, Any]) -> 
     return manifest_ids
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert provenance metadata to deterministic JSON-compatible values."""
+    return json.loads(json.dumps(value, sort_keys=True, default=str))
+
+
+def _stable_json(value: Any) -> str:
+    return json.dumps(_json_safe(value), sort_keys=True)
+
+
 def _attach_data_signature(
     result: BacktestResult,
     provider: DataProvider,
@@ -296,10 +305,11 @@ def _attach_data_signature(
         payload["role_resolution"] = role_metadata
     if provider_role_validation_error is not None:
         payload["provider_role_validation_error"] = provider_role_validation_error
-    data_signature = compute_data_signature(payload)
-    dataset_version_ids["provider_roles"] = json.dumps(roles, sort_keys=True)
-    dataset_version_ids["provider_ids"] = json.dumps(provider_ids, sort_keys=True)
-    dataset_version_ids["provider_versions"] = json.dumps(provider_versions, sort_keys=True)
+    safe_payload = _json_safe(payload)
+    data_signature = compute_data_signature(safe_payload)
+    dataset_version_ids["provider_roles"] = _stable_json(roles)
+    dataset_version_ids["provider_ids"] = _stable_json(provider_ids)
+    dataset_version_ids["provider_versions"] = _stable_json(provider_versions)
     dataset_version_ids["provider_id"] = spec.provider_id.value
     dataset_version_ids["provider_version"] = spec.provider_version
     dataset_version_ids["source_feed"] = spec.source_feed or ""
@@ -310,7 +320,7 @@ def _attach_data_signature(
         dataset_version_ids["provider_role_validation_error"] = provider_role_validation_error
     result.dataset_version_ids = dataset_version_ids
     result.data_signature = data_signature
-    result.data_signature_payload = payload
+    result.data_signature_payload = safe_payload
 
 
 def _load_alpaca_feed_delta_metadata(data_root: Path) -> dict[str, str]:

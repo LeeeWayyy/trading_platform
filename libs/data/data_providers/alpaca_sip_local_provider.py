@@ -9,6 +9,8 @@ during training or backtesting.
 from __future__ import annotations
 
 import logging
+import os
+import re
 import threading
 import weakref
 from datetime import date
@@ -57,6 +59,10 @@ ALPACA_SIP_SCHEMA: dict[str, type[pl.DataType]] = {
 }
 
 VALID_COLUMNS = set(ALPACA_SIP_COLUMNS)
+_DUCKDB_MEMORY_LIMIT_RE = re.compile(
+    r"^[1-9][0-9]*(?:\.[0-9]+)?\s*(?:B|KB|MB|GB|TB|KIB|MIB|GIB|TIB)$",
+    re.IGNORECASE,
+)
 
 
 class AlpacaSIPLocalProvider:
@@ -82,6 +88,8 @@ class AlpacaSIPLocalProvider:
         manifest_manager: ManifestManager,
         data_root: Path | None = None,
         pinned_manifest: SyncManifest | None = None,
+        duckdb_memory_limit: str | None = None,
+        duckdb_threads: int | None = None,
     ) -> None:
         """Initialize the local Alpaca SIP provider.
 
@@ -90,6 +98,10 @@ class AlpacaSIPLocalProvider:
             manifest_manager: Manager for manifest operations.
             data_root: Root directory for path validation.
             pinned_manifest: Optional immutable manifest to use for all reads.
+            duckdb_memory_limit: Optional DuckDB memory limit (env fallback:
+                ALPACA_SIP_DUCKDB_MEMORY_LIMIT, default: 2GB).
+            duckdb_threads: Optional DuckDB worker threads (env fallback:
+                ALPACA_SIP_DUCKDB_THREADS, default: 4).
 
         Raises:
             ValueError: If storage_path is outside data_root.
@@ -98,6 +110,8 @@ class AlpacaSIPLocalProvider:
         self.manifest_manager = manifest_manager
         self.data_root = (data_root or self.DATA_ROOT).resolve()
         self._pinned_manifest = pinned_manifest
+        self._duckdb_memory_limit = self._resolve_duckdb_memory_limit(duckdb_memory_limit)
+        self._duckdb_threads = self._resolve_duckdb_threads(duckdb_threads)
 
         if not self.storage_path.is_relative_to(self.data_root):
             raise ValueError(
@@ -268,14 +282,35 @@ class AlpacaSIPLocalProvider:
             self._thread_local.connection_generation = generation
             return conn
 
-    @staticmethod
-    def _new_connection() -> duckdb.DuckDBPyConnection:
+    def _new_connection(self) -> duckdb.DuckDBPyConnection:
         """Create a short-lived DuckDB connection for one query."""
         conn = duckdb.connect(":memory:", read_only=False)
         conn.execute("PRAGMA disable_object_cache")
-        conn.execute("PRAGMA memory_limit='2GB'")
-        conn.execute("PRAGMA threads=4")
+        conn.execute(f"PRAGMA memory_limit='{self._duckdb_memory_limit}'")
+        conn.execute(f"PRAGMA threads={self._duckdb_threads}")
         return conn
+
+    @staticmethod
+    def _resolve_duckdb_memory_limit(value: str | None) -> str:
+        memory_limit = (value or os.getenv("ALPACA_SIP_DUCKDB_MEMORY_LIMIT") or "2GB").strip()
+        if not _DUCKDB_MEMORY_LIMIT_RE.fullmatch(memory_limit):
+            raise ValueError(
+                "duckdb_memory_limit must be a positive DuckDB size such as '512MB' or '2GB'"
+            )
+        return memory_limit
+
+    @staticmethod
+    def _resolve_duckdb_threads(value: int | None) -> int:
+        raw_value: int | str | None = value
+        if raw_value is None:
+            raw_value = os.getenv("ALPACA_SIP_DUCKDB_THREADS") or "4"
+        try:
+            threads = int(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("duckdb_threads must be a positive integer") from exc
+        if threads < 1:
+            raise ValueError("duckdb_threads must be a positive integer")
+        return threads
 
     def _empty_result(self, columns: list[str] | None) -> pl.DataFrame:
         """Return an empty DataFrame with the requested local schema."""

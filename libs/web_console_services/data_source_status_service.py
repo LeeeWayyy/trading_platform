@@ -150,7 +150,15 @@ class DataSourceStatusService:
         ]
         # Merge refreshed sources so callers see updated timestamps after manual refresh
         now = datetime.now(UTC)
-        merged = [self._last_refresh_results.get(source.name, source) for source in filtered]
+        merged: list[DataSourceStatusDTO] = []
+        for source in filtered:
+            if source.name == "alpaca_sip":
+                # Alpaca SIP readiness is manifest-backed; do not let an older
+                # cached unknown/manual-refresh DTO mask newly written manifests.
+                self._last_refresh_results[source.name] = source
+                merged.append(source)
+                continue
+            merged.append(self._last_refresh_results.get(source.name, source))
         # Recompute age_seconds from last_update so cached DTOs stay accurate
         for source in merged:
             self._last_refresh_results.setdefault(source.name, source)
@@ -273,9 +281,13 @@ class DataSourceStatusService:
     async def _perform_refresh(self, source: DataSourceStatusDTO) -> DataSourceStatusDTO:
         """Mock refresh implementation (deterministic, idempotent)."""
         await asyncio.sleep(0)
-        if source.name == "alpaca_sip" and source.status == "unknown":
-            self._last_refresh_results[source.name] = source
-            return source
+        if source.name == "alpaca_sip":
+            # Re-read manifests on every manual refresh so a previously cached
+            # unknown status can move to ok/error after sync artifacts appear.
+            source = self._get_source_by_name(source.name)
+            if source.status == "unknown":
+                self._last_refresh_results[source.name] = source
+                return source
 
         now = datetime.now(UTC)
         refreshed = source.model_copy(deep=True)
