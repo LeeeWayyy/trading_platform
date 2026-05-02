@@ -217,6 +217,12 @@ def form_state_to_json(
         symbols = [s.strip().upper() for s in universe_csv.split(",") if s.strip()]
         if symbols:
             extra["universe"] = symbols
+            if provider_value == "auto":
+                role_config = extra.get("data")
+                if not isinstance(role_config, dict):
+                    role_config = {}
+                role_config.setdefault("requires_pit_universe", False)
+                extra["data"] = role_config
 
     if cost_config is not None:
         extra["cost_model"] = cost_config

@@ -343,16 +343,23 @@ class DataSourceStatusService:
         if not manifests:
             return spec
 
+        present_datasets = {manifest.dataset for manifest in manifests}
+        missing_datasets = sorted(set(_ALPACA_SIP_MANIFEST_DATASETS) - present_datasets)
         latest = max(manifest.sync_timestamp for manifest in manifests)
         now = datetime.now(UTC)
         age_seconds = max(0.0, (now - latest).total_seconds())
         validation_statuses = {manifest.validation_status for manifest in manifests}
-        status = "ok" if validation_statuses == {"passed"} else "error"
-        error_message = (
-            None
-            if status == "ok"
-            else f"SIP manifest validation statuses: {', '.join(sorted(validation_statuses))}"
-        )
+        if missing_datasets:
+            status = "error"
+            error_message = f"Missing SIP manifests: {', '.join(missing_datasets)}"
+        elif validation_statuses == {"passed"}:
+            status = "ok"
+            error_message = None
+        else:
+            status = "error"
+            error_message = (
+                f"SIP manifest validation statuses: {', '.join(sorted(validation_statuses))}"
+            )
 
         updated = dict(spec)
         updated["status"] = status

@@ -1449,6 +1449,7 @@ async def test_submit_job_auto_provider_keeps_explicit_universe(
     assert len(captured_configs) == 1
     assert captured_configs[0].provider.value == "auto"
     assert captured_configs[0].extra_params["universe"] == ["AAPL", "MSFT"]
+    assert captured_configs[0].extra_params["data"] == {"requires_pit_universe": False}
     assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
 
 

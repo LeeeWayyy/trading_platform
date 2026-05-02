@@ -268,6 +268,21 @@ class TestFormJsonRoundTrip:
         assert data["provider"] == "alpaca_sip"
         assert data["extra_params"]["universe"] == ["AAPL", "MSFT"]
 
+    def test_roundtrip_with_auto_universe_adds_non_pit_role_config(self) -> None:
+        json_str = form_state_to_json(
+            alpha_name="alpha1",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            weight_method="rank",
+            provider_display_label="Auto (role-resolved)",
+            universe_csv="AAPL, MSFT",
+            cost_config=None,
+        )
+        data = json.loads(json_str)
+        assert data["provider"] == "auto"
+        assert data["extra_params"]["universe"] == ["AAPL", "MSFT"]
+        assert data["extra_params"]["data"] == {"requires_pit_universe": False}
+
     def test_roundtrip_with_hybrid(self) -> None:
         json_str = form_state_to_json(
             alpha_name="alpha1",

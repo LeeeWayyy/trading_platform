@@ -1002,6 +1002,12 @@ async def _render_new_backtest_form(
             )
             if universe:
                 job_config.extra_params["universe"] = universe
+                if data_provider == DataProvider.AUTO:
+                    role_config = job_config.extra_params.get("data")
+                    if not isinstance(role_config, dict):
+                        role_config = {}
+                    role_config.setdefault("requires_pit_universe", False)
+                    job_config.extra_params["data"] = role_config
 
             # Add cost model configuration if enabled (T9.2)
             cost_config = build_cost_config(data_provider)
