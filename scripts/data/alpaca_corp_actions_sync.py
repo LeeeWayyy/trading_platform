@@ -73,14 +73,14 @@ def _run_full_sync(args: argparse.Namespace) -> int:
     if not symbols and not ids:
         raise ValueError("Provide --symbols or --ids to bound the corporate-actions sync")
 
-    manager = _manager(storage_path=args.storage_path, limit=args.limit)
-    manifest = manager.full_sync(
-        start_date=args.start_date,
-        end_date=args.end_date,
-        symbols=symbols,
-        ca_types=ca_types,
-        ids=ids,
-    )
+    with _manager(storage_path=args.storage_path, limit=args.limit) as manager:
+        manifest = manager.full_sync(
+            start_date=args.start_date,
+            end_date=args.end_date,
+            symbols=symbols,
+            ca_types=ca_types,
+            ids=ids,
+        )
     print(
         f"Corporate actions sync complete: {manifest.row_count:,} rows across "
         f"{len(manifest.file_paths)} file(s)"
@@ -124,8 +124,8 @@ def _run_verify(args: argparse.Namespace) -> int:
 
 
 def _run_round_trip(args: argparse.Namespace) -> int:
-    manager = _manager(storage_path=args.storage_path, limit=args.limit)
-    report = manager.run_round_trip_checks()
+    with _manager(storage_path=args.storage_path, limit=args.limit) as manager:
+        report = manager.run_round_trip_checks()
     payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
     if args.output is None:
         print(payload)

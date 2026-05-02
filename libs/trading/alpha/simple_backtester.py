@@ -232,7 +232,11 @@ class SimpleBacktester:
         return_price_col = pl.col("_return_price")
         previous_return_price = return_price_col.shift(1).over("symbol")
         df = df.with_columns(
-            pl.when(return_price_col.is_not_null() & previous_return_price.is_not_null())
+            pl.when(
+                return_price_col.is_not_null()
+                & previous_return_price.is_not_null()
+                & (previous_return_price != 0)
+            )
             .then((return_price_col / previous_return_price) - 1.0)
             .otherwise(None)
             .alias("calculated_ret")

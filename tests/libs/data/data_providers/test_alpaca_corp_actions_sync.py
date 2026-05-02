@@ -5,11 +5,13 @@ from __future__ import annotations
 import datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import polars as pl
 import pytest
 
 from libs.data.data_providers.alpaca_corp_actions_sync import (
+    AlpacaCorporateActionsRestClient,
     AlpacaCorporateActionsSyncManager,
     CorporateActionRoundTripCheck,
 )
@@ -30,6 +32,44 @@ class FakeCorporateActionsClient:
         if not self.responses:
             return {"corporate_actions": []}
         return self.responses.pop(0)
+
+
+def test_rest_client_reuses_single_http_client_for_pages() -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"corporate_actions": []}
+
+    class FakeHTTPClient:
+        def __init__(self) -> None:
+            self.get_calls: list[tuple[str, dict[str, str | int]]] = []
+            self.closed = False
+
+        def get(self, path: str, params: dict[str, str | int]) -> FakeResponse:
+            self.get_calls.append((path, dict(params)))
+            return FakeResponse()
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_http_client = FakeHTTPClient()
+    with patch(
+        "libs.data.data_providers.alpaca_corp_actions_sync.httpx.Client",
+        return_value=fake_http_client,
+    ) as client_factory:
+        client = AlpacaCorporateActionsRestClient(api_key="key", secret_key="secret")
+        client.get_corporate_actions({"limit": 1})
+        client.get_corporate_actions({"limit": 2})
+        client.close()
+
+    assert client_factory.call_count == 1
+    assert fake_http_client.get_calls == [
+        ("/v1/corporate-actions", {"limit": 1}),
+        ("/v1/corporate-actions", {"limit": 2}),
+    ]
+    assert fake_http_client.closed is True
 
 
 @pytest.fixture()
@@ -439,6 +479,103 @@ def test_full_sync_ignores_wrapper_scalars_when_flattening_items(
     df = pl.read_parquet(manifest.file_paths[0])
     assert df["id"].to_list() == ["ca-div-1"]
     assert df["ca_type"].to_list() == ["cash_dividends"]
+
+
+def test_full_sync_ignores_unexpected_grouped_scalars(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": {
+                    "cash_dividends": {
+                        "page": 1,
+                        "metadata": {"count": 1},
+                        "AAPL": [
+                            {
+                                "id": "ca-div-1",
+                                "symbol": "AAPL",
+                                "process_date": "2024-02-15",
+                                "rate": 0.24,
+                            }
+                        ],
+                    }
+                }
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df["id"].to_list() == ["ca-div-1"]
+    assert df["ca_type"].to_list() == ["cash_dividends"]
+
+
+def test_full_sync_deduplicates_present_ids_and_preserves_missing_ids(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": [
+                    {
+                        "id": "ca-1",
+                        "symbol": "AAPL",
+                        "process_date": "2024-02-01",
+                        "cash": 0.1,
+                    },
+                    {
+                        "symbol": "MSFT",
+                        "process_date": "2024-02-01",
+                        "cash": 0.2,
+                    },
+                    {
+                        "id": "ca-1",
+                        "symbol": "AAPL",
+                        "process_date": "2024-02-02",
+                        "cash": 0.3,
+                    },
+                    {
+                        "symbol": "MSFT",
+                        "process_date": "2024-02-02",
+                        "cash": 0.4,
+                    },
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL", "MSFT"],
+    )
+
+    df = pl.read_parquet(manifest.file_paths[0])
+    assert df.height == 3
+    assert df["id"].null_count() == 2
+    row_with_id = df.filter(pl.col("id") == "ca-1")
+    assert row_with_id["process_date"].to_list() == [datetime.date(2024, 2, 2)]
+    assert row_with_id["cash"].to_list() == [0.3]
 
 
 def test_full_sync_blocks_on_critical_disk_before_fetch(

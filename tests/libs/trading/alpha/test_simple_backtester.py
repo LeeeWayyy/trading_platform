@@ -205,6 +205,41 @@ class TestDataPreparation:
         assert returns[2] == pytest.approx(0.1)
         assert result["prc"].to_list() == [100.0, 110.0, 121.0]
 
+    def test_prepare_data_zero_previous_price_does_not_emit_infinite_return(self, mock_fetcher):
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 0.0,
+                    "high": 0.0,
+                    "low": 0.0,
+                    "close": 0.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 10.0,
+                    "high": 10.0,
+                    "low": 10.0,
+                    "close": 10.0,
+                    "adj_close": None,
+                    "volume": 1000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        result = backtester._prepare_data(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 2),
+            symbols=["AAPL"],
+        ).sort("date")
+
+        assert result["ret"].to_list() == [None, None]
+
     def test_prepare_data_does_not_mix_partial_adjusted_close_with_raw_close(self, mock_fetcher):
         """Test partially adjusted non-SIP data does not compute mixed-series returns."""
         mock_fetcher.get_daily_prices.return_value = pl.DataFrame(

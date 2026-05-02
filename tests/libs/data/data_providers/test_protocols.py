@@ -278,6 +278,27 @@ class TestAlpacaSIPSchemaNormalization:
 
         assert df["ret"].to_list() == [None, None, None]
 
+    def test_zero_previous_adjusted_close_does_not_emit_infinite_return(self) -> None:
+        provider = MagicMock()
+        provider.get_daily_prices.return_value = pl.DataFrame(
+            {
+                "date": [date(2024, 1, 2), date(2024, 1, 3)],
+                "symbol": ["aapl", "aapl"],
+                "open": [0.0, 10.0],
+                "high": [0.0, 10.0],
+                "low": [0.0, 10.0],
+                "close": [0.0, 10.0],
+                "volume": [50000000.0, 48000000.0],
+                "adj_close": [0.0, 10.0],
+                "ret": [None, None],
+            }
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2024, 1, 2), date(2024, 1, 3))
+
+        assert df["ret"].to_list() == [None, None]
+
 
 class TestSchemaConsistency:
     """Test schema consistency between adapters."""

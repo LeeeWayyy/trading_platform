@@ -559,7 +559,11 @@ class AlpacaSIPDataProviderAdapter:
         df = (
             df.sort(["symbol", "date"])
             .with_columns(
-                pl.when(adjusted_close.is_not_null() & previous_adjusted_close.is_not_null())
+                pl.when(
+                    adjusted_close.is_not_null()
+                    & previous_adjusted_close.is_not_null()
+                    & (previous_adjusted_close != 0)
+                )
                 .then((adjusted_close / previous_adjusted_close) - 1.0)
                 .otherwise(None)
                 .alias("__adjusted_ret")

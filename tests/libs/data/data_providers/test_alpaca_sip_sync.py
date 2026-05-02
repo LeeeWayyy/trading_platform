@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -40,8 +41,9 @@ class FakeBar:
 class FakeResponse:
     """Minimal BarSet response double."""
 
-    def __init__(self, data: dict[str, list[Any]]) -> None:
+    def __init__(self, data: dict[str, list[Any]], next_page_token: str | None = None) -> None:
         self.data = data
+        self.next_page_token = next_page_token
 
 
 class FakeAlpacaClient:
@@ -356,6 +358,67 @@ def test_sync_year_accepts_raw_dict_response_and_deduplicates(
     assert partition.row_count == 1
     assert df["close"].to_list() == [101.0]
     assert df["volume"].to_list() == [1100.0]
+
+
+def test_sync_year_partition_fetches_paginated_bar_responses(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    class PagedSyncManager(AlpacaSIPSyncManager):
+        def __init__(self) -> None:
+            super().__init__(
+                client=FakeAlpacaClient([]),
+                storage_path=sync_paths["storage"],
+                manifest_manager=manifest_manager,
+                data_root=sync_paths["data_root"],
+            )
+            self.page_tokens: list[str | None] = []
+
+        def _fetch_bars(
+            self,
+            symbols: Sequence[str],
+            year: int,
+            *,
+            page_token: str | None = None,
+        ) -> FakeResponse:
+            assert list(symbols) == ["AAPL"]
+            assert year == 2024
+            self.page_tokens.append(page_token)
+            if page_token is None:
+                return FakeResponse(
+                    {
+                        "AAPL": [
+                            FakeBar(
+                                symbol="AAPL",
+                                timestamp=datetime.datetime(2024, 1, 3, tzinfo=datetime.UTC),
+                                close=100.0,
+                            )
+                        ]
+                    },
+                    next_page_token="page-2",
+                )
+            assert page_token == "page-2"
+            return FakeResponse(
+                {
+                    "AAPL": [
+                        FakeBar(
+                            symbol="AAPL",
+                            timestamp=datetime.datetime(2024, 1, 4, tzinfo=datetime.UTC),
+                            close=101.0,
+                        )
+                    ]
+                }
+            )
+
+    manager = PagedSyncManager()
+
+    partition = manager.sync_year_partition(["AAPL"], 2024)
+
+    df = pl.read_parquet(partition.path)
+    assert manager.page_tokens == [None, "page-2"]
+    assert partition.row_count == 2
+    assert df["date"].to_list() == [datetime.date(2024, 1, 3), datetime.date(2024, 1, 4)]
+    assert df["close"].to_list() == [100.0, 101.0]
 
 
 def test_full_sync_rejects_empty_symbols(

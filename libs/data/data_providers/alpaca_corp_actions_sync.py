@@ -194,23 +194,38 @@ class AlpacaCorporateActionsRestClient:
             "APCA-API-KEY-ID": api_key,
             "APCA-API-SECRET-KEY": secret_key,
         }
-
-    def get_corporate_actions(self, params: Mapping[str, str | int]) -> Mapping[str, Any]:
-        """Fetch one REST page and return decoded JSON."""
-        with httpx.Client(
+        self._client = httpx.Client(
             base_url=self.base_url,
             headers=self.headers,
             timeout=self.timeout_seconds,
-        ) as client:
-            response = client.get(self.ENDPOINT_PATH, params=dict(params))
-            response.raise_for_status()
-            payload = response.json()
+        )
+
+    def get_corporate_actions(self, params: Mapping[str, str | int]) -> Mapping[str, Any]:
+        """Fetch one REST page and return decoded JSON."""
+        response = self._client.get(self.ENDPOINT_PATH, params=dict(params))
+        response.raise_for_status()
+        payload = response.json()
 
         if not isinstance(payload, dict):
             raise ValueError(
                 f"Unexpected Alpaca corporate actions payload: {type(payload).__name__}"
             )
         return cast(Mapping[str, Any], payload)
+
+    def close(self) -> None:
+        """Close the underlying HTTP connection pool."""
+        self._client.close()
+
+    def __enter__(self) -> AlpacaCorporateActionsRestClient:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        self.close()
 
 
 class AlpacaCorporateActionsSyncManager:
@@ -248,6 +263,23 @@ class AlpacaCorporateActionsSyncManager:
             )
 
         self.storage_path.mkdir(parents=True, exist_ok=True)
+
+    def close(self) -> None:
+        """Close any resources held by the configured client."""
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self) -> AlpacaCorporateActionsSyncManager:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        self.close()
 
     @classmethod
     def from_env(
@@ -517,7 +549,7 @@ class AlpacaCorporateActionsSyncManager:
                 )
             return
 
-        candidates.append(value)
+        return
 
     @staticmethod
     def _next_page_token(payload: Mapping[str, Any]) -> str | None:
@@ -582,8 +614,11 @@ class AlpacaCorporateActionsSyncManager:
         df = pl.DataFrame(rows, schema=ALPACA_CORP_ACTIONS_SCHEMA).with_columns(
             pl.col("symbol").str.to_uppercase()
         )
-        if df["id"].null_count() == 0:
-            df = df.unique(subset=["id"], keep="last", maintain_order=True)
+        df_with_id = df.filter(pl.col("id").is_not_null())
+        df_without_id = df.filter(pl.col("id").is_null())
+        if not df_with_id.is_empty():
+            df_with_id = df_with_id.unique(subset=["id"], keep="last", maintain_order=True)
+        df = pl.concat([df_with_id, df_without_id], how="vertical")
         return df.sort(["process_date", "symbol", "id"], nulls_last=True).select(
             list(ALPACA_CORP_ACTIONS_COLUMNS)
         )

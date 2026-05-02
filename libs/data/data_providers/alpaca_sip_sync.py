@@ -13,7 +13,7 @@ import hashlib
 import logging
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -352,8 +352,13 @@ class AlpacaSIPSyncManager:
         self._check_disk_space(estimated_rows=max(1, len(normalized_symbols) * 252))
         rows: list[dict[str, Any]] = []
         for chunk in self._chunks(normalized_symbols, self.request_chunk_size):
-            response = self._fetch_bars(chunk, year)
-            rows.extend(self._rows_from_response(response))
+            page_token: str | None = None
+            while True:
+                response = self._fetch_bars(chunk, year, page_token=page_token)
+                rows.extend(self._rows_from_response(response))
+                page_token = self._next_page_token_from_response(response)
+                if page_token is None:
+                    break
             if self.request_interval_seconds > 0:
                 time.sleep(self.request_interval_seconds)
 
@@ -426,23 +431,59 @@ class AlpacaSIPSyncManager:
 
         return errors
 
-    def _fetch_bars(self, symbols: Sequence[str], year: int) -> Any:
+    def _fetch_bars(
+        self,
+        symbols: Sequence[str],
+        year: int,
+        *,
+        page_token: str | None = None,
+    ) -> Any:
         """Fetch daily bars for one symbol chunk and year."""
         if not ALPACA_AVAILABLE:
             raise ImportError("alpaca-py package is required for Alpaca SIP sync")
 
         start = datetime.datetime(year, 1, 1, tzinfo=datetime.UTC)
         end = datetime.datetime(year, 12, 31, 23, 59, 59, tzinfo=datetime.UTC)
-        request = cast(Any, StockBarsRequest)(
-            symbol_or_symbols=list(symbols),
-            timeframe=cast(Any, TimeFrame).Day,
-            start=start,
-            end=end,
-            sort=cast(Any, Sort).ASC,
-            adjustment=cast(Any, Adjustment)(self.adjustment),
-            feed=cast(Any, DataFeed)(self.feed),
-        )
+        request_fields: dict[str, Any] = {
+            "symbol_or_symbols": list(symbols),
+            "timeframe": cast(Any, TimeFrame).Day,
+            "start": start,
+            "end": end,
+            "sort": cast(Any, Sort).ASC,
+            "adjustment": cast(Any, Adjustment)(self.adjustment),
+            "feed": cast(Any, DataFeed)(self.feed),
+        }
+        if page_token is not None:
+            if not self._stock_bars_request_supports_page_token():
+                raise RuntimeError(
+                    "Alpaca bars response returned next_page_token, but the installed "
+                    "alpaca-py StockBarsRequest cannot carry page_token. This SDK "
+                    "version normally paginates inside get_stock_bars(); refusing to "
+                    "silently truncate the SIP partition."
+                )
+            request_fields["page_token"] = page_token
+
+        request = cast(Any, StockBarsRequest)(**request_fields)
         return self.client.get_stock_bars(request)
+
+    @staticmethod
+    def _stock_bars_request_supports_page_token() -> bool:
+        """Return whether the installed alpaca-py request model accepts page tokens."""
+        for field_attr in ("model_fields", "__fields__"):
+            fields = getattr(cast(Any, StockBarsRequest), field_attr, None)
+            if isinstance(fields, Mapping) and "page_token" in fields:
+                return True
+        return False
+
+    @staticmethod
+    def _next_page_token_from_response(response: Any) -> str | None:
+        token = getattr(response, "next_page_token", None)
+        if token is None and isinstance(response, Mapping):
+            token = response.get("next_page_token")
+        if token is None:
+            return None
+        token_text = str(token).strip()
+        return token_text or None
 
     def _rows_from_response(self, response: Any) -> list[dict[str, Any]]:
         """Normalize SDK response shapes into row dictionaries."""
