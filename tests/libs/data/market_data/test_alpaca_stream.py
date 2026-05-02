@@ -176,20 +176,41 @@ class TestAlpacaMarketDataStreamInitialization:
         assert isinstance(stream.stream, _FakeStockDataStream)
         assert stream.stream.feed is DataFeed.SIP
 
-    def test_initialization_rejects_unsupported_live_feed(
+    @pytest.mark.parametrize("configured_feed", ["otc", "boats"])
+    def test_initialization_falls_back_for_rest_only_feeds(
+        self,
+        fake_stream_cls: type[_FakeStockDataStream],
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+        configured_feed: str,
+    ) -> None:
+        """REST-only configured feeds should not prevent stream startup."""
+        stream = alpaca_stream.AlpacaMarketDataStream(
+            api_key="test_key",
+            secret_key="test_secret",
+            redis_client=redis_client,
+            event_publisher=event_publisher,
+            data_feed=configured_feed,
+        )
+
+        assert stream.data_feed == "iex"
+        assert isinstance(stream.stream, _FakeStockDataStream)
+        assert stream.stream.feed is DataFeed.IEX
+
+    def test_initialization_rejects_unknown_feed(
         self,
         fake_stream_cls: type[_FakeStockDataStream],
         redis_client: MagicMock,
         event_publisher: MagicMock,
     ) -> None:
-        """Test unsupported live stream feeds fail fast."""
+        """Unknown configured feeds still fail fast."""
         with pytest.raises(ValueError, match="Unsupported Alpaca live data feed"):
             alpaca_stream.AlpacaMarketDataStream(
                 api_key="test_key",
                 secret_key="test_secret",
                 redis_client=redis_client,
                 event_publisher=event_publisher,
-                data_feed="boats",
+                data_feed="invalid",
             )
 
     def test_subscription_sources_initialized_empty(

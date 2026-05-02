@@ -24,6 +24,9 @@ from libs.data.market_data.types import PriceData, PriceUpdateEvent, QuoteData
 
 logger = logging.getLogger(__name__)
 
+_CONFIGURED_ALPACA_DATA_FEEDS = ("iex", "sip", "otc", "boats")
+_REST_ONLY_STOCK_FEEDS = {"otc", "boats"}
+
 
 def _normalize_crossed_quote_prices(
     symbol: str,
@@ -96,7 +99,10 @@ class AlpacaMarketDataStream:
                 received WebSocket message. Must declare a ``message_type`` label.
             reconnect_attempts_counter: Optional Prometheus Counter incremented once
                 per WebSocket reconnection attempt (no labels).
-            data_feed: Alpaca live stock data feed, currently ``iex`` or ``sip``.
+            data_feed: Configured Alpaca stock data feed. Live WebSocket streams
+                use ``iex``/``sip`` directly; REST-only feeds fall back to IEX
+                for stream startup so REST feed selection does not break the
+                market-data service.
         """
         self.api_key = api_key
         self.secret_key = secret_key
@@ -132,32 +138,49 @@ class AlpacaMarketDataStream:
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
 
-        logger.info("AlpacaMarketDataStream initialized", extra={"data_feed": self.data_feed})
+        logger.info(
+            "AlpacaMarketDataStream initialized",
+            extra={"data_feed": self.data_feed, "configured_data_feed": data_feed},
+        )
 
     @staticmethod
     def _resolve_data_feed(data_feed: str) -> DataFeed:
         """Resolve and validate the Alpaca live stock feed.
 
-        Alpaca-py live stock streams support IEX and SIP. Fail fast for other
-        configured feeds so the service does not silently stream IEX while REST
-        calls use a different feed.
+        Alpaca-py live stock streams support IEX and SIP in all supported SDK
+        versions. Keep service startup compatible with REST-only configured
+        feeds by falling back to IEX for the WebSocket layer while preserving
+        the configured feed for REST clients.
         """
         normalized_feed = (data_feed or "").strip().lower() or DataFeed.IEX.value
+        if normalized_feed in _REST_ONLY_STOCK_FEEDS:
+            logger.warning(
+                "alpaca_live_feed_fallback",
+                extra={
+                    "configured_data_feed": normalized_feed,
+                    "stream_data_feed": DataFeed.IEX.value,
+                },
+            )
+            return DataFeed.IEX
+
         try:
             resolved_feed = DataFeed(normalized_feed)
         except ValueError as exc:
-            supported = ", ".join(feed.value for feed in (DataFeed.IEX, DataFeed.SIP))
+            supported = ", ".join(_CONFIGURED_ALPACA_DATA_FEEDS)
             raise ValueError(
                 f"Unsupported Alpaca live data feed '{normalized_feed}'. "
-                f"Supported live feeds: {supported}."
+                f"Supported configured feeds: {supported}."
             ) from exc
 
         if resolved_feed not in {DataFeed.IEX, DataFeed.SIP}:
-            supported = ", ".join(feed.value for feed in (DataFeed.IEX, DataFeed.SIP))
-            raise ValueError(
-                f"Unsupported Alpaca live data feed '{resolved_feed.value}'. "
-                f"Supported live feeds: {supported}."
+            logger.warning(
+                "alpaca_live_feed_fallback",
+                extra={
+                    "configured_data_feed": resolved_feed.value,
+                    "stream_data_feed": DataFeed.IEX.value,
+                },
             )
+            return DataFeed.IEX
 
         return resolved_feed
 

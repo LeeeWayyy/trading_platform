@@ -40,6 +40,7 @@ from libs.platform.web_console_auth.permissions import Permission, has_permissio
 logger = logging.getLogger(__name__)
 
 AsyncPage = Callable[..., Awaitable[Any]]
+_INITIAL_GLOBAL_SAFETY_TIMEOUT_SECONDS = 0.75
 
 
 def main_layout(page_func: AsyncPage) -> AsyncPage:
@@ -169,40 +170,48 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             return normalized or None
 
         async def fetch_initial_global_safety_state() -> tuple[str | None, str | None]:
-            """Fetch safety state before first paint so cached stale badges do not stick."""
-            kill_state: str | None = None
-            circuit_state: str | None = None
-            try:
-                status = await asyncio.wait_for(
-                    client.fetch_kill_switch_status(
-                        user_id,
-                        role=user_role,
-                        strategies=user_strategies,
-                    ),
-                    timeout=2.0,
-                )
-                kill_state = normalize_kill_switch_display_state(status.get("state"))
-            except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-                logger.debug(
-                    "initial_kill_switch_status_fetch_failed",
-                    extra={"user_id": user_id, "error": type(exc).__name__},
-                )
+            """Fetch safety state briefly before first paint; background polling reconciles misses."""
 
-            try:
-                cb_status = await asyncio.wait_for(
-                    client.fetch_circuit_breaker_status(
-                        user_id,
-                        role=user_role,
-                        strategies=user_strategies,
-                    ),
-                    timeout=2.0,
-                )
-                circuit_state = normalize_circuit_display_state(cb_status.get("state"))
-            except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-                logger.debug(
-                    "initial_circuit_breaker_status_fetch_failed",
-                    extra={"user_id": user_id, "error": type(exc).__name__},
-                )
+            async def fetch_kill_state() -> str | None:
+                try:
+                    status = await asyncio.wait_for(
+                        client.fetch_kill_switch_status(
+                            user_id,
+                            role=user_role,
+                            strategies=user_strategies,
+                        ),
+                        timeout=_INITIAL_GLOBAL_SAFETY_TIMEOUT_SECONDS,
+                    )
+                    return normalize_kill_switch_display_state(status.get("state"))
+                except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                    logger.debug(
+                        "initial_kill_switch_status_fetch_failed",
+                        extra={"user_id": user_id, "error": type(exc).__name__},
+                    )
+                    return None
+
+            async def fetch_circuit_state() -> str | None:
+                try:
+                    cb_status = await asyncio.wait_for(
+                        client.fetch_circuit_breaker_status(
+                            user_id,
+                            role=user_role,
+                            strategies=user_strategies,
+                        ),
+                        timeout=_INITIAL_GLOBAL_SAFETY_TIMEOUT_SECONDS,
+                    )
+                    return normalize_circuit_display_state(cb_status.get("state"))
+                except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                    logger.debug(
+                        "initial_circuit_breaker_status_fetch_failed",
+                        extra={"user_id": user_id, "error": type(exc).__name__},
+                    )
+                    return None
+
+            kill_state, circuit_state = await asyncio.gather(
+                fetch_kill_state(),
+                fetch_circuit_state(),
+            )
             return kill_state, circuit_state
 
         initial_kill_switch_state, initial_circuit_state = await fetch_initial_global_safety_state()
