@@ -1,4 +1,13 @@
-.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify sync-alpaca-sip-estimate sync-alpaca-sip-integrity sync-alpaca-corp-actions sync-alpaca-corp-actions-status sync-alpaca-corp-actions-verify sync-alpaca-corp-actions-roundtrip alpaca-feed-delta clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs \
+	fmt fmt-check lint check-doc-freshness check-architecture \
+	test test-cov test-watch ui-crawl ui-deep \
+	sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify \
+	sync-alpaca-sip-estimate sync-alpaca-sip-integrity \
+	sync-alpaca-corp-actions sync-alpaca-corp-actions-status \
+	sync-alpaca-corp-actions-verify sync-alpaca-corp-actions-roundtrip \
+	alpaca-feed-delta \
+	clean clean-cache clean-all install requirements install-hooks \
+	ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -194,6 +194,25 @@ def _alpaca_sip_dataset_version_ids(manifest: SyncManifest) -> dict[str, str]:
     }
 
 
+def _hybrid_sip_dataset_version_ids(
+    manifest: SyncManifest,
+    *,
+    explicit_universe: bool,
+    universe_as_of_date: date,
+) -> dict[str, str]:
+    """Build provenance metadata for hybrid CRSP-universe/SIP-price jobs."""
+    version_ids = {
+        **_alpaca_sip_dataset_version_ids(manifest),
+        "hybrid_price_provider": "alpaca_sip",
+    }
+    if explicit_universe:
+        version_ids["hybrid_universe_provider"] = "explicit_symbols"
+    else:
+        version_ids["hybrid_universe_provider"] = "crsp"
+        version_ids["hybrid_universe_as_of_date"] = universe_as_of_date.isoformat()
+    return version_ids
+
+
 def _legacy_provider_roles(provider: DataProvider, *, explicit_universe: bool) -> dict[str, str]:
     """Map legacy provider field to role-based provenance metadata."""
     if provider == DataProvider.CRSP:
@@ -888,12 +907,11 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     )
                     manifest_manager = ManifestManager(data_root=data_root)
                     alpaca_manifest = _load_alpaca_sip_manifest(manifest_manager)
-                    simple_dataset_version_ids = {
-                        **_alpaca_sip_dataset_version_ids(alpaca_manifest),
-                        "hybrid_universe_provider": "crsp",
-                        "hybrid_price_provider": "alpaca_sip",
-                        "hybrid_universe_as_of_date": job_config.start_date.isoformat(),
-                    }
+                    simple_dataset_version_ids = _hybrid_sip_dataset_version_ids(
+                        alpaca_manifest,
+                        explicit_universe=signature_explicit_universe,
+                        universe_as_of_date=job_config.start_date,
+                    )
                     crsp_storage = data_root / "wrds" / "crsp" / "daily"
                     crsp_provider = CRSPLocalProvider(
                         crsp_storage,

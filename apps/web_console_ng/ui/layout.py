@@ -632,17 +632,18 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                 )
-            elif cached_kill_display == "DISENGAGED" and not cached_status_stale:
-                kill_switch_button.classes(
-                    "bg-slate-700 text-slate-100",
-                    remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
-                )
             elif cached_kill_display == "DISENGAGED":
-                kill_switch_button.classes(
-                    "bg-amber-500 text-black",
-                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                )
-            else:
+                if cached_status_stale:
+                    kill_switch_button.classes(
+                        "bg-amber-500 text-black",
+                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
+                    )
+                else:
+                    kill_switch_button.classes(
+                        "bg-slate-700 text-slate-100",
+                        remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
+                    )
+            else:  # UNKNOWN
                 kill_switch_button.classes(
                     "bg-amber-500 text-black",
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",

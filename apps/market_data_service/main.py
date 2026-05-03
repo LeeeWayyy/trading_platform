@@ -379,23 +379,19 @@ async def health_check() -> HealthResponse:
 
     stats = stream.get_connection_stats()
     is_connected = bool(stats["is_connected"])
-    subscribed_symbols = int(stats["subscribed_symbols"])
-    reconnect_attempts = int(stats["reconnect_attempts"])
-    max_reconnect_attempts = int(stats["max_reconnect_attempts"])
-    data_feed = str(stats["data_feed"])
 
     # Update health metrics
     websocket_connection_status.set(1 if is_connected else 0)
-    subscribed_symbols_current.set(subscribed_symbols)
+    subscribed_symbols_current.set(int(stats["subscribed_symbols"]))
 
     return HealthResponse(
         status="healthy" if is_connected else "degraded",
         service=settings.service_name,
         websocket_connected=is_connected,
-        subscribed_symbols=subscribed_symbols,
-        reconnect_attempts=reconnect_attempts,
-        max_reconnect_attempts=max_reconnect_attempts,
-        data_feed=data_feed,
+        subscribed_symbols=int(stats["subscribed_symbols"]),
+        reconnect_attempts=int(stats["reconnect_attempts"]),
+        max_reconnect_attempts=int(stats["max_reconnect_attempts"]),
+        data_feed=str(stats["data_feed"]),
     )
 
 

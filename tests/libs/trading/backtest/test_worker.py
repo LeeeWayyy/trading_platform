@@ -3428,8 +3428,8 @@ class TestYFinanceEdgeCases:
             )
 
     @pytest.mark.unit()
-    def test_hybrid_uses_crsp_universe_when_universe_omitted(self, monkeypatch, tmp_path):
-        """Test hybrid jobs use CRSP universe and Alpaca SIP prices when no universe is provided."""
+    def test_hybrid_records_universe_provenance(self, monkeypatch, tmp_path):
+        """Test hybrid jobs distinguish CRSP and explicit-symbol universe provenance."""
         monkeypatch.setenv("DATABASE_URL", "postgres://test")
         monkeypatch.setenv("ENVIRONMENT", "development")
         monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
@@ -3557,6 +3557,30 @@ class TestYFinanceEdgeCases:
         assert captured_alpaca_closed == [True]
         assert captured_dataset_version_ids[0]["hybrid_universe_provider"] == "crsp"
         assert captured_dataset_version_ids[0]["hybrid_price_provider"] == "alpaca_sip"
+        assert captured_dataset_version_ids[0]["hybrid_universe_as_of_date"] == "2024-01-01"
+
+        captured_dataset_version_ids.clear()
+        captured_universe.clear()
+        captured_universe_dates.clear()
+        captured_alpaca_closed.clear()
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "hybrid_crsp_universe_sip_prices",
+                "extra_params": {"universe": ["tsla", "MSFT"]},
+            },
+            created_by="test_user",
+        )
+
+        assert captured_universe_dates == []
+        assert captured_universe == ["TSLA", "MSFT"]
+        assert captured_alpaca_closed == [True]
+        assert captured_dataset_version_ids[0]["hybrid_universe_provider"] == "explicit_symbols"
+        assert captured_dataset_version_ids[0]["hybrid_price_provider"] == "alpaca_sip"
+        assert "hybrid_universe_as_of_date" not in captured_dataset_version_ids[0]
 
     @pytest.mark.unit()
     def test_hybrid_rejects_start_date_before_sip_lookback_boundary(self):
