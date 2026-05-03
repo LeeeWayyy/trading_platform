@@ -374,30 +374,31 @@ class AlpacaCorporateActionsSyncManager:
         sync_id = self._build_sync_id(base_params)
         output_path = self.storage_path / "snapshots" / sync_id / "corporate_actions.parquet"
 
-        with self.manifest_manager.acquire_lock(
-            self.DATASET_NAME,
-            writer_id=f"alpaca-corp-actions-sync:{os.getpid()}",
-            timeout_seconds=60.0,
-        ) as lock_token:
-            self._check_disk_space(
-                estimated_rows=self._estimate_pre_fetch_rows(
-                    start_date=start_date,
-                    end_date=end_date,
-                    symbols=normalized_symbols,
-                    ca_types=normalized_types,
-                    ids=normalized_ids,
-                )
-            )
-            actions = self._fetch_actions(
+        self._check_disk_space(
+            estimated_rows=self._estimate_pre_fetch_rows(
                 start_date=start_date,
                 end_date=end_date,
                 symbols=normalized_symbols,
                 ca_types=normalized_types,
                 ids=normalized_ids,
-                base_params=base_params,
             )
+        )
+        actions = self._fetch_actions(
+            start_date=start_date,
+            end_date=end_date,
+            symbols=normalized_symbols,
+            ca_types=normalized_types,
+            ids=normalized_ids,
+            base_params=base_params,
+        )
+        df = self._rows_to_frame([self._row_from_action(action) for action in actions])
+
+        with self.manifest_manager.acquire_lock(
+            self.DATASET_NAME,
+            writer_id=f"alpaca-corp-actions-sync:{os.getpid()}",
+            timeout_seconds=60.0,
+        ) as lock_token:
             self._check_disk_space(estimated_rows=max(1, len(actions)))
-            df = self._rows_to_frame([self._row_from_action(action) for action in actions])
             self._atomic_write_parquet(df, output_path)
             checksum = self._compute_combined_checksum_for_paths([output_path])
             manifest = self._create_manifest(
@@ -876,11 +877,24 @@ class AlpacaCorporateActionsSyncManager:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
-        fd = os.open(path, os.O_RDONLY)
+        fd: int | None = None
         try:
+            fd = os.open(path, os.O_RDONLY)
             os.fsync(fd)
+        except OSError as exc:
+            logger.debug(
+                "Alpaca corporate actions directory fsync skipped",
+                extra={"path": str(path), "error": str(exc)},
+            )
         finally:
-            os.close(fd)
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError as exc:
+                    logger.debug(
+                        "Alpaca corporate actions directory fsync close skipped",
+                        extra={"path": str(path), "error": str(exc)},
+                    )
 
     def _create_manifest(
         self,

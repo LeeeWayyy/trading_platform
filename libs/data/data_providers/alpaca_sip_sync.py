@@ -239,16 +239,15 @@ class AlpacaSIPSyncManager:
         file_paths: list[str] = []
         partition_dates: list[tuple[datetime.date, datetime.date]] = []
         row_count = 0
+        self._check_disk_space(estimated_rows=len(years) * len(normalized_symbols) * 252)
+        year_frames = [(year, self._fetch_year_frame(normalized_symbols, year)) for year in years]
         with self.manifest_manager.acquire_lock(
             self.DATASET_NAME,
             writer_id=f"alpaca-sip-sync:{os.getpid()}",
             timeout_seconds=60.0,
         ) as lock_token:
-            self._check_disk_space(estimated_rows=len(years) * len(normalized_symbols) * 252)
-            for year in years:
-                partition = self.sync_year_partition(
-                    normalized_symbols, year, output_dir=output_dir
-                )
+            for year, df in year_frames:
+                partition = self._write_year_partition(df, year, output_dir=output_dir)
                 file_paths.append(str(partition.path.relative_to(self.data_root)))
                 row_count += partition.row_count
                 if partition.start_date is not None and partition.end_date is not None:
@@ -351,6 +350,13 @@ class AlpacaSIPSyncManager:
         normalized_symbols = self._normalize_symbols(symbols)
         self._validate_year_range(year, year)
         self._check_disk_space(estimated_rows=max(1, len(normalized_symbols) * 252))
+        df = self._fetch_year_frame(normalized_symbols, year)
+        return self._write_year_partition(df, year, output_dir=output_dir)
+
+    def _fetch_year_frame(self, symbols: Sequence[str], year: int) -> pl.DataFrame:
+        """Fetch and normalize one yearly daily-bar partition without writing files."""
+        normalized_symbols = self._normalize_symbols(symbols)
+        self._validate_year_range(year, year)
         rows: list[dict[str, Any]] = []
         for chunk in self._chunks(normalized_symbols, self.request_chunk_size):
             page_token: str | None = None
@@ -370,7 +376,16 @@ class AlpacaSIPSyncManager:
             if self.request_interval_seconds > 0:
                 time.sleep(self.request_interval_seconds)
 
-        df = self._rows_to_frame(rows, year)
+        return self._rows_to_frame(rows, year)
+
+    def _write_year_partition(
+        self,
+        df: pl.DataFrame,
+        year: int,
+        *,
+        output_dir: Path | None = None,
+    ) -> SyncedPartition:
+        """Write one normalized yearly frame to its partition path."""
         partition_dir = (output_dir or self.storage_path).resolve()
         if not partition_dir.is_relative_to(self.storage_path):
             raise ValueError(
@@ -728,11 +743,24 @@ class AlpacaSIPSyncManager:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
-        fd = os.open(path, os.O_RDONLY)
+        fd: int | None = None
         try:
+            fd = os.open(path, os.O_RDONLY)
             os.fsync(fd)
+        except OSError as exc:
+            logger.debug(
+                "Alpaca SIP directory fsync skipped",
+                extra={"path": str(path), "error": str(exc)},
+            )
         finally:
-            os.close(fd)
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError as exc:
+                    logger.debug(
+                        "Alpaca SIP directory fsync close skipped",
+                        extra={"path": str(path), "error": str(exc)},
+                    )
 
     def _create_manifest(
         self,
