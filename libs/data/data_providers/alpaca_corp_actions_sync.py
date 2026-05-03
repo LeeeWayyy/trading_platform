@@ -836,9 +836,7 @@ class AlpacaCorporateActionsSyncManager:
                 try:
                     return datetime.date.fromisoformat(value)
                 except ValueError:
-                    timestamp = datetime.datetime.fromisoformat(
-                        value.replace("Z", "+00:00")
-                    )
+                    timestamp = datetime.datetime.fromisoformat(value)
                     if timestamp.tzinfo is not None:
                         timestamp = timestamp.astimezone(datetime.UTC)
                     return timestamp.date()

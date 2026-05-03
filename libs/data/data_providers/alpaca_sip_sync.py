@@ -15,6 +15,7 @@ import os
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -495,6 +496,7 @@ class AlpacaSIPSyncManager:
         return self.client.get_stock_bars(request)
 
     @staticmethod
+    @lru_cache(maxsize=1)
     def _stock_bars_request_supports_page_token() -> bool:
         """Return whether the installed alpaca-py request model accepts page tokens."""
         for field_attr in ("model_fields", "__fields__"):

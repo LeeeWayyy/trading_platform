@@ -10,7 +10,7 @@ import os
 import re
 import socket
 import time
-from dataclasses import dataclass
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path as _Path
 from typing import Any
@@ -19,6 +19,7 @@ from uuid import uuid4
 import duckdb
 import polars as pl
 import sqlglot
+from pydantic import BaseModel, ConfigDict
 from sqlglot import exp
 
 from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
@@ -43,17 +44,31 @@ _MAX_CONCURRENT_QUERIES = 3
 _QUERY_RATE_LIMIT = 10
 _EXPORT_RATE_LIMIT = 5
 _MAX_CELLS = 1_000_000
+_MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES = 64
 _TablePathSpec = str | tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class _ManifestPathCacheEntry:
+class _ManifestPathCacheEntry(BaseModel, frozen=True):
     mtime_ns: int
     size: int
     path_spec: _TablePathSpec
 
 
-_ALPACA_SIP_MANIFEST_PATH_CACHE: dict[str, _ManifestPathCacheEntry] = {}
+_ALPACA_SIP_MANIFEST_PATH_CACHE: OrderedDict[str, _ManifestPathCacheEntry] = OrderedDict()
+
+
+def _cache_alpaca_sip_manifest_path(
+    cache_key: str,
+    entry: _ManifestPathCacheEntry,
+) -> None:
+    """Store a manifest cache entry while bounding global cache growth."""
+    _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = entry
+    _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
+    while (
+        len(_ALPACA_SIP_MANIFEST_PATH_CACHE)
+        > _MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES
+    ):
+        _ALPACA_SIP_MANIFEST_PATH_CACHE.popitem(last=False)
 
 _KNOWN_ENVS = {"production", "staging", "development", "test", "local"}
 
@@ -188,9 +203,10 @@ class RateLimitExceededError(RuntimeError):
     """Raised when a query/export action exceeds rate limit."""
 
 
-@dataclass(frozen=True)
-class QueryResult:
+class QueryResult(BaseModel, frozen=True):
     """Typed query result envelope for SQL Explorer UI."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     df: pl.DataFrame
     execution_ms: int
@@ -332,6 +348,7 @@ def _resolve_alpaca_sip_snapshot_paths(
                 and cached.mtime_ns == manifest_stat.st_mtime_ns
                 and cached.size == manifest_stat.st_size
             ):
+                _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
                 return cached.path_spec
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             file_paths = manifest.get("file_paths", [])
@@ -372,10 +389,13 @@ def _resolve_alpaca_sip_snapshot_paths(
                     )
 
                 path_spec: _TablePathSpec = tuple(sorted(resolved_paths))
-                _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = _ManifestPathCacheEntry(
-                    mtime_ns=manifest_stat.st_mtime_ns,
-                    size=manifest_stat.st_size,
-                    path_spec=path_spec,
+                _cache_alpaca_sip_manifest_path(
+                    cache_key,
+                    _ManifestPathCacheEntry(
+                        mtime_ns=manifest_stat.st_mtime_ns,
+                        size=manifest_stat.st_size,
+                        path_spec=path_spec,
+                    ),
                 )
                 return path_spec
 
@@ -383,10 +403,13 @@ def _resolve_alpaca_sip_snapshot_paths(
                 "sql_explorer_alpaca_sip_manifest_invalid_file_paths",
                 extra={"manifest_path": str(manifest_path)},
             )
-            _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = _ManifestPathCacheEntry(
-                mtime_ns=manifest_stat.st_mtime_ns,
-                size=manifest_stat.st_size,
-                path_spec=(),
+            _cache_alpaca_sip_manifest_path(
+                cache_key,
+                _ManifestPathCacheEntry(
+                    mtime_ns=manifest_stat.st_mtime_ns,
+                    size=manifest_stat.st_size,
+                    path_spec=(),
+                ),
             )
             return ()
 

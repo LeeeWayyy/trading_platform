@@ -249,8 +249,14 @@ class AlpacaSIPLocalProvider:
         where_clauses = ['"date" >= $start_date', '"date" <= $end_date']
 
         if symbols is not None:
-            params["symbols"] = [s.upper() for s in symbols]
-            where_clauses.append('UPPER("symbol") = ANY($symbols)')
+            params["symbols"] = sorted(
+                {
+                    variant
+                    for symbol in symbols
+                    for variant in (symbol, symbol.upper(), symbol.lower())
+                }
+            )
+            where_clauses.append('"symbol" = ANY($symbols)')
 
         query = f"""
             SELECT {col_expr}
@@ -289,7 +295,7 @@ class AlpacaSIPLocalProvider:
             return conn
 
     def _new_connection(self) -> duckdb.DuckDBPyConnection:
-        """Create a short-lived DuckDB connection for one query."""
+        """Create a DuckDB connection for thread-local caching."""
         conn = duckdb.connect(":memory:", read_only=False)
         conn.execute("PRAGMA disable_object_cache")
         conn.execute(f"PRAGMA memory_limit='{self._duckdb_memory_limit}'")

@@ -288,6 +288,29 @@ def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
     assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
 
 
+def test_alpaca_manifest_path_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+    monkeypatch.setattr(module, "_MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES", 2)
+
+    try:
+        for index in range(3):
+            module._cache_alpaca_sip_manifest_path(
+                f"manifest-{index}",
+                module._ManifestPathCacheEntry(
+                    mtime_ns=index,
+                    size=index,
+                    path_spec=(f"/tmp/partition-{index}.parquet",),
+                ),
+            )
+
+        assert list(module._ALPACA_SIP_MANIFEST_PATH_CACHE) == [
+            "manifest-1",
+            "manifest-2",
+        ]
+    finally:
+        module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+
+
 def test_create_query_connection_handles_manifest_path_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
