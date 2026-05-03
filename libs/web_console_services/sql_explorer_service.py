@@ -340,6 +340,7 @@ def _resolve_alpaca_sip_snapshot_paths(
                 unreadable_log_event,
                 extra={"manifest_path": str(manifest_path), "error": str(exc)},
             )
+            return ()
         else:
             resolved_paths: list[str] = []
             if isinstance(file_paths, list):

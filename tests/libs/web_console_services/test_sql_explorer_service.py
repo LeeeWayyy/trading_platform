@@ -266,6 +266,28 @@ def test_resolve_table_paths_keeps_valid_alpaca_manifest_paths_with_missing_entr
     assert "sql_explorer_alpaca_sip_manifest_invalid_paths" in caplog.text
 
 
+def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    fallback_partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    fallback_partition.parent.mkdir(parents=True)
+    fallback_partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+
+
 def test_create_query_connection_handles_manifest_path_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
