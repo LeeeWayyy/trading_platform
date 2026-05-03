@@ -711,7 +711,8 @@ class AlpacaCorporateActionsSyncManager:
         symbol = key.strip()
         if not 1 <= len(symbol) <= 12:
             return False
-        if symbol.upper() != symbol:
+        normalized = symbol.lower()
+        if normalized in ACTION_TYPE_KEYS or normalized in ACTION_CONTAINER_KEYS:
             return False
         return any(char.isalpha() for char in symbol) and all(
             char.isalnum() or char in {".", "-"} for char in symbol

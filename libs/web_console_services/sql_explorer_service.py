@@ -334,9 +334,9 @@ def _resolve_alpaca_sip_snapshot_paths(
     unreadable_log_event: str,
 ) -> _TablePathSpec:
     """Return manifest-pinned SIP snapshot partitions, with glob fallback only without manifest."""
-    data_root_path = _Path(data_root)
+    data_root_path = _Path(data_root).resolve()
     storage_root = (data_root_path / "alpaca" / "sip" / storage_leaf).resolve()
-    manifest_path = data_root_path / "manifests" / manifest_name
+    manifest_path = (data_root_path / "manifests" / manifest_name).resolve()
 
     if manifest_path.exists():
         cache_key = str(manifest_path.resolve())

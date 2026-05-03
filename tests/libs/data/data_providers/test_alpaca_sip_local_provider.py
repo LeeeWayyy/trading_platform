@@ -43,7 +43,7 @@ def mock_alpaca_sip_data(tmp_path: Path) -> tuple[Path, ManifestManager, list[Pa
     data_2023 = pl.DataFrame(
         {
             "date": [date(2023, 1, 3), date(2023, 1, 4), date(2023, 1, 3)],
-            "symbol": ["aapl", "AAPL", "MSFT"],
+            "symbol": ["AAPL", "AAPL", "MSFT"],
             "open": [100.0, 102.0, 200.0],
             "high": [101.0, 103.0, 202.0],
             "low": [99.0, 101.0, 198.0],
@@ -217,7 +217,7 @@ class TestAlpacaSIPLocalProvider:
             symbols=["aapl"],
         )
 
-        assert df["symbol"].to_list() == ["aapl", "AAPL"]
+        assert df["symbol"].to_list() == ["AAPL", "AAPL"]
         assert df["date"].to_list() == [date(2023, 1, 3), date(2023, 1, 4)]
 
     def test_get_daily_prices_column_projection(

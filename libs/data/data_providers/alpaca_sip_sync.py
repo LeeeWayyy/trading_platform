@@ -15,10 +15,10 @@ import os
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+import httpx
 import polars as pl
 
 from libs.data.data_providers.alpaca_sip_local_provider import (
@@ -36,23 +36,6 @@ from libs.data.data_providers.sync_file_utils import (
 )
 from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
-
-try:
-    from alpaca.common.enums import Sort
-    from alpaca.data.enums import Adjustment, DataFeed
-    from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
-    from alpaca.data.timeframe import TimeFrame
-
-    ALPACA_AVAILABLE = True
-except ImportError:  # pragma: no cover - optional dependency guard
-    ALPACA_AVAILABLE = False
-    Sort = None  # type: ignore[assignment,misc]
-    Adjustment = None  # type: ignore[assignment,misc]
-    DataFeed = None  # type: ignore[assignment,misc]
-    StockHistoricalDataClient = None  # type: ignore[assignment,misc]
-    StockBarsRequest = None  # type: ignore[assignment,misc]
-    TimeFrame = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -100,15 +83,67 @@ class AlpacaSIPSyncEstimate:
 class AlpacaStockBarsClient(Protocol):
     """Minimal client interface needed by ``AlpacaSIPSyncManager``."""
 
-    def get_stock_bars(self, request_params: Any) -> Any:
-        """Return bars for a ``StockBarsRequest``."""
+    def get_stock_bars(self, params: Mapping[str, str | int]) -> Any:
+        """Return one page of stock bars."""
+
+
+class AlpacaStockBarsRestClient:
+    """Direct REST client for Alpaca historical stock bars."""
+
+    DEFAULT_BASE_URL = "https://data.alpaca.markets"
+    ENDPOINT_PATH = "/v2/stocks/bars"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        secret_key: str,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.headers = {
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": secret_key,
+        }
+        self._client = httpx.Client(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=self.timeout_seconds,
+        )
+
+    def get_stock_bars(self, params: Mapping[str, str | int]) -> Mapping[str, Any]:
+        """Fetch one REST page and return decoded JSON."""
+        response = self._client.get(self.ENDPOINT_PATH, params=dict(params))
+        response.raise_for_status()
+        payload = response.json()
+
+        if not isinstance(payload, dict):
+            raise ValueError(f"Unexpected Alpaca stock bars payload: {type(payload).__name__}")
+        return cast(Mapping[str, Any], payload)
+
+    def close(self) -> None:
+        """Close the underlying HTTP connection pool."""
+        self._client.close()
+
+    def __enter__(self) -> AlpacaStockBarsRestClient:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        self.close()
 
 
 class AlpacaSIPSyncManager:
     """Sync normalized Alpaca SIP daily bars to local Parquet.
 
-    The manager is intentionally focused on daily bars for Phase 2. It uses the
-    Alpaca SDK's paginated ``StockBarsRequest`` path, writes each full sync into
+    The manager is intentionally focused on daily bars for Phase 2. It uses
+    Alpaca's paginated market-data REST endpoint, writes each full sync into
     an immutable snapshot directory, and updates
     ``data/manifests/alpaca_sip_daily.json`` via ``ManifestManager``.
     """
@@ -116,6 +151,7 @@ class AlpacaSIPSyncManager:
     DATASET_NAME = "alpaca_sip_daily"
     DEFAULT_DATA_ROOT = Path("data")
     DEFAULT_STORAGE_PATH = Path("data/alpaca/sip/daily")
+    DEFAULT_LIMIT = 10_000
     BYTES_PER_ROW_ESTIMATE = 160
     MAX_PAGES_PER_REQUEST = 1000
 
@@ -128,18 +164,20 @@ class AlpacaSIPSyncManager:
         data_root: Path | None = None,
         request_chunk_size: int = 200,
         request_interval_seconds: float = 0.0,
+        request_page_limit: int = DEFAULT_LIMIT,
         feed: str = "sip",
         adjustment: str = "raw",
     ) -> None:
         """Initialize the sync manager.
 
         Args:
-            client: Alpaca historical data client or compatible test double.
+            client: Alpaca stock-bars REST client or compatible test double.
             storage_path: Directory where yearly daily-bar partitions are written.
             manifest_manager: Manifest manager for snapshot signing.
             data_root: Root directory used for path validation.
             request_chunk_size: Number of symbols per Alpaca request.
             request_interval_seconds: Sleep between API requests for throttling.
+            request_page_limit: Alpaca REST page size for stock-bar requests.
             feed: Alpaca data feed. Phase 2 defaults to ``sip``.
             adjustment: Alpaca adjustment policy. Canonical SIP syncs currently
                 require ``raw`` so the stored OHLC columns remain unadjusted.
@@ -148,6 +186,8 @@ class AlpacaSIPSyncManager:
             raise ValueError("request_chunk_size must be >= 1")
         if request_interval_seconds < 0:
             raise ValueError("request_interval_seconds must be >= 0")
+        if request_page_limit < 1:
+            raise ValueError("request_page_limit must be >= 1")
 
         self.client = client
         self.storage_path = Path(storage_path).resolve()
@@ -155,6 +195,7 @@ class AlpacaSIPSyncManager:
         self.data_root = (data_root or self.DEFAULT_DATA_ROOT).resolve()
         self.request_chunk_size = request_chunk_size
         self.request_interval_seconds = request_interval_seconds
+        self.request_page_limit = request_page_limit
         self.feed = feed.lower().strip()
         self.adjustment = adjustment.lower().strip()
         if self.adjustment != "raw":
@@ -170,6 +211,23 @@ class AlpacaSIPSyncManager:
 
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
+    def close(self) -> None:
+        """Close any resources held by the configured client."""
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self) -> AlpacaSIPSyncManager:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        self.close()
+
     @classmethod
     def from_env(
         cls,
@@ -179,13 +237,12 @@ class AlpacaSIPSyncManager:
         data_root: Path | None = None,
         request_chunk_size: int = 200,
         request_interval_seconds: float = 0.0,
+        request_page_limit: int = DEFAULT_LIMIT,
         feed: str | None = None,
         adjustment: str = "raw",
+        base_url: str | None = None,
     ) -> AlpacaSIPSyncManager:
         """Build a manager from standard Alpaca environment variables."""
-        if not ALPACA_AVAILABLE:
-            raise ImportError("alpaca-py package is required for Alpaca SIP sync")
-
         api_key = os.getenv("ALPACA_API_KEY_ID") or os.getenv("ALPACA_API_KEY")
         secret_key = os.getenv("ALPACA_API_SECRET_KEY") or os.getenv("ALPACA_SECRET_KEY")
         if not api_key or not secret_key:
@@ -200,7 +257,11 @@ class AlpacaSIPSyncManager:
         resolved_manifest_manager = manifest_manager or ManifestManager(
             data_root=resolved_data_root
         )
-        client = cast(Any, StockHistoricalDataClient)(api_key=api_key, secret_key=secret_key)
+        client = AlpacaStockBarsRestClient(
+            api_key=api_key,
+            secret_key=secret_key,
+            base_url=base_url or os.getenv("ALPACA_DATA_BASE_URL") or "https://data.alpaca.markets",
+        )
         resolved_feed = feed if feed is not None else os.getenv("ALPACA_DATA_FEED") or "sip"
 
         return cls(
@@ -210,6 +271,7 @@ class AlpacaSIPSyncManager:
             data_root=resolved_data_root,
             request_chunk_size=request_chunk_size,
             request_interval_seconds=request_interval_seconds,
+            request_page_limit=request_page_limit,
             feed=resolved_feed,
             adjustment=adjustment,
         )
@@ -468,42 +530,22 @@ class AlpacaSIPSyncManager:
         page_token: str | None = None,
     ) -> Any:
         """Fetch daily bars for one symbol chunk and year."""
-        if not ALPACA_AVAILABLE:
-            raise ImportError("alpaca-py package is required for Alpaca SIP sync")
-
         start = datetime.datetime(year, 1, 1, tzinfo=datetime.UTC)
         end = datetime.datetime(year, 12, 31, 23, 59, 59, tzinfo=datetime.UTC)
-        request_fields: dict[str, Any] = {
-            "symbol_or_symbols": list(symbols),
-            "timeframe": cast(Any, TimeFrame).Day,
-            "start": start,
-            "end": end,
-            "sort": cast(Any, Sort).ASC,
-            "adjustment": cast(Any, Adjustment)(self.adjustment),
-            "feed": cast(Any, DataFeed)(self.feed),
+        params: dict[str, str | int] = {
+            "symbols": ",".join(symbols),
+            "timeframe": "1Day",
+            "start": self._format_alpaca_timestamp(start),
+            "end": self._format_alpaca_timestamp(end),
+            "limit": self.request_page_limit,
+            "adjustment": self.adjustment,
+            "feed": self.feed,
+            "sort": "asc",
         }
         if page_token is not None:
-            if not self._stock_bars_request_supports_page_token():
-                raise RuntimeError(
-                    "Alpaca bars response returned next_page_token, but the installed "
-                    "alpaca-py StockBarsRequest cannot carry page_token. This SDK "
-                    "version normally paginates inside get_stock_bars(); refusing to "
-                    "silently truncate the SIP partition."
-                )
-            request_fields["page_token"] = page_token
+            params["page_token"] = page_token
 
-        request = cast(Any, StockBarsRequest)(**request_fields)
-        return self.client.get_stock_bars(request)
-
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def _stock_bars_request_supports_page_token() -> bool:
-        """Return whether the installed alpaca-py request model accepts page tokens."""
-        for field_attr in ("model_fields", "__fields__"):
-            fields = getattr(cast(Any, StockBarsRequest), field_attr, None)
-            if isinstance(fields, Mapping) and "page_token" in fields:
-                return True
-        return False
+        return self.client.get_stock_bars(params)
 
     @staticmethod
     def _next_page_token_from_response(response: Any) -> str | None:
@@ -516,15 +558,18 @@ class AlpacaSIPSyncManager:
         return token_text or None
 
     def _rows_from_response(self, response: Any) -> list[dict[str, Any]]:
-        """Normalize SDK response shapes into row dictionaries."""
+        """Normalize REST and compatible SDK response shapes into row dictionaries."""
         data = getattr(response, "data", None)
-        if data is None and isinstance(response, dict):
-            data = response
-        if not isinstance(data, dict):
+        if data is None and isinstance(response, Mapping):
+            bars_payload = response.get("bars")
+            data = bars_payload if isinstance(bars_payload, Mapping) else response
+        if not isinstance(data, Mapping):
             raise ValueError(f"Unexpected Alpaca bars response type: {type(response).__name__}")
 
         rows: list[dict[str, Any]] = []
         for symbol, bars in data.items():
+            if str(symbol) in {"next_page_token", "next_token"}:
+                continue
             if bars is None:
                 continue
             for bar in bars:
@@ -602,6 +647,10 @@ class AlpacaSIPSyncManager:
                 return parsed.replace(tzinfo=datetime.UTC)
             return parsed.astimezone(datetime.UTC)
         raise ValueError(f"Unsupported Alpaca timestamp value: {value!r}")
+
+    @staticmethod
+    def _format_alpaca_timestamp(value: datetime.datetime) -> str:
+        return value.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
 
     @staticmethod
     def _normalize_symbols(symbols: Sequence[str]) -> list[str]:

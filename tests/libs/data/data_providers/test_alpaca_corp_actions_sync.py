@@ -509,7 +509,7 @@ def test_full_sync_does_not_use_symbol_group_keys_as_action_types(
         [
             {
                 "corporate_actions": {
-                    "AAPL": [
+                    "aapl": [
                         {
                             "id": "ca-aapl-1",
                             "symbol": "AAPL",

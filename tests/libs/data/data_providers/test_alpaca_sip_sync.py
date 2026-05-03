@@ -166,10 +166,12 @@ def test_full_sync_writes_partition_and_manifest(
     assert saved_manifest.file_paths == [str(partition.relative_to(sync_paths["data_root"]))]
 
     assert len(client.requests) == 2
-    first_request_fields = client.requests[0].to_request_fields()
-    assert first_request_fields["symbol_or_symbols"] == ["AAPL"]
-    assert first_request_fields["feed"].value == "sip"
-    assert first_request_fields["adjustment"].value == "raw"
+    first_request_fields = client.requests[0]
+    assert first_request_fields["symbols"] == "AAPL"
+    assert first_request_fields["timeframe"] == "1Day"
+    assert first_request_fields["feed"] == "sip"
+    assert first_request_fields["adjustment"] == "raw"
+    assert first_request_fields["limit"] == 10_000
 
 
 def test_full_sync_streams_year_partitions(
@@ -422,62 +424,95 @@ def test_sync_year_accepts_raw_dict_response_and_deduplicates(
     assert df["volume"].to_list() == [1100.0]
 
 
-def test_sync_year_partition_fetches_paginated_bar_responses(
+def test_sync_year_accepts_raw_rest_bars_payload(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,
 ) -> None:
-    class PagedSyncManager(AlpacaSIPSyncManager):
-        def __init__(self) -> None:
-            super().__init__(
-                client=FakeAlpacaClient([]),
-                storage_path=sync_paths["storage"],
-                manifest_manager=manifest_manager,
-                data_root=sync_paths["data_root"],
-            )
-            self.page_tokens: list[str | None] = []
-
-        def _fetch_bars(
-            self,
-            symbols: Sequence[str],
-            year: int,
-            *,
-            page_token: str | None = None,
-        ) -> FakeResponse:
-            assert list(symbols) == ["AAPL"]
-            assert year == 2024
-            self.page_tokens.append(page_token)
-            if page_token is None:
-                return FakeResponse(
-                    {
-                        "AAPL": [
-                            FakeBar(
-                                symbol="AAPL",
-                                timestamp=datetime.datetime(2024, 1, 3, tzinfo=datetime.UTC),
-                                close=100.0,
-                            )
-                        ]
-                    },
-                    next_page_token="page-2",
-                )
-            assert page_token == "page-2"
-            return FakeResponse(
-                {
+    client = FakeAlpacaClient(
+        [
+            {
+                "bars": {
                     "AAPL": [
-                        FakeBar(
-                            symbol="AAPL",
-                            timestamp=datetime.datetime(2024, 1, 4, tzinfo=datetime.UTC),
-                            close=101.0,
-                        )
+                        {
+                            "t": "2024-01-03T00:00:00Z",
+                            "o": 99.0,
+                            "h": 101.0,
+                            "l": 98.0,
+                            "c": 100.0,
+                            "v": 1000.0,
+                            "n": 10.0,
+                            "vw": 100.1,
+                        }
                     ]
-                }
-            )
-
-    manager = PagedSyncManager()
+                },
+                "next_page_token": None,
+            }
+        ]
+    )
+    manager = AlpacaSIPSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
 
     partition = manager.sync_year_partition(["AAPL"], 2024)
 
     df = pl.read_parquet(partition.path)
-    assert manager.page_tokens == [None, "page-2"]
+    assert partition.row_count == 1
+    assert df["symbol"].to_list() == ["AAPL"]
+    assert df["close"].to_list() == [100.0]
+
+
+def test_sync_year_partition_fetches_paginated_bar_responses(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeAlpacaClient(
+        [
+            {
+                "bars": {
+                    "AAPL": [
+                        {
+                            "t": "2024-01-03T00:00:00Z",
+                            "o": 99.0,
+                            "h": 101.0,
+                            "l": 98.0,
+                            "c": 100.0,
+                            "v": 1000.0,
+                        }
+                    ]
+                },
+                "next_page_token": "page-2",
+            },
+            {
+                "bars": {
+                    "AAPL": [
+                        {
+                            "t": "2024-01-04T00:00:00Z",
+                            "o": 100.0,
+                            "h": 102.0,
+                            "l": 99.0,
+                            "c": 101.0,
+                            "v": 1100.0,
+                        }
+                    ]
+                }
+            },
+        ]
+    )
+    manager = AlpacaSIPSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+
+    partition = manager.sync_year_partition(["AAPL"], 2024)
+
+    df = pl.read_parquet(partition.path)
+    assert "page_token" not in client.requests[0]
+    assert client.requests[1]["page_token"] == "page-2"
     assert partition.row_count == 2
     assert df["date"].to_list() == [datetime.date(2024, 1, 3), datetime.date(2024, 1, 4)]
     assert df["close"].to_list() == [100.0, 101.0]

@@ -250,11 +250,7 @@ class AlpacaSIPLocalProvider:
 
         if symbols is not None:
             params["symbols"] = sorted(
-                {
-                    variant
-                    for symbol in symbols
-                    for variant in (symbol, symbol.upper(), symbol.lower())
-                }
+                {symbol.upper().strip() for symbol in symbols if symbol.strip()}
             )
             where_clauses.append('"symbol" = ANY($symbols)')
 

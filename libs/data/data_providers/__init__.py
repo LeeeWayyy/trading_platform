@@ -33,6 +33,7 @@ from libs.data.data_providers.alpaca_sip_local_provider import (
 from libs.data.data_providers.alpaca_sip_sync import (
     AlpacaSIPSyncManager,
     AlpacaStockBarsClient,
+    AlpacaStockBarsRestClient,
     SyncedPartition,
 )
 from libs.data.data_providers.compustat_local_provider import (
@@ -197,6 +198,7 @@ __all__ = [
     "ALPACA_SIP_SCHEMA",
     "AlpacaSIPSyncManager",
     "AlpacaStockBarsClient",
+    "AlpacaStockBarsRestClient",
     "SyncedPartition",
     "AlpacaCorporateActionsSyncManager",
     "AlpacaCorporateActionsRestClient",
