@@ -215,7 +215,7 @@ class AlpacaSIPLocalProvider:
             if resolved.is_relative_to(self.storage_path):
                 paths.append(resolved)
             else:
-                logger.warning("Skipping path outside Alpaca SIP storage_path: %s", path)
+                logger.warning("Skipping path outside Alpaca SIP storage_path: %s", resolved)
 
         return paths
 
@@ -230,7 +230,10 @@ class AlpacaSIPLocalProvider:
         if path.parts[0] == self.data_root.name:
             return (self.data_root.parent / path).resolve()
 
-        return (self.data_root / path).resolve()
+        if path.parts[0] == "alpaca":
+            return (self.data_root / path).resolve()
+
+        return (self.storage_path / path).resolve()
 
     def _execute_query(
         self,
@@ -241,28 +244,36 @@ class AlpacaSIPLocalProvider:
         columns: list[str] | None,
     ) -> pl.DataFrame:
         """Execute a parameterized DuckDB query over selected partitions."""
-        col_expr = "*" if columns is None else ", ".join(columns)
+        col_expr = "*" if columns is None else ", ".join(
+            self._quote_identifier(column) for column in columns
+        )
 
         params: dict[str, Any] = {
             "paths": [str(p) for p in partition_paths],
             "start_date": start_date,
             "end_date": end_date,
         }
-        where_clauses = ["date >= $start_date", "date <= $end_date"]
+        where_clauses = ['"date" >= $start_date', '"date" <= $end_date']
 
         if symbols is not None:
             params["symbols"] = [s.upper() for s in symbols]
-            where_clauses.append("UPPER(symbol) = ANY($symbols)")
+            where_clauses.append('UPPER("symbol") = ANY($symbols)')
 
         query = f"""
             SELECT {col_expr}
             FROM read_parquet($paths)
             WHERE {" AND ".join(where_clauses)}
-            ORDER BY date, symbol
+            ORDER BY "date", "symbol"
         """
 
         conn = self._connection_for_current_thread()
         return conn.execute(query, params).pl()
+
+    @staticmethod
+    def _quote_identifier(identifier: str) -> str:
+        if identifier not in VALID_COLUMNS:
+            raise ValueError(f"Invalid column identifier: {identifier}")
+        return f'"{identifier}"'
 
     def _connection_for_current_thread(self) -> duckdb.DuckDBPyConnection:
         """Get or create a cached DuckDB connection scoped to the current thread."""

@@ -235,6 +235,29 @@ class TestAlpacaSIPLocalProvider:
 
         assert df.height == 2
 
+    def test_data_root_relative_manifest_path_resolved(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        manifest_path = data_root / "manifests" / "alpaca_sip_daily.json"
+        manifest_data = json.loads(manifest_path.read_text())
+        manifest_data["file_paths"] = ["alpaca/sip/daily/2023.parquet"]
+        manifest_path.write_text(json.dumps(manifest_data))
+
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        df = provider.get_daily_prices(
+            start_date=date(2023, 1, 3),
+            end_date=date(2023, 1, 4),
+            symbols=["AAPL"],
+        )
+
+        assert df.height == 2
+
     def test_pinned_manifest_used_even_when_current_manifest_changes(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
     ) -> None:

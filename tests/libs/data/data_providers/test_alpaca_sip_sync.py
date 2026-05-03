@@ -139,7 +139,7 @@ def test_full_sync_writes_partition_and_manifest(
 
     assert not (sync_paths["storage"] / "2024.parquet").exists()
     assert len(manifest.file_paths) == 1
-    partition = Path(manifest.file_paths[0])
+    partition = sync_paths["data_root"] / manifest.file_paths[0]
     assert partition.exists()
     assert partition.parent.parent == sync_paths["storage"] / "snapshots"
     assert partition.name == "2024.parquet"
@@ -150,7 +150,7 @@ def test_full_sync_writes_partition_and_manifest(
     assert manifest.row_count == 2
     assert manifest.start_date == datetime.date(2024, 1, 3)
     assert manifest.end_date == datetime.date(2024, 1, 3)
-    assert manifest.file_paths == [str(partition)]
+    assert manifest.file_paths == [str(partition.relative_to(sync_paths["data_root"]))]
     assert manifest.provider_id == "alpaca_sip"
     assert manifest.provider_version == "1.0"
     assert manifest.source_feed == "sip"
@@ -163,7 +163,7 @@ def test_full_sync_writes_partition_and_manifest(
     saved_manifest = manifest_manager.load_manifest("alpaca_sip_daily")
     assert saved_manifest is not None
     assert saved_manifest.row_count == 2
-    assert saved_manifest.file_paths == [str(partition)]
+    assert saved_manifest.file_paths == [str(partition.relative_to(sync_paths["data_root"]))]
 
     assert len(client.requests) == 2
     first_request_fields = client.requests[0].to_request_fields()
@@ -548,7 +548,7 @@ def test_verify_integrity_reports_checksum_mismatch(
         data_root=sync_paths["data_root"],
     )
     manifest = manager.full_sync(["AAPL"], start_year=2024, end_year=2024)
-    partition = Path(manifest.file_paths[0])
+    partition = sync_paths["data_root"] / manifest.file_paths[0]
     pl.DataFrame({"bad": [1]}).write_parquet(partition)
 
     errors = manager.verify_integrity()

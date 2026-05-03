@@ -249,7 +249,7 @@ class AlpacaSIPSyncManager:
                 partition = self.sync_year_partition(
                     normalized_symbols, year, output_dir=output_dir
                 )
-                file_paths.append(str(partition.path))
+                file_paths.append(str(partition.path.relative_to(self.data_root)))
                 row_count += partition.row_count
                 if partition.start_date is not None and partition.end_date is not None:
                     partition_dates.append((partition.start_date, partition.end_date))
@@ -595,7 +595,7 @@ class AlpacaSIPSyncManager:
 
         if not normalized:
             raise ValueError("symbols must contain at least one non-empty symbol")
-        return normalized
+        return sorted(normalized)
 
     @staticmethod
     def _validate_year_range(start_year: int, end_year: int) -> None:
@@ -685,7 +685,9 @@ class AlpacaSIPSyncManager:
         return hasher.hexdigest()
 
     def _compute_combined_checksum(self, file_paths: Sequence[str]) -> str:
-        return self._compute_combined_checksum_for_paths([Path(path) for path in file_paths])
+        return self._compute_combined_checksum_for_paths(
+            [self._resolve_manifest_path(Path(path)) for path in file_paths]
+        )
 
     def _compute_combined_checksum_for_paths(self, paths: Sequence[Path]) -> str:
         hasher = hashlib.sha256()
@@ -720,7 +722,10 @@ class AlpacaSIPSyncManager:
         if path.parts[0] == self.data_root.name:
             return (self.data_root.parent / path).resolve()
 
-        return (self.data_root / path).resolve()
+        if path.parts[0] == "alpaca":
+            return (self.data_root / path).resolve()
+
+        return (self.storage_path / path).resolve()
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:

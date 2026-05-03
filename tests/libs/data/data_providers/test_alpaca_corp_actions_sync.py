@@ -181,7 +181,7 @@ def test_full_sync_writes_corporate_actions_and_manifest(
     assert manifest.symbol_set_hash is not None
     assert manifest.sync_started_at is not None
     assert manifest.sync_finished_at is not None
-    partition = Path(manifest.file_paths[0])
+    partition = sync_paths["data_root"] / manifest.file_paths[0]
     assert partition.exists()
     assert partition.parent.parent == sync_paths["storage"] / "snapshots"
 
@@ -194,10 +194,10 @@ def test_full_sync_writes_corporate_actions_and_manifest(
 
     saved_manifest = manifest_manager.load_manifest("alpaca_sip_corp_actions")
     assert saved_manifest is not None
-    assert saved_manifest.file_paths == [str(partition)]
+    assert saved_manifest.file_paths == [str(partition.relative_to(sync_paths["data_root"]))]
 
     assert client.requests[0]["symbols"] == "AAPL,MSFT"
-    assert client.requests[0]["types"] == "split,dividend"
+    assert client.requests[0]["types"] == "dividend,split"
     assert client.requests[0]["start"] == "2024-01-01"
     assert client.requests[0]["end"] == "2024-12-31"
     assert client.requests[0]["limit"] == 50
@@ -231,9 +231,9 @@ def test_full_sync_chunks_large_symbol_requests(
     )
 
     assert [request["symbols"] for request in client.requests] == [
-        "AAPL,MSFT",
-        "NVDA,TSLA",
-        "GOOG",
+        "AAPL,GOOG",
+        "MSFT,NVDA",
+        "TSLA",
     ]
 
 
@@ -256,8 +256,9 @@ def test_full_sync_allows_empty_result_manifest(
     )
 
     assert manifest.row_count == 0
-    assert Path(manifest.file_paths[0]).exists()
-    assert pl.read_parquet(manifest.file_paths[0]).is_empty()
+    partition = sync_paths["data_root"] / manifest.file_paths[0]
+    assert partition.exists()
+    assert pl.read_parquet(partition).is_empty()
 
 
 def test_full_sync_preserves_grouped_live_payload_types(

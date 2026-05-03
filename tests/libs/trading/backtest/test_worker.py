@@ -3534,11 +3534,14 @@ class TestYFinanceEdgeCases:
             created_by="test_user",
         )
 
-        assert str(captured_crsp_storage[0]) == str(tmp_path / "data" / "crsp")
+        assert str(captured_crsp_storage[0]) == str(tmp_path / "data" / "wrds" / "crsp" / "daily")
         assert str(captured_alpaca_storage[0]) == str(tmp_path / "custom_sip")
         assert (
             captured_fetcher_config[0].provider
             == worker_module.ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
+        assert captured_fetcher_config[0].crsp_storage_path == (
+            tmp_path / "data" / "wrds" / "crsp" / "daily"
         )
         assert captured_universe_dates == [date(2024, 1, 1)]
         assert captured_universe == ["AAPL", "MSFT"]

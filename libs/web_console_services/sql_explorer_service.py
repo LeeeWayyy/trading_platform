@@ -342,10 +342,14 @@ def _resolve_alpaca_sip_snapshot_paths(
                     resolved_paths.append(str(resolved))
 
                 if invalid_paths:
-                    raise FileNotFoundError(
-                        f"{manifest_path.name} references missing or invalid SIP partitions: "
-                        f"{', '.join(invalid_paths)}"
+                    logger.warning(
+                        "sql_explorer_alpaca_sip_manifest_invalid_paths",
+                        extra={
+                            "manifest_path": str(manifest_path),
+                            "invalid_paths": invalid_paths,
+                        },
                     )
+                    return ()
 
                 return tuple(sorted(resolved_paths))
 

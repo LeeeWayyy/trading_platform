@@ -233,9 +233,10 @@ def test_resolve_table_paths_uses_nested_relative_manifest_paths(
     assert paths["alpaca_sip_daily"] == (str(partition),)
 
 
-def test_resolve_table_paths_rejects_missing_alpaca_manifest_paths(
+def test_resolve_table_paths_marks_missing_alpaca_manifest_paths_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     project_root = tmp_path
     data_root = project_root / "data"
@@ -258,8 +259,11 @@ def test_resolve_table_paths_rejects_missing_alpaca_manifest_paths(
     )
     monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
 
-    with pytest.raises(FileNotFoundError, match="missing.parquet"):
-        module._resolve_table_paths()
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == ()
+    assert "sql_explorer_alpaca_sip_manifest_invalid_paths" in caplog.text
 
 
 def test_create_query_connection_handles_manifest_path_list(

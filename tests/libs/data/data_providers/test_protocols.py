@@ -299,6 +299,14 @@ class TestAlpacaSIPSchemaNormalization:
 
         assert df["ret"].to_list() == [None, None]
 
+    def test_provider_query_errors_are_wrapped(self) -> None:
+        provider = MagicMock()
+        provider.get_daily_prices.side_effect = OSError("corrupt parquet")
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        with pytest.raises(DataProviderError, match="Alpaca SIP query failed"):
+            adapter.get_daily_prices(["AAPL"], date(2024, 1, 2), date(2024, 1, 3))
+
 
 class TestSchemaConsistency:
     """Test schema consistency between adapters."""

@@ -401,7 +401,7 @@ class AlpacaCorporateActionsSyncManager:
             self._atomic_write_parquet(df, output_path)
             checksum = self._compute_combined_checksum_for_paths([output_path])
             manifest = self._create_manifest(
-                file_paths=[str(output_path)],
+                file_paths=[str(output_path.relative_to(self.data_root))],
                 row_count=df.height,
                 start_date=start_date,
                 end_date=end_date,
@@ -764,7 +764,7 @@ class AlpacaCorporateActionsSyncManager:
             if item not in seen:
                 normalized.append(item)
                 seen.add(item)
-        return normalized
+        return sorted(normalized)
 
     def _build_base_params(
         self,
@@ -871,7 +871,9 @@ class AlpacaCorporateActionsSyncManager:
             return (self.storage_path / path).resolve()
         if path.parts[0] == self.data_root.name:
             return (self.data_root.parent / path).resolve()
-        return (self.data_root / path).resolve()
+        if path.parts[0] == "alpaca":
+            return (self.data_root / path).resolve()
+        return (self.storage_path / path).resolve()
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:

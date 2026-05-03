@@ -237,6 +237,14 @@ class ManifestManager:
         except (ValueError, OSError):
             return False
 
+    def _resolve_data_file_path(self, file_path: Path) -> Path:
+        """Resolve manifest data paths against data_root when they are portable."""
+        if file_path.is_absolute():
+            return file_path.resolve()
+        if file_path.parts and file_path.parts[0] == self.data_root.name:
+            return (self.data_root.parent / file_path).resolve()
+        return (self.data_root / file_path).resolve()
+
     def _manifest_path(self, dataset: str) -> Path:
         """Get manifest file path for dataset."""
         return self.storage_path / f"{self._sanitize_dataset(dataset)}.json"
@@ -501,7 +509,7 @@ class ManifestManager:
         # Verify all referenced files exist and have non-zero size
         # This prevents "signing off" on missing or corrupt data
         for file_path_str in manifest.file_paths:
-            file_path = Path(file_path_str)
+            file_path = self._resolve_data_file_path(Path(file_path_str))
             if not file_path.exists():
                 raise QuarantineError(
                     f"Data integrity error: file '{file_path_str}' does not exist. "
@@ -524,7 +532,7 @@ class ManifestManager:
             # Calculate actual file sizes from manifest.file_paths
             total_file_size = 0
             for file_path_str in manifest.file_paths:
-                file_path = Path(file_path_str)
+                file_path = self._resolve_data_file_path(Path(file_path_str))
                 if file_path.exists():
                     total_file_size += file_path.stat().st_size
             # Use file sizes if available, otherwise fall back to manifest size
@@ -892,7 +900,7 @@ class ManifestManager:
             missing_files: list[str] = []
 
             for file_path_str in manifest.file_paths:
-                src_path = Path(file_path_str)
+                src_path = self._resolve_data_file_path(Path(file_path_str))
                 if src_path.exists():
                     # Resolve to canonical path NOW to prevent symlink swaps
                     resolved_path = src_path.resolve()

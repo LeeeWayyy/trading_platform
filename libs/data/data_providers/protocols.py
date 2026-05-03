@@ -519,11 +519,16 @@ class AlpacaSIPDataProviderAdapter:
         if not symbols:
             raise ValueError("symbols list cannot be empty")
 
-        df = self._provider.get_daily_prices(
-            start_date=start_date,
-            end_date=end_date,
-            symbols=symbols,
-        )
+        try:
+            df = self._provider.get_daily_prices(
+                start_date=start_date,
+                end_date=end_date,
+                symbols=symbols,
+            )
+        except DataProviderError:
+            raise
+        except Exception as exc:
+            raise DataProviderError(f"Alpaca SIP query failed: {exc}") from exc
         return self._normalize_schema(df)
 
     def _normalize_schema(self, df: pl.DataFrame) -> pl.DataFrame:

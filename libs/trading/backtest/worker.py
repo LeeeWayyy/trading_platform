@@ -890,8 +890,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         "hybrid_price_provider": "alpaca_sip",
                         "hybrid_universe_as_of_date": job_config.start_date.isoformat(),
                     }
+                    crsp_storage = data_root / "wrds" / "crsp" / "daily"
                     crsp_provider = CRSPLocalProvider(
-                        data_root / "crsp",
+                        crsp_storage,
                         manifest_manager,
                         data_root=data_root,
                     )
@@ -903,7 +904,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     )
                     fetcher_config = FetcherConfig(
                         provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
-                        crsp_storage_path=data_root / "crsp",
+                        crsp_storage_path=crsp_storage,
                         alpaca_sip_storage_path=alpaca_storage,
                         environment=environment,
                     )
