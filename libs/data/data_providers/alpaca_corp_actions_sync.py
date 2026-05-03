@@ -15,12 +15,12 @@ import logging
 import os
 import time
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 import httpx
 import polars as pl
+from pydantic import BaseModel
 
 from libs.data.data_providers.registry import (
     ProviderType,
@@ -99,8 +99,7 @@ ACTION_TYPE_KEYS = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class CorporateActionRoundTripCheck:
+class CorporateActionRoundTripCheck(BaseModel, frozen=True):
     """Known corporate-action event used for live round-trip validation."""
 
     label: str
@@ -120,8 +119,7 @@ class CorporateActionRoundTripCheck:
         }
 
 
-@dataclass(frozen=True)
-class CorporateActionRoundTripResult:
+class CorporateActionRoundTripResult(BaseModel, frozen=True):
     """Result for one corporate-action round-trip check."""
 
     check: CorporateActionRoundTripCheck
@@ -143,8 +141,7 @@ class CorporateActionRoundTripResult:
         }
 
 
-@dataclass(frozen=True)
-class CorporateActionRoundTripReport:
+class CorporateActionRoundTripReport(BaseModel, frozen=True):
     """Report for known corporate-action API round-trip validation."""
 
     status: str

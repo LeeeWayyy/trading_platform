@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any
+
+from pydantic import BaseModel
 
 from libs.data.data_providers.registry import ProviderType
 
@@ -20,8 +21,7 @@ CORP_ACTIONS_SOURCES = frozenset({"auto", "alpaca_sip", "crsp", "none"})
 ADJUSTMENT_MODES = frozenset({"raw", "split", "dividend", "all"})
 
 
-@dataclass(frozen=True)
-class DataRoleConfig:
+class DataRoleConfig(BaseModel, frozen=True):
     """Requested data roles from strategy/backtest config."""
 
     universe_source: str = "auto"
@@ -44,10 +44,10 @@ class DataRoleConfig:
                 field_name="requires_pit_universe",
             ),
         )
-        config.validate()
+        config.validate_choices()
         return config
 
-    def validate(self) -> None:
+    def validate_choices(self) -> None:
         """Validate role source names."""
         _validate_choice("universe_source", self.universe_source, UNIVERSE_SOURCES)
         _validate_choice("price_source", self.price_source, PRICE_SOURCES)
@@ -55,8 +55,7 @@ class DataRoleConfig:
         _validate_choice("adjustment_mode", self.adjustment_mode, ADJUSTMENT_MODES)
 
 
-@dataclass(frozen=True)
-class ResolvedDataRoles:
+class ResolvedDataRoles(BaseModel, frozen=True):
     """Concrete data roles after applying environment defaults."""
 
     universe_source: str

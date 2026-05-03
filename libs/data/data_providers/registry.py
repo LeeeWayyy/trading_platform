@@ -11,10 +11,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 from typing import Any
+
+from pydantic import BaseModel
 
 
 class ProviderType(str, Enum):
@@ -43,8 +44,7 @@ class ProviderType(str, Enum):
         return provider
 
 
-@dataclass(frozen=True)
-class ProviderCapabilities:
+class ProviderCapabilities(BaseModel, frozen=True):
     """Granular provider capabilities used by routing and reporting."""
 
     supports_pit_universe: bool
@@ -56,8 +56,7 @@ class ProviderCapabilities:
     history_start: date | None
 
 
-@dataclass(frozen=True)
-class ProviderSpec:
+class ProviderSpec(BaseModel, frozen=True):
     """Registry metadata for one provider."""
 
     provider_id: ProviderType
