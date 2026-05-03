@@ -165,13 +165,21 @@ class BacktestJobConfig:
         if end_date <= start_date:
             raise ValueError(f"end_date ({end_date}) must be after start_date ({start_date})")
 
+        raw_extra_params = data.get("extra_params")
+        if raw_extra_params is None:
+            extra_params: dict[str, Any] = {}
+        elif isinstance(raw_extra_params, dict):
+            extra_params = dict(raw_extra_params)
+        else:
+            raise ValueError("extra_params must be an object when provided")
+
         return cls(
             alpha_name=data["alpha_name"],
             start_date=start_date,
             end_date=end_date,
             weight_method=weight,
             provider=provider,
-            extra_params=data.get("extra_params", {}),
+            extra_params=extra_params,
         )
 
 

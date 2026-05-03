@@ -1414,6 +1414,47 @@ async def test_submit_job_alpaca_sip_provider(
 
 
 @pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    "provider_label",
+    ["Yahoo Finance (dev only)", "Alpaca SIP (local, non-PIT)"],
+)
+async def test_submit_job_non_pit_provider_requires_universe(
+    provider_label: str,
+    dummy_ui: DummyUI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test non-PIT providers are rejected before enqueue without a universe."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+
+    class DummyQueue:
+        def enqueue(self, *_: Any, **__: Any) -> Any:
+            raise AssertionError("non-PIT provider without universe must not enqueue")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = provider_label
+    universe_input.value = ""
+
+    await _call(submit_button._on_click)
+
+    assert any("requires an explicit symbol universe" in n["text"] for n in dummy_ui.notifications)
+    assert any(n["type"] == "negative" for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
 async def test_submit_job_auto_provider_keeps_explicit_universe(
     dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1451,6 +1492,42 @@ async def test_submit_job_auto_provider_keeps_explicit_universe(
     assert captured_configs[0].extra_params["universe"] == ["AAPL", "MSFT"]
     assert captured_configs[0].extra_params["data"] == {"requires_pit_universe": False}
     assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+async def test_submit_job_auto_provider_rejects_empty_non_pit_resolution(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test Auto rejects empty universes when CRSP is unavailable."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+    monkeypatch.setenv("CRSP_AVAILABLE", "false")
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+
+    class DummyQueue:
+        def enqueue(self, *_: Any, **__: Any) -> Any:
+            raise AssertionError("auto non-PIT resolution without universe must not enqueue")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Auto (role-resolved)"
+    universe_input.value = ""
+
+    await _call(submit_button._on_click)
+
+    assert any("Auto provider requires an explicit symbol universe" in n["text"] for n in dummy_ui.notifications)
+    assert any(n["type"] == "negative" for n in dummy_ui.notifications)
 
 
 @pytest.mark.asyncio()

@@ -783,6 +783,32 @@ class TestBacktestJobConfigFromDict:
         config = BacktestJobConfig.from_dict(data)
         assert config.provider == DataProvider.AUTO
 
+    def test_from_dict_extra_params_none_defaults_to_empty_dict(self):
+        """Test that explicit extra_params=None is normalized before auto resolution."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "auto",
+            "extra_params": None,
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.extra_params == {}
+        job_queue.resolve_auto_provider(config)
+        assert config.provider == DataProvider.CRSP
+
+    def test_from_dict_extra_params_non_object_raises(self):
+        """Test that malformed extra_params is rejected with a validation error."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "auto",
+            "extra_params": [],
+        }
+        with pytest.raises(ValueError, match="extra_params must be an object"):
+            BacktestJobConfig.from_dict(data)
+
     def test_from_dict_invalid_provider_raises(self):
         """Test that invalid provider in dict raises ValueError."""
         data = {

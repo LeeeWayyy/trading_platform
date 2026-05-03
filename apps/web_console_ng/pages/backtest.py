@@ -520,6 +520,7 @@ async def _render_new_backtest_form(
         DataProvider,
         JobPriority,
         WeightMethod,
+        resolve_auto_provider,
     )
 
     with ui.card().classes("w-full p-4"):
@@ -946,6 +947,13 @@ async def _render_new_backtest_form(
                         )
                         return
 
+            if data_provider in (DataProvider.YFINANCE, DataProvider.ALPACA_SIP) and not universe:
+                ui.notify(
+                    f"{PROVIDER_DISPLAY[data_provider.value]} requires an explicit symbol universe.",
+                    type="negative",
+                )
+                return
+
             # Validate dates
             try:
                 start_dt = date.fromisoformat(start_date_input.value)
@@ -999,6 +1007,7 @@ async def _render_new_backtest_form(
                 end_date=end_dt,
                 weight_method=weight_method,
                 provider=data_provider,
+                extra_params=dict(_extra_params_hidden),
             )
             if universe:
                 job_config.extra_params["universe"] = universe
@@ -1008,6 +1017,24 @@ async def _render_new_backtest_form(
                         role_config = {}
                     role_config.setdefault("requires_pit_universe", False)
                     job_config.extra_params["data"] = role_config
+            elif data_provider == DataProvider.AUTO:
+                try:
+                    validation_config = BacktestJobConfig(
+                        alpha_name=job_config.alpha_name,
+                        start_date=job_config.start_date,
+                        end_date=job_config.end_date,
+                        weight_method=job_config.weight_method,
+                        provider=job_config.provider,
+                        extra_params=dict(job_config.extra_params),
+                    )
+                    resolve_auto_provider(validation_config)
+                except (ValueError, TypeError) as exc:
+                    ui.notify(
+                        "Auto provider requires an explicit symbol universe for the "
+                        f"current data roles: {exc}",
+                        type="negative",
+                    )
+                    return
 
             # Add cost model configuration if enabled (T9.2)
             cost_config = build_cost_config(data_provider)

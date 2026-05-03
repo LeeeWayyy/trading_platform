@@ -836,10 +836,9 @@ class AlpacaCorporateActionsSyncManager:
     @staticmethod
     def _compute_checksum_and_fsync(path: Path) -> str:
         hasher = hashlib.sha256()
-        with open(path, "rb") as handle:
+        with open(path, "r+b") as handle:
             for chunk in iter(lambda: handle.read(8192), b""):
                 hasher.update(chunk)
-        with open(path, "r+b") as handle:
             os.fsync(handle.fileno())
         return hasher.hexdigest()
 
