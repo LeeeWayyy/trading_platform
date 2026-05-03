@@ -233,7 +233,7 @@ def test_resolve_table_paths_uses_nested_relative_manifest_paths(
     assert paths["alpaca_sip_daily"] == (str(partition),)
 
 
-def test_resolve_table_paths_marks_missing_alpaca_manifest_paths_unavailable(
+def test_resolve_table_paths_keeps_valid_alpaca_manifest_paths_with_missing_entries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -262,7 +262,7 @@ def test_resolve_table_paths_marks_missing_alpaca_manifest_paths_unavailable(
     with caplog.at_level(logging.WARNING):
         paths = module._resolve_table_paths()
 
-    assert paths["alpaca_sip_daily"] == ()
+    assert paths["alpaca_sip_daily"] == (str(partition),)
     assert "sql_explorer_alpaca_sip_manifest_invalid_paths" in caplog.text
 
 

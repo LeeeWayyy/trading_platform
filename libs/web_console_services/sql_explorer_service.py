@@ -44,6 +44,16 @@ _EXPORT_RATE_LIMIT = 5
 _MAX_CELLS = 1_000_000
 _TablePathSpec = str | tuple[str, ...]
 
+
+@dataclass(frozen=True)
+class _ManifestPathCacheEntry:
+    mtime_ns: int
+    size: int
+    path_spec: _TablePathSpec
+
+
+_ALPACA_SIP_MANIFEST_PATH_CACHE: dict[str, _ManifestPathCacheEntry] = {}
+
 _KNOWN_ENVS = {"production", "staging", "development", "test", "local"}
 
 _ERROR_CODES: dict[str, str] = {
@@ -312,7 +322,16 @@ def _resolve_alpaca_sip_snapshot_paths(
     manifest_path = data_root_path / "manifests" / manifest_name
 
     if manifest_path.exists():
+        cache_key = str(manifest_path.resolve())
         try:
+            manifest_stat = manifest_path.stat()
+            cached = _ALPACA_SIP_MANIFEST_PATH_CACHE.get(cache_key)
+            if (
+                cached is not None
+                and cached.mtime_ns == manifest_stat.st_mtime_ns
+                and cached.size == manifest_stat.st_size
+            ):
+                return cached.path_spec
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             file_paths = manifest.get("file_paths", [])
         except (OSError, json.JSONDecodeError) as exc:
@@ -349,13 +368,23 @@ def _resolve_alpaca_sip_snapshot_paths(
                             "invalid_paths": invalid_paths,
                         },
                     )
-                    return ()
 
-                return tuple(sorted(resolved_paths))
+                path_spec: _TablePathSpec = tuple(sorted(resolved_paths))
+                _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = _ManifestPathCacheEntry(
+                    mtime_ns=manifest_stat.st_mtime_ns,
+                    size=manifest_stat.st_size,
+                    path_spec=path_spec,
+                )
+                return path_spec
 
             logger.warning(
                 "sql_explorer_alpaca_sip_manifest_invalid_file_paths",
                 extra={"manifest_path": str(manifest_path)},
+            )
+            _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = _ManifestPathCacheEntry(
+                mtime_ns=manifest_stat.st_mtime_ns,
+                size=manifest_stat.st_size,
+                path_spec=(),
             )
             return ()
 

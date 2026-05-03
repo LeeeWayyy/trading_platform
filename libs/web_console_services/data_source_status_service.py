@@ -142,7 +142,7 @@ class DataSourceStatusService:
         if not has_permission(user, Permission.VIEW_DATA_SYNC):
             raise PermissionError("Permission 'view_data_sync' required")
 
-        all_sources = self._get_mock_sources()
+        all_sources = await asyncio.to_thread(self._get_mock_sources)
         filtered = [
             source
             for source in all_sources
@@ -173,7 +173,7 @@ class DataSourceStatusService:
 
         try:
             _validate_source_name(source_name)
-            source = self._get_source_by_name(source_name)
+            source = await asyncio.to_thread(self._get_source_by_name, source_name)
         except (ValueError, KeyError, LookupError):
             raise PermissionError("Source not available") from None
 
@@ -284,7 +284,7 @@ class DataSourceStatusService:
         if source.name == "alpaca_sip":
             # Re-read manifests on every manual refresh so a previously cached
             # unknown status can move to ok/error after sync artifacts appear.
-            source = self._get_source_by_name(source.name)
+            source = await asyncio.to_thread(self._get_source_by_name, source.name)
             if source.status == "unknown":
                 self._last_refresh_results[source.name] = source
                 return source
