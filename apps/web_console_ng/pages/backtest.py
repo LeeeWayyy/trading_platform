@@ -777,16 +777,13 @@ async def _render_new_backtest_form(
                 return None
             # Set adv_source based on provider to accurately represent data provenance
             # CRSP provider uses PIT-compliant CRSP ADV data; non-PIT providers are skipped.
-            if provider == DataProvider.CRSP:
-                adv_source = "crsp"
-            elif provider == DataProvider.AUTO:
-                adv_source = "crsp"
-            elif provider == DataProvider.ALPACA_SIP:
-                adv_source = "alpaca"
-            elif provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
-                adv_source = "hybrid_crsp_sip"
-            else:
-                adv_source = "yahoo"
+            adv_source_by_provider = {
+                DataProvider.CRSP: "crsp",
+                DataProvider.AUTO: "crsp",
+                DataProvider.ALPACA_SIP: "alpaca",
+                DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES: "hybrid_crsp_sip",
+            }
+            adv_source = adv_source_by_provider.get(provider, "yahoo")
             # Let the backend handle None values and type coercion.
             # The UI provides the participation limit in %, so we convert it to a fraction.
             part_limit_val = participation_limit_input.value

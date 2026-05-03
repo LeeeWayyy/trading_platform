@@ -615,25 +615,28 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
             app.storage.user.get("global_circuit_state")
         )
         cached_status_stale = not initial_global_status_live
-        if cached_kill_state is not None or cached_circuit_state is not None:
-            # Render stale cached state before heavy pages finish building so the
-            # top banner does not start at UNKNOWN on first paint.
-            _update_status_bar(
-                cached_kill_state or "UNKNOWN",
-                cached_circuit_state or "UNKNOWN",
-                stale=cached_status_stale,
-            )
-            cached_kill_display = cached_kill_state or "UNKNOWN"
-            cached_cb_display = cached_circuit_state or "UNKNOWN"
-            stale_suffix = " (STALE)" if cached_status_stale else ""
-            kill_switch_button.set_text(f"KILL SWITCH: {cached_kill_display}{stale_suffix}")
-            if cached_kill_display == "ENGAGED":
+        last_kill_switch_state: str | None = cached_kill_state
+        last_circuit_state: str | None = cached_circuit_state
+        kill_switch_state: str | None = cached_kill_state
+        kill_switch_action_in_progress = False
+        connection_monitor = ConnectionMonitor()
+        last_connection_state: str | None = None
+        last_read_only: bool | None = None
+
+        kill_switch_action_buttons: list[Any] = [engage_button, disengage_button]
+
+        def _render_kill_switch_state(display_state: str, *, stale: bool = False) -> None:
+            rendered_state = f"{display_state} (STALE)" if stale else display_state
+            kill_switch_button.set_text(f"KILL SWITCH: {rendered_state}")
+            if display_state == "ENGAGED":
                 kill_switch_button.classes(
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                 )
-            elif cached_kill_display == "DISENGAGED":
-                if cached_status_stale:
+                if not stale and last_kill_switch_state != "ENGAGED":
+                    ui.notify("Kill switch engaged", type="negative")
+            elif display_state == "DISENGAGED":
+                if stale:
                     kill_switch_button.classes(
                         "bg-amber-500 text-black",
                         remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
@@ -643,29 +646,45 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                         "bg-slate-700 text-slate-100",
                         remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                     )
-            else:  # UNKNOWN
+            else:
                 kill_switch_button.classes(
                     "bg-amber-500 text-black",
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
-            if cached_cb_display == "TRIPPED":
+
+        def _render_circuit_breaker_state(cb_state: str, *, stale: bool = False) -> None:
+            stale_suffix = " (STALE)" if stale else ""
+            if cb_state == "TRIPPED":
                 circuit_breaker_badge.set_text(f"CIRCUIT TRIPPED{stale_suffix}")
                 circuit_breaker_badge.classes(
                     "bg-red-700 text-rose-100",
                     remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
                 )
-            elif cached_cb_display in {"OPEN", "QUIET_PERIOD"}:
+            elif cb_state in {"OPEN", "QUIET_PERIOD"}:
                 circuit_breaker_badge.set_text(f"CIRCUIT OK{stale_suffix}")
                 circuit_breaker_badge.classes(
                     "bg-slate-700 text-slate-100",
                     remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
                 )
             else:
-                circuit_breaker_badge.set_text(f"CIRCUIT: {cached_cb_display}{stale_suffix}")
+                circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}{stale_suffix}")
                 circuit_breaker_badge.classes(
                     "bg-amber-500 text-black",
                     remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
                 )
+
+        if cached_kill_state is not None or cached_circuit_state is not None:
+            # Render stale cached state before heavy pages finish building so the
+            # top banner does not start at UNKNOWN on first paint.
+            cached_kill_display = cached_kill_state or "UNKNOWN"
+            cached_cb_display = cached_circuit_state or "UNKNOWN"
+            _render_kill_switch_state(cached_kill_display, stale=cached_status_stale)
+            _render_circuit_breaker_state(cached_cb_display, stale=cached_status_stale)
+            _update_status_bar(
+                cached_kill_display,
+                cached_cb_display,
+                stale=cached_status_stale,
+            )
 
         # Main content area
         # Top-level layout elements (e.g. drawers) must be outside header/rows.
@@ -673,16 +692,6 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
 
         with ui.column().classes("w-full p-2 bg-surface-0 min-h-screen text-text-primary"):
             await page_func(*args, **kwargs)
-
-        last_kill_switch_state: str | None = None
-        last_circuit_state: str | None = None
-        kill_switch_state: str | None = None
-        kill_switch_action_in_progress = False
-        connection_monitor = ConnectionMonitor()
-        last_connection_state: str | None = None
-        last_read_only: bool | None = None
-
-        kill_switch_action_buttons: list[Any] = [engage_button, disengage_button]
 
         def set_kill_switch_controls(state: str | None) -> None:
             if kill_switch_action_in_progress:
@@ -699,89 +708,8 @@ def main_layout(page_func: AsyncPage) -> AsyncPage:
                 engage_button.enable()
                 disengage_button.enable()
 
-        if cached_kill_state is not None:
-            last_kill_switch_state = cached_kill_state
-            kill_switch_state = cached_kill_state
-
-        if cached_circuit_state is not None:
-            last_circuit_state = cached_circuit_state
-
-        def _render_kill_switch_state(display_state: str, *, stale: bool = False) -> None:
-            rendered_state = f"{display_state} (STALE)" if stale else display_state
-            if display_state == "ENGAGED":
-                kill_switch_button.set_text(f"KILL SWITCH: {rendered_state}")
-                kill_switch_button.classes(
-                    "bg-red-700 text-rose-100",
-                    remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
-                )
-                if not stale and last_kill_switch_state != "ENGAGED":
-                    ui.notify("Kill switch engaged", type="negative")
-            elif display_state == "DISENGAGED":
-                kill_switch_button.set_text(f"KILL SWITCH: {rendered_state}")
-                if stale:
-                    kill_switch_button.classes(
-                        "bg-amber-500 text-black",
-                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                    )
-                else:
-                    kill_switch_button.classes(
-                        "bg-slate-700 text-slate-100",
-                        remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
-                    )
-            else:
-                kill_switch_button.set_text(f"KILL SWITCH: {rendered_state}")
-                kill_switch_button.classes(
-                    "bg-amber-500 text-black",
-                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                )
-
-        def _render_circuit_breaker_state(cb_state: str, *, stale: bool = False) -> None:
-            if stale:
-                if cb_state == "TRIPPED":
-                    circuit_breaker_badge.set_text("CIRCUIT TRIPPED (STALE)")
-                    circuit_breaker_badge.classes(
-                        "bg-red-700 text-rose-100",
-                        remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
-                    )
-                elif cb_state in {"OPEN", "QUIET_PERIOD"}:
-                    circuit_breaker_badge.set_text("CIRCUIT OK (STALE)")
-                    circuit_breaker_badge.classes(
-                        "bg-slate-700 text-slate-100",
-                        remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
-                    )
-                else:
-                    circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state} (STALE)")
-                    circuit_breaker_badge.classes(
-                        "bg-amber-500 text-black",
-                        remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                    )
-                return
-
-            if cb_state == "TRIPPED":
-                circuit_breaker_badge.set_text("CIRCUIT TRIPPED")
-                circuit_breaker_badge.classes(
-                    "bg-red-700 text-rose-100",
-                    remove="bg-slate-700 bg-amber-500 text-slate-100 text-black",
-                )
-            elif cb_state in {"OPEN", "QUIET_PERIOD"}:
-                circuit_breaker_badge.set_text("CIRCUIT OK")
-                circuit_breaker_badge.classes(
-                    "bg-slate-700 text-slate-100",
-                    remove="bg-red-700 bg-amber-500 text-rose-100 text-black",
-                )
-            else:
-                circuit_breaker_badge.set_text(f"CIRCUIT: {cb_state}")
-                circuit_breaker_badge.classes(
-                    "bg-amber-500 text-black",
-                    remove="bg-red-700 bg-slate-700 text-rose-100 text-slate-100",
-                )
-
         if last_kill_switch_state is not None or last_circuit_state is not None:
             cached_state = last_kill_switch_state or "UNKNOWN"
-            cached_cb = last_circuit_state or "UNKNOWN"
-            _render_kill_switch_state(cached_state, stale=cached_status_stale)
-            _render_circuit_breaker_state(cached_cb, stale=cached_status_stale)
-            _update_status_bar(cached_state, cached_cb, stale=cached_status_stale)
             set_kill_switch_controls(cached_state)
 
         async def perform_kill_switch_action(action: str, reason: str) -> None:

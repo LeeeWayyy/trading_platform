@@ -59,6 +59,20 @@ def _get_known_config_keys() -> set[str]:
 # Symbol validation (same regex as backtest.py – imported for reuse)
 SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _NON_PIT_UNIVERSE_PROVIDERS = {"yfinance", "alpaca_sip"}
+_COST_MODEL_WARNINGS_BY_PROVIDER = {
+    "yfinance": (
+        "Yahoo Finance provider with cost model enabled - "
+        "cost estimates may be inaccurate (no PIT ADV data)"
+    ),
+    "alpaca_sip": (
+        "Alpaca SIP provider with cost model enabled - "
+        "cost computation is skipped until PIT ADV data is available"
+    ),
+    "hybrid_crsp_universe_sip_prices": (
+        "Hybrid provider with cost model enabled - cost computation is skipped "
+        "until PIT ADV data can be joined to SIP price weights"
+    ),
+}
 
 # Date bounds shared with form validation
 MIN_BACKTEST_PERIOD_DAYS = 30
@@ -206,27 +220,10 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
             "starts around 2016-01-01"
         )
 
-    if normalized_provider == "yfinance":
-        cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
-        if isinstance(cost_model, dict) and cost_model.get("enabled"):
-            warnings.append(
-                "Yahoo Finance provider with cost model enabled - "
-                "cost estimates may be inaccurate (no PIT ADV data)"
-            )
-    elif normalized_provider == "alpaca_sip":
-        cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
-        if isinstance(cost_model, dict) and cost_model.get("enabled"):
-            warnings.append(
-                "Alpaca SIP provider with cost model enabled - "
-                "cost computation is skipped until PIT ADV data is available"
-            )
-    elif normalized_provider == "hybrid_crsp_universe_sip_prices":
-        cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
-        if isinstance(cost_model, dict) and cost_model.get("enabled"):
-            warnings.append(
-                "Hybrid provider with cost model enabled - cost computation is skipped "
-                "until PIT ADV data can be joined to SIP price weights"
-            )
+    cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
+    cost_model_warning = _COST_MODEL_WARNINGS_BY_PROVIDER.get(normalized_provider)
+    if isinstance(cost_model, dict) and cost_model.get("enabled") and cost_model_warning:
+        warnings.append(cost_model_warning)
 
     return ValidationResult(errors=errors, warnings=warnings)
 
