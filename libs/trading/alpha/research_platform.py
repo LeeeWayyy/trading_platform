@@ -86,6 +86,8 @@ class BacktestResult:
     computation_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     n_days: int = 0
     n_symbols_avg: float = 0.0
+    data_signature: str | None = None
+    data_signature_payload: dict[str, Any] = field(default_factory=dict)
 
     # Cost model data (P6T9) - optional, populated when cost model is enabled
     cost_config: dict[str, Any] | None = None

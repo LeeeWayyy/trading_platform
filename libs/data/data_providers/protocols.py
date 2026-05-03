@@ -1,7 +1,7 @@
 """Data Provider Protocol and Adapters.
 
 This module defines the common DataProvider protocol interface and adapter
-implementations for yfinance and CRSP providers.
+implementations for yfinance, CRSP, Alpaca SIP, and hybrid providers.
 
 The protocol enables seamless switching between data sources (yfinance for
 development, CRSP for production) via configuration.
@@ -9,6 +9,8 @@ development, CRSP for production) via configuration.
 Classes:
     DataProvider: Protocol defining the common interface for all data providers.
     YFinanceDataProviderAdapter: Adapter for YFinanceProvider.
+    AlpacaSIPDataProviderAdapter: Adapter for AlpacaSIPLocalProvider.
+    HybridDataProviderAdapter: CRSP universe + Alpaca SIP prices adapter.
     CRSPDataProviderAdapter: Adapter for CRSPLocalProvider.
 
 Exceptions:
@@ -31,7 +33,10 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import polars as pl
 
+from libs.data.data_providers.registry import ProviderCapabilities, ProviderType, get_provider_spec
+
 if TYPE_CHECKING:
+    from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
     from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
     from libs.data.data_providers.yfinance_provider import YFinanceProvider
 
@@ -184,22 +189,47 @@ class DataProvider(Protocol):
 
     @property
     def is_production_ready(self) -> bool:
-        """Whether provider is suitable for production backtests.
-
-        Returns:
-            True for CRSP (survivorship-bias-free)
-            False for yfinance (lacks survivorship handling)
-        """
+        """Whether provider is suitable for production backtests."""
         ...
 
     @property
     def supports_universe(self) -> bool:
-        """Whether provider supports get_universe operation.
+        """Whether provider supports any universe operation."""
+        ...
 
-        Returns:
-            True for CRSP (has point-in-time universe)
-            False for yfinance (no universe concept)
-        """
+    @property
+    def supports_pit_universe(self) -> bool:
+        """Whether provider supports point-in-time universe membership."""
+        ...
+
+    @property
+    def supports_active_universe(self) -> bool:
+        """Whether provider supports active-list universe membership."""
+        ...
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        """Whether provider exposes corporate-action data."""
+        ...
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        """Whether provider supports intraday bar data."""
+        ...
+
+    @property
+    def production_feed_parity(self) -> bool:
+        """Whether provider is from the execution-feed source family."""
+        ...
+
+    @property
+    def survivorship_safe(self) -> bool:
+        """Whether provider can support survivorship-safe research."""
+        ...
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """Granular capability metadata."""
         ...
 
     def get_daily_prices(
@@ -291,12 +321,40 @@ class YFinanceDataProviderAdapter:
     @property
     def is_production_ready(self) -> bool:
         """yfinance lacks survivorship handling."""
-        return False
+        return get_provider_spec(ProviderType.YFINANCE).production_allowed
 
     @property
     def supports_universe(self) -> bool:
         """yfinance has no universe concept."""
-        return False
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.YFINANCE).capabilities
 
     def get_daily_prices(
         self,
@@ -393,6 +451,231 @@ class YFinanceDataProviderAdapter:
         )
 
 
+class AlpacaSIPDataProviderAdapter:
+    """Adapter to make AlpacaSIPLocalProvider conform to DataProvider protocol.
+
+    Alpaca SIP Phase 1 is an explicit, local, ticker-based provider. It improves
+    execution-feed parity for post-2016 research, but it does not provide a
+    point-in-time universe or survivorship guarantees.
+
+    Raw SIP close is not split/dividend-adjusted. Returns are only propagated
+    when already present or derived from a non-null adjusted close series.
+    """
+
+    def __init__(self, provider: AlpacaSIPLocalProvider) -> None:
+        """Initialize adapter with AlpacaSIPLocalProvider."""
+        self._provider = provider
+
+    @property
+    def name(self) -> str:
+        """Provider identifier."""
+        return "alpaca_sip"
+
+    @property
+    def is_production_ready(self) -> bool:
+        """Alpaca SIP lacks survivorship handling in Phase 1."""
+        return get_provider_spec(ProviderType.ALPACA_SIP).production_allowed
+
+    @property
+    def supports_universe(self) -> bool:
+        """Alpaca SIP has no point-in-time universe in Phase 1."""
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.ALPACA_SIP).capabilities
+
+    def get_daily_prices(
+        self,
+        symbols: list[str],
+        start_date: date,
+        end_date: date,
+    ) -> pl.DataFrame:
+        """Fetch daily prices via local Alpaca SIP parquet."""
+        if not symbols:
+            raise ValueError("symbols list cannot be empty")
+
+        try:
+            df = self._provider.get_daily_prices(
+                start_date=start_date,
+                end_date=end_date,
+                symbols=symbols,
+            )
+        except DataProviderError:
+            raise
+        except Exception as exc:
+            raise DataProviderError(f"Alpaca SIP query failed: {exc}") from exc
+        return self._normalize_schema(df)
+
+    def _normalize_schema(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Normalize local Alpaca SIP output to the unified schema."""
+        if df.is_empty():
+            return self._empty_result()
+
+        required_cols = ["date", "symbol", "open", "high", "low", "close", "volume"]
+        missing = [column for column in required_cols if column not in df.columns]
+        if missing:
+            raise ValueError(
+                f"DataFrame missing required columns: {missing}. Got columns: {df.columns}"
+            )
+
+        df = df.with_columns(
+            [
+                pl.col("date").cast(pl.Date),
+                pl.col("symbol").str.to_uppercase(),
+            ]
+        )
+
+        if "adj_close" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("adj_close"))
+        if "ret" not in df.columns:
+            df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("ret"))
+
+        float_cols = ["close", "volume", "ret", "open", "high", "low", "adj_close"]
+        for column in float_cols:
+            df = df.with_columns(pl.col(column).cast(pl.Float64))
+
+        adjusted_close = pl.col("adj_close")
+        previous_adjusted_close = adjusted_close.shift(1).over("symbol")
+        df = (
+            df.sort(["symbol", "date"])
+            .with_columns(
+                pl.when(
+                    adjusted_close.is_not_null()
+                    & previous_adjusted_close.is_not_null()
+                    & (previous_adjusted_close != 0)
+                )
+                .then((adjusted_close / previous_adjusted_close) - 1.0)
+                .otherwise(None)
+                .alias("__adjusted_ret")
+            )
+            .with_columns(pl.coalesce(["ret", "__adjusted_ret"]).alias("ret"))
+            .drop("__adjusted_ret")
+        )
+
+        return df.select(UNIFIED_COLUMNS)
+
+    def _empty_result(self) -> pl.DataFrame:
+        """Return empty DataFrame with unified schema."""
+        return pl.DataFrame(schema=UNIFIED_SCHEMA)
+
+    def get_universe(self, as_of_date: date) -> list[str]:
+        """Not supported by Alpaca SIP in Phase 1."""
+        raise ProviderNotSupportedError(
+            "alpaca_sip does not support universe queries. "
+            "Use CRSP provider for point-in-time universe operations.",
+            provider_name="alpaca_sip",
+            operation="get_universe",
+        )
+
+
+class HybridDataProviderAdapter:
+    """Hybrid adapter: CRSP universe with Alpaca SIP price history.
+
+    This adapter is intentionally explicit-only. It provides point-in-time
+    universe construction from CRSP while routing price queries to local Alpaca
+    SIP bars for execution-feed parity. It does not attempt PERMNO-to-ticker
+    reconciliation or pre-SIP fallback.
+    """
+
+    SIP_START_DATE = date(2016, 1, 1)
+
+    def __init__(self, universe_provider: DataProvider, price_provider: DataProvider) -> None:
+        """Initialize with separate universe and price providers."""
+        if not universe_provider.supports_universe:
+            raise ValueError("Hybrid universe_provider must support universe queries")
+        self._universe_provider = universe_provider
+        self._price_provider = price_provider
+
+    @property
+    def name(self) -> str:
+        """Provider identifier."""
+        return "hybrid_crsp_universe_sip_prices"
+
+    @property
+    def is_production_ready(self) -> bool:
+        """Hybrid remains research-only until strategy harnesses are migrated."""
+        return get_provider_spec(ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES).production_allowed
+
+    @property
+    def supports_universe(self) -> bool:
+        """Universe queries are served by CRSP."""
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES).capabilities
+
+    def get_daily_prices(
+        self,
+        symbols: list[str],
+        start_date: date,
+        end_date: date,
+    ) -> pl.DataFrame:
+        """Fetch price data from Alpaca SIP, with explicit pre-SIP rejection."""
+        if start_date < self.SIP_START_DATE:
+            raise ProviderNotSupportedError(
+                "Hybrid provider cannot serve dates before Alpaca SIP coverage "
+                f"({self.SIP_START_DATE.isoformat()}). Use CRSP provider for long-history "
+                "research.",
+                provider_name=self.name,
+                operation="get_daily_prices",
+            )
+        return self._price_provider.get_daily_prices(symbols, start_date, end_date)
+
+    def get_universe(self, as_of_date: date) -> list[str]:
+        """Get the point-in-time universe from CRSP."""
+        return self._universe_provider.get_universe(as_of_date)
+
+
 class CRSPDataProviderAdapter:
     """Adapter to make CRSPLocalProvider conform to DataProvider protocol.
 
@@ -428,12 +711,40 @@ class CRSPDataProviderAdapter:
     @property
     def is_production_ready(self) -> bool:
         """CRSP is survivorship-bias-free."""
-        return True
+        return get_provider_spec(ProviderType.CRSP).production_allowed
 
     @property
     def supports_universe(self) -> bool:
         """CRSP has point-in-time universe."""
-        return True
+        return self.supports_pit_universe or self.supports_active_universe
+
+    @property
+    def supports_pit_universe(self) -> bool:
+        return self.capabilities.supports_pit_universe
+
+    @property
+    def supports_active_universe(self) -> bool:
+        return self.capabilities.supports_active_universe
+
+    @property
+    def supports_corp_actions(self) -> bool:
+        return self.capabilities.supports_corp_actions
+
+    @property
+    def supports_intraday_bars(self) -> bool:
+        return self.capabilities.supports_intraday_bars
+
+    @property
+    def production_feed_parity(self) -> bool:
+        return self.capabilities.production_feed_parity
+
+    @property
+    def survivorship_safe(self) -> bool:
+        return self.capabilities.survivorship_safe
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return get_provider_spec(ProviderType.CRSP).capabilities
 
     def get_daily_prices(
         self,

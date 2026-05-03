@@ -32,6 +32,12 @@ def test_chart_init_js_uses_minimum_chart_dimensions() -> None:
     assert "const MIN_CHART_HEIGHT = 180;" in lightweight_charts.CHART_INIT_JS
 
 
+def test_chart_init_js_allows_zooming_out_to_full_sip_history() -> None:
+    """Time scale should allow 10k intraday candles to fit in the chart viewport."""
+    assert "const MIN_BAR_SPACING = 0.03;" in lightweight_charts.CHART_INIT_JS
+    assert "minBarSpacing: MIN_BAR_SPACING" in lightweight_charts.CHART_INIT_JS
+
+
 def test_chart_init_js_stores_resize_observer_reference() -> None:
     """ResizeObserver should be attached to chart registry for disposal cleanup."""
     assert "resizeObserver: null" in lightweight_charts.CHART_INIT_JS

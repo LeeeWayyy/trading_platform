@@ -10,6 +10,7 @@ DATASET_TABLES: dict[str, list[str]] = {
     "compustat": ["compustat_annual", "compustat_quarterly"],
     "fama_french": ["ff_factors_daily", "ff_factors_monthly"],
     "taq": ["taq_trades", "taq_quotes"],
+    "alpaca_sip": ["alpaca_sip_daily", "alpaca_sip_corp_actions"],
 }
 
 BLOCKED_FUNCTIONS: list[str] = [

@@ -26,18 +26,26 @@ from typing import Any
 
 from nicegui import ui
 
-from libs.trading.backtest.job_queue import BacktestJobConfig
+from libs.data.data_providers.registry import (
+    provider_display_inverse_map_with_options,
+    provider_display_map_with_options,
+)
+from libs.trading.backtest.job_queue import (
+    HYBRID_CRSP_SIP_MIN_START_DATE,
+    BacktestJobConfig,
+    DataProvider,
+    resolve_auto_provider,
+)
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Provider display ↔ enum mapping
 # ---------------------------------------------------------------------------
-PROVIDER_DISPLAY: dict[str, str] = {
-    "crsp": "CRSP (production)",
-    "yfinance": "Yahoo Finance (dev only)",
-}
-PROVIDER_DISPLAY_INVERSE: dict[str, str] = {v: k for k, v in PROVIDER_DISPLAY.items()}
+PROVIDER_DISPLAY: dict[str, str] = provider_display_map_with_options(include_auto=True)
+PROVIDER_DISPLAY_INVERSE: dict[str, str] = provider_display_inverse_map_with_options(
+    include_auto=True
+)
 
 # Known config keys – derived from the dataclass to stay in sync
 _KNOWN_CONFIG_KEYS: set[str] = set(BacktestJobConfig.__dataclass_fields__.keys())
@@ -50,9 +58,36 @@ def _get_known_config_keys() -> set[str]:
 
 # Symbol validation (same regex as backtest.py – imported for reuse)
 SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+_NON_PIT_UNIVERSE_PROVIDERS = {"yfinance", "alpaca_sip"}
+_COST_MODEL_WARNINGS_BY_PROVIDER = {
+    "yfinance": (
+        "Yahoo Finance provider with cost model enabled - "
+        "cost estimates may be inaccurate (no PIT ADV data)"
+    ),
+    "alpaca_sip": (
+        "Alpaca SIP provider with cost model enabled - "
+        "cost computation is skipped until PIT ADV data is available"
+    ),
+    "hybrid_crsp_universe_sip_prices": (
+        "Hybrid provider with cost model enabled - cost computation is skipped "
+        "until PIT ADV data can be joined to SIP price weights"
+    ),
+}
 
 # Date bounds shared with form validation
 MIN_BACKTEST_PERIOD_DAYS = 30
+
+
+def _normalize_universe(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [symbol.strip().upper() for symbol in value.split(",") if symbol.strip()]
+    if isinstance(value, list | tuple):
+        return [
+            symbol.strip().upper()
+            for symbol in value
+            if isinstance(symbol, str) and symbol.strip()
+        ]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -128,32 +163,67 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
     valid_providers = set(PROVIDER_DISPLAY.keys())
     if str(provider).lower().strip() not in valid_providers:
         errors.append(
-            f"Unrecognised provider: '{provider}'. "
-            f"Must be one of: {sorted(valid_providers)}"
+            f"Unrecognised provider: '{provider}'. " f"Must be one of: {sorted(valid_providers)}"
         )
 
     # --- Universe symbol validation -------------------------------------
-    extra = config_dict.get("extra_params", {})
-    if isinstance(extra, dict):
-        universe = extra.get("universe")
-        if universe and isinstance(universe, list):
-            invalid_symbols = [s for s in universe if not SYMBOL_PATTERN.match(str(s).upper())]
-            if invalid_symbols:
-                sanitized = [str(s).replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]]
-                errors.append(
-                    f"Invalid universe symbols: {', '.join(sanitized)}. "
-                    "Symbols must start with a letter, be 1-10 characters "
-                    "(alphanumeric/dots/hyphens)."
-                )
+    extra_raw = config_dict.get("extra_params", {})
+    if extra_raw is None:
+        extra: dict[str, Any] = {}
+    elif isinstance(extra_raw, dict):
+        extra = extra_raw
+    else:
+        errors.append("extra_params must be an object when provided")
+        extra = {}
+
+    universe = _normalize_universe(extra.get("universe"))
+    if universe:
+        invalid_symbols = [s for s in universe if not SYMBOL_PATTERN.match(s)]
+        if invalid_symbols:
+            sanitized = [s.replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]]
+            errors.append(
+                f"Invalid universe symbols: {', '.join(sanitized)}. "
+                "Symbols must start with a letter, be 1-10 characters "
+                "(alphanumeric/dots/hyphens)."
+            )
 
     # --- Provider-specific warnings ------------------------------------
-    if str(provider).lower().strip() == "yfinance":
-        cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
-        if isinstance(cost_model, dict) and cost_model.get("enabled"):
-            warnings.append(
-                "Yahoo Finance provider with cost model enabled - "
-                "cost estimates may be inaccurate (no PIT ADV data)"
+    normalized_provider = str(provider).lower().strip()
+    if normalized_provider in _NON_PIT_UNIVERSE_PROVIDERS and not universe:
+        errors.append(
+            f"{PROVIDER_DISPLAY[normalized_provider]} requires an explicit symbol universe."
+        )
+    elif normalized_provider == "auto" and not universe:
+        try:
+            validation_config = BacktestJobConfig(
+                alpha_name=str(config_dict["alpha_name"]),
+                start_date=start_dt,
+                end_date=end_dt,
+                provider=DataProvider.AUTO,
+                extra_params=dict(extra),
             )
+            resolve_auto_provider(validation_config)
+        except (ValueError, TypeError) as exc:
+            errors.append(
+                "Auto provider requires an explicit symbol universe for the current "
+                f"data roles: {exc}"
+            )
+
+    if (
+        normalized_provider == "hybrid_crsp_universe_sip_prices"
+        and start_dt < HYBRID_CRSP_SIP_MIN_START_DATE
+    ):
+        errors.append(
+            "Hybrid CRSP/SIP provider requires start_date >= "
+            f"{HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} because the simple "
+            "backtester fetches a 90-day lookback and Alpaca SIP daily history "
+            "starts around 2016-01-01"
+        )
+
+    cost_model = extra.get("cost_model") if isinstance(extra, dict) else None
+    cost_model_warning = _COST_MODEL_WARNINGS_BY_PROVIDER.get(normalized_provider)
+    if isinstance(cost_model, dict) and cost_model.get("enabled") and cost_model_warning:
+        warnings.append(cost_model_warning)
 
     return ValidationResult(errors=errors, warnings=warnings)
 
@@ -187,6 +257,12 @@ def form_state_to_json(
         symbols = [s.strip().upper() for s in universe_csv.split(",") if s.strip()]
         if symbols:
             extra["universe"] = symbols
+            if provider_value == "auto":
+                role_config = extra.get("data")
+                if not isinstance(role_config, dict):
+                    role_config = {}
+                role_config.setdefault("requires_pit_universe", False)
+                extra["data"] = role_config
 
     if cost_config is not None:
         extra["cost_model"] = cost_config
@@ -318,8 +394,7 @@ def render_config_editor(
 
     with container:
         ui.label(
-            "Edit backtest configuration as JSON. "
-            "Priority selector above remains active."
+            "Edit backtest configuration as JSON. " "Priority selector above remains active."
         ).classes("text-xs text-gray-500 mb-1")
 
         editor = ui.codemirror("", language="JSON").classes("w-full").style("min-height: 300px")
@@ -334,11 +409,10 @@ def render_config_editor(
         handles["warning_label"] = warning_label
 
         with ui.row().classes("gap-2 mt-2"):
+
             async def _copy_json() -> None:
                 val = editor.value or ""
-                await ui.run_javascript(
-                    f"navigator.clipboard.writeText({json.dumps(val)})"
-                )
+                await ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(val)})")
                 ui.notify("Copied to clipboard", type="positive")
 
             ui.button("Copy Config", on_click=_copy_json, icon="content_copy").props("flat")

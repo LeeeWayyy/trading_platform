@@ -16,6 +16,13 @@ from redis import Redis
 from rq import Queue, Retry
 from rq.job import Job, NoSuchJobError  # type: ignore[attr-defined]
 
+from libs.data.data_providers.registry import ProviderType
+from libs.data.data_providers.role_resolver import DataRoleConfig, resolve_data_roles
+
+DataProvider = ProviderType
+
+HYBRID_CRSP_SIP_MIN_START_DATE = date(2016, 4, 1)
+
 
 class WeightMethod(str, Enum):
     """Weight method for converting signals to portfolio weights."""
@@ -33,29 +40,52 @@ class JobPriority(str, Enum):
     LOW = "low"
 
 
-class DataProvider(str, Enum):
-    """Data provider for backtests.
+def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
+    if "universe" not in extra_params:
+        raise ValueError(
+            "Non-PIT backtests require an explicit symbol universe. "
+            "Set extra_params.universe; implicit default universes are not allowed."
+        )
 
-    CRSP: Production-grade point-in-time data (recommended for real backtests).
-    YFINANCE: Development/testing only - no PIT compliance, limited universe.
-    """
+    raw_universe: str | list[str] | tuple[str, ...] | None = extra_params.get("universe")
 
-    CRSP = "crsp"
-    YFINANCE = "yfinance"
+    if isinstance(raw_universe, str):
+        universe = [symbol.strip().upper() for symbol in raw_universe.split(",") if symbol.strip()]
+    elif isinstance(raw_universe, list | tuple):
+        universe = [
+            symbol.strip().upper()
+            for symbol in raw_universe
+            if isinstance(symbol, str) and symbol.strip()
+        ]
+    else:
+        universe = []
 
-    @classmethod
-    def from_string(cls, value: str) -> DataProvider:
-        """Parse provider string with validation.
+    if not universe:
+        raise ValueError("Universe cannot be empty after normalization")
 
-        Raises:
-            ValueError: If provider string is not a valid DataProvider.
-        """
-        normalized = value.lower().strip()
-        try:
-            return cls(normalized)
-        except ValueError as e:
-            valid = [p.value for p in cls]
-            raise ValueError(f"Invalid data provider: '{value}'. Must be one of: {valid}") from e
+    return universe
+
+
+def _optional_symbol_universe(extra_params: dict[str, Any]) -> list[str] | None:
+    if "universe" not in extra_params:
+        return None
+    return _resolve_symbol_universe(extra_params)
+
+
+def resolve_auto_provider(config: BacktestJobConfig) -> None:
+    """Resolve provider=AUTO before idempotency hashing or worker execution."""
+    if config.provider != DataProvider.AUTO:
+        return
+
+    role_mapping = config.extra_params.get("data")
+    if role_mapping is not None and not isinstance(role_mapping, dict):
+        raise ValueError("extra_params.data must be an object when provider=auto")
+
+    explicit_symbols = _optional_symbol_universe(config.extra_params)
+    role_config = DataRoleConfig.from_mapping(role_mapping)
+    resolved_roles = resolve_data_roles(role_config, explicit_symbols=explicit_symbols)
+    config.provider = resolved_roles.to_provider_type()
+    config.extra_params["resolved_data_roles"] = resolved_roles.to_metadata()
 
 
 def _resolve_rq_finished_status(job: Job) -> tuple[str, str | None]:
@@ -135,13 +165,21 @@ class BacktestJobConfig:
         if end_date <= start_date:
             raise ValueError(f"end_date ({end_date}) must be after start_date ({start_date})")
 
+        raw_extra_params = data.get("extra_params")
+        if raw_extra_params is None:
+            extra_params: dict[str, Any] = {}
+        elif isinstance(raw_extra_params, dict):
+            extra_params = dict(raw_extra_params)
+        else:
+            raise ValueError("extra_params must be an object when provided")
+
         return cls(
             alpha_name=data["alpha_name"],
             start_date=start_date,
             end_date=end_date,
             weight_method=weight,
             provider=provider,
-            extra_params=data.get("extra_params", {}),
+            extra_params=extra_params,
         )
 
 
@@ -258,7 +296,8 @@ class BacktestJobQueue:
         - User-triggered reruns must call enqueue(..., is_rerun=True) to reset retry_count to 0 (automatic retries handled by RQ retry hook)
         - Healing must NOT bump retry_count; only the RQ retry hook increments it to avoid double-counting.
         """
-        job_id = config.compute_job_id(created_by)  # Include user in hash
+        resolve_auto_provider(config)
+        job_id = config.compute_job_id(created_by)  # Include user and resolved provider in hash
 
         job_timeout = timeout or self.DEFAULT_TIMEOUT
         if not 300 <= job_timeout <= 14_400:

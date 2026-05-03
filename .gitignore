@@ -67,6 +67,7 @@ data/raw/*
 data/processed/*
 data/adjusted/*
 data/quarantine/*
+data/quality/*
 !data/.gitkeep
 
 # Artifacts

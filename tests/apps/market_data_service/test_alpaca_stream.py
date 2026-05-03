@@ -11,6 +11,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from alpaca.data.enums import DataFeed
 from redis.exceptions import RedisError
 
 from libs.data.market_data.alpaca_stream import AlpacaMarketDataStream
@@ -62,6 +63,7 @@ def stream(mock_redis, mock_publisher):
         )
 
         stream.stream = mock_stream_instance
+        mock_stream_class.assert_called_once_with("test_key", "test_secret", feed=DataFeed.IEX)
         yield stream
 
 
@@ -148,26 +150,27 @@ class TestAlpacaMarketDataStream:
         assert event.ask_size == 200
 
     @pytest.mark.asyncio()
-    async def test_handle_quote_with_invalid_data(self, stream, mock_redis, mock_publisher):
-        """Test handling quote with invalid data logs error but doesn't crash stream."""
-        # Create quote with crossed market (ask < bid)
-        bad_quote = Mock()
-        bad_quote.symbol = "AAPL"
-        bad_quote.bid_price = 150.10
-        bad_quote.ask_price = 150.00  # Invalid: ask < bid
-        bad_quote.bid_size = 100
-        bad_quote.ask_size = 200
-        bad_quote.timestamp = datetime.now(UTC)
-        bad_quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange
+    async def test_handle_quote_with_crossed_market_normalizes(
+        self, stream, mock_redis, mock_publisher
+    ):
+        """Test transient crossed SIP quotes are normalized instead of dropped."""
+        quote = Mock()
+        quote.symbol = "AAPL"
+        quote.bid_price = 150.10
+        quote.ask_price = 150.00
+        quote.bid_size = 100
+        quote.ask_size = 200
+        quote.timestamp = datetime.now(UTC)
+        quote.ask_exchange = "NASDAQ"
 
-        # Should NOT raise exception - stream should continue processing
-        await stream._handle_quote(bad_quote)
+        await stream._handle_quote(quote)
 
-        # Verify Redis was not updated (bad quote rejected)
-        assert not mock_redis.set.called
-
-        # Verify event was not published (bad quote rejected)
-        assert not mock_publisher.publish.called
+        assert mock_redis.set.called
+        assert mock_publisher.publish.called
+        event = mock_publisher.publish.call_args[0][1]
+        assert event.bid == Decimal("150.05")
+        assert event.ask == Decimal("150.05")
+        assert event.price == Decimal("150.05")
 
     @pytest.mark.asyncio()
     async def test_stream_continues_after_bad_quote(
@@ -183,22 +186,20 @@ class TestAlpacaMarketDataStream:
         The fix ensures _handle_quote logs errors but doesn't re-raise, allowing
         the stream to continue processing subsequent valid quotes.
         """
-        # Create a bad quote (crossed market)
-        bad_quote = Mock()
-        bad_quote.symbol = "AAPL"
-        bad_quote.bid_price = 150.10
-        bad_quote.ask_price = 150.00  # Invalid: ask < bid
-        bad_quote.bid_size = 100
-        bad_quote.ask_size = 200
-        bad_quote.timestamp = datetime.now(UTC)
-        bad_quote.ask_exchange = "NASDAQ"  # Fixed: Alpaca SDK uses ask_exchange
+        # Create a crossed quote, which should be normalized and not poison the stream.
+        crossed_quote = Mock()
+        crossed_quote.symbol = "AAPL"
+        crossed_quote.bid_price = 150.10
+        crossed_quote.ask_price = 150.00
+        crossed_quote.bid_size = 100
+        crossed_quote.ask_size = 200
+        crossed_quote.timestamp = datetime.now(UTC)
+        crossed_quote.ask_exchange = "NASDAQ"
 
-        # Process bad quote - should NOT crash
-        await stream._handle_quote(bad_quote)
+        await stream._handle_quote(crossed_quote)
 
-        # Verify bad quote was rejected
-        assert not mock_redis.set.called
-        assert not mock_publisher.publish.called
+        assert mock_redis.set.called
+        assert mock_publisher.publish.called
 
         # Reset mocks
         mock_redis.set.reset_mock()
@@ -243,6 +244,7 @@ class TestAlpacaMarketDataStream:
         assert stats["subscribed_symbols"] == 2
         assert stats["reconnect_attempts"] == 2
         assert stats["max_reconnect_attempts"] == 10
+        assert stats["data_feed"] == "iex"
 
     def test_is_connected_when_running(self, stream):
         """Test is_connected returns True when stream is running."""

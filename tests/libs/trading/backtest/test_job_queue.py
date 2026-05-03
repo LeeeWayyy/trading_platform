@@ -160,6 +160,44 @@ def test_enqueue_creates_job_and_db_record(redis_mock):
     redis_mock.delete.assert_called_with(f"backtest:lock:{job_id}")
 
 
+def test_enqueue_resolves_auto_provider_before_hashing(redis_mock, monkeypatch):
+    monkeypatch.setenv("CRSP_AVAILABLE", "false")
+    monkeypatch.setenv("HISTORICAL_UNIVERSE_SOURCE_DEFAULT", "explicit_symbols")
+    monkeypatch.setenv("HISTORICAL_PRICE_SOURCE_DEFAULT", "alpaca_sip")
+    monkeypatch.setenv("HISTORICAL_CORP_ACTIONS_SOURCE_DEFAULT", "alpaca_sip")
+    db_pool = MagicMock()
+    queue = _make_queue(redis_mock, db_pool)
+    queue._create_db_job = MagicMock()
+    queue._fetch_db_job = MagicMock(return_value=None)
+    queue._safe_fetch_job = MagicMock(return_value=None)
+
+    fake_job = MagicMock()
+    queue.queues[JobPriority.NORMAL].enqueue.return_value = fake_job
+    config = BacktestJobConfig(
+        "alpha1",
+        date(2024, 1, 1),
+        date(2024, 1, 31),
+        provider=DataProvider.AUTO,
+        extra_params={"universe": ["AAPL"], "data": {"requires_pit_universe": False}},
+    )
+    auto_job_id = config.compute_job_id("alice")
+
+    job = queue.enqueue(config, created_by="alice")
+
+    resolved_job_id = config.compute_job_id("alice")
+    assert job is fake_job
+    assert config.provider == DataProvider.ALPACA_SIP
+    assert config.extra_params["resolved_data_roles"]["price_source"] == "alpaca_sip"
+    assert resolved_job_id != auto_job_id
+    queue._create_db_job.assert_called_once_with(
+        resolved_job_id, config, "alice", queue.DEFAULT_TIMEOUT, is_rerun=False
+    )
+    queue.queues[JobPriority.NORMAL].enqueue.assert_called_once()
+    assert queue.queues[JobPriority.NORMAL].enqueue.call_args.kwargs["job_id"] == resolved_job_id
+    enqueued_config = queue.queues[JobPriority.NORMAL].enqueue.call_args.kwargs["kwargs"]["config"]
+    assert enqueued_config["provider"] == "alpaca_sip"
+
+
 def test_enqueue_idempotent_returns_existing(redis_mock):
     db_pool = MagicMock()
     queue = _make_queue(redis_mock, db_pool)
@@ -633,12 +671,32 @@ class TestDataProviderEnum:
         """Test that 'yfinance' string parses to YFINANCE provider."""
         assert DataProvider.from_string("yfinance") == DataProvider.YFINANCE
 
+    def test_from_string_valid_alpaca_sip(self):
+        """Test that 'alpaca_sip' string parses to ALPACA_SIP provider."""
+        assert DataProvider.from_string("alpaca_sip") == DataProvider.ALPACA_SIP
+
+    def test_from_string_valid_hybrid(self):
+        """Test that hybrid provider string parses correctly."""
+        assert (
+            DataProvider.from_string("hybrid_crsp_universe_sip_prices")
+            == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
+
+    def test_from_string_valid_auto(self):
+        """Test that legacy provider parser accepts AUTO for role-based jobs."""
+        assert DataProvider.from_string("auto") == DataProvider.AUTO
+
     def test_from_string_case_insensitive(self):
         """Test that provider parsing is case-insensitive."""
         assert DataProvider.from_string("CRSP") == DataProvider.CRSP
         assert DataProvider.from_string("Crsp") == DataProvider.CRSP
         assert DataProvider.from_string("YFINANCE") == DataProvider.YFINANCE
         assert DataProvider.from_string("YFinance") == DataProvider.YFINANCE
+        assert DataProvider.from_string("ALPACA_SIP") == DataProvider.ALPACA_SIP
+        assert (
+            DataProvider.from_string("HYBRID_CRSP_UNIVERSE_SIP_PRICES")
+            == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
 
     def test_from_string_strips_whitespace(self):
         """Test that provider parsing strips leading/trailing whitespace."""
@@ -691,6 +749,65 @@ class TestBacktestJobConfigFromDict:
         }
         config = BacktestJobConfig.from_dict(data)
         assert config.provider == DataProvider.YFINANCE
+
+    def test_from_dict_provider_alpaca_sip(self):
+        """Test that alpaca_sip provider is correctly parsed."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "alpaca_sip",
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.ALPACA_SIP
+
+    def test_from_dict_provider_hybrid(self):
+        """Test that hybrid provider is correctly parsed."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "hybrid_crsp_universe_sip_prices",
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+
+    def test_from_dict_provider_auto(self):
+        """Test that auto provider is preserved for worker-side role resolution."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "auto",
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.provider == DataProvider.AUTO
+
+    def test_from_dict_extra_params_none_defaults_to_empty_dict(self):
+        """Test that explicit extra_params=None is normalized before auto resolution."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "auto",
+            "extra_params": None,
+        }
+        config = BacktestJobConfig.from_dict(data)
+        assert config.extra_params == {}
+        job_queue.resolve_auto_provider(config)
+        assert config.provider == DataProvider.CRSP
+
+    def test_from_dict_extra_params_non_object_raises(self):
+        """Test that malformed extra_params is rejected with a validation error."""
+        data = {
+            "alpha_name": "test_alpha",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "provider": "auto",
+            "extra_params": [],
+        }
+        with pytest.raises(ValueError, match="extra_params must be an object"):
+            BacktestJobConfig.from_dict(data)
 
     def test_from_dict_invalid_provider_raises(self):
         """Test that invalid provider in dict raises ValueError."""

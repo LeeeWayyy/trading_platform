@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,11 +21,23 @@ from psycopg_pool import ConnectionPool
 from redis import Redis
 from rq import get_current_job
 
+from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
 from libs.data.data_providers.compustat_local_provider import CompustatLocalProvider
 from libs.data.data_providers.crsp_local_provider import CRSPLocalProvider
-from libs.data.data_providers.unified_fetcher import FetcherConfig, ProviderType, UnifiedDataFetcher
+from libs.data.data_providers.registry import (
+    ProviderType,
+    build_manifest_id,
+    compute_data_signature,
+    compute_symbol_set_hash,
+    get_provider_spec,
+    provider_ids_for_roles,
+    provider_versions_for_ids,
+    source_feeds_for_provider_ids,
+)
+from libs.data.data_providers.unified_fetcher import FetcherConfig, UnifiedDataFetcher
 from libs.data.data_providers.yfinance_provider import YFinanceProvider
-from libs.data.data_quality.manifest import ManifestManager
+from libs.data.data_quality.exceptions import DataNotFoundError
+from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 from libs.data.data_quality.versioning import DatasetVersionManager
 from libs.trading.alpha.alpha_library import create_alpha
 from libs.trading.alpha.exceptions import JobCancelled
@@ -38,7 +50,15 @@ from libs.trading.backtest.cost_model import (
     compute_backtest_costs,
     load_pit_adv_volatility,
 )
-from libs.trading.backtest.job_queue import BacktestJobConfig, BacktestJobQueue, DataProvider
+from libs.trading.backtest.job_queue import (
+    HYBRID_CRSP_SIP_MIN_START_DATE,
+    BacktestJobConfig,
+    BacktestJobQueue,
+    DataProvider,
+)
+from libs.trading.backtest.job_queue import (
+    resolve_auto_provider as _resolve_auto_provider,
+)
 from libs.trading.backtest.param_search import SearchResult
 from libs.trading.backtest.result_storage import (
     _sanitize_float,
@@ -46,6 +66,363 @@ from libs.trading.backtest.result_storage import (
     serialize_walk_forward,
 )
 from libs.trading.backtest.walk_forward import WalkForwardConfig, WalkForwardResult
+
+ENV_NORMALIZATION = {
+    "dev": "development",
+    "development": "development",
+    "testing": "test",
+    "test": "test",
+    "local": "development",
+    "ci": "development",
+}
+ALLOWED_NON_PIT_ENVIRONMENTS = frozenset(ENV_NORMALIZATION.keys())
+
+
+def _resolve_non_pit_environment(provider_name: str) -> str:
+    """Resolve and validate the environment for non-PIT providers."""
+    raw_environment = os.getenv("ENVIRONMENT", "").lower().strip()
+    if not raw_environment:
+        raise ValueError(
+            f"ENVIRONMENT variable must be explicitly set to use {provider_name} provider. "
+            "Valid development environments: development, test, local, ci. "
+            "Use CRSP for production backtests."
+        )
+
+    if raw_environment not in ALLOWED_NON_PIT_ENVIRONMENTS:
+        raise ValueError(
+            f"{provider_name} provider is only allowed in development environments "
+            f"({', '.join(sorted(ALLOWED_NON_PIT_ENVIRONMENTS))}). "
+            f"Current environment: '{raw_environment}'. "
+            "Use CRSP for production backtests."
+        )
+
+    return ENV_NORMALIZATION[raw_environment]
+
+
+def _resolve_symbol_universe(extra_params: dict[str, Any]) -> list[str]:
+    """Normalize an explicit ticker universe for non-PIT backtests."""
+    if "universe" not in extra_params:
+        raise ValueError(
+            "Non-PIT backtests require an explicit symbol universe. "
+            "Set extra_params.universe; implicit default universes are not allowed."
+        )
+
+    raw_universe: str | list[str] | tuple[str, ...] | None = extra_params.get("universe")
+
+    if isinstance(raw_universe, str):
+        universe = [symbol.strip().upper() for symbol in raw_universe.split(",") if symbol.strip()]
+    elif isinstance(raw_universe, list | tuple):
+        universe = [
+            symbol.strip().upper()
+            for symbol in raw_universe
+            if isinstance(symbol, str) and symbol.strip()
+        ]
+    else:
+        universe = []
+
+    if not universe:
+        raise ValueError("Universe cannot be empty after normalization")
+
+    return universe
+
+
+def _resolve_hybrid_symbol_universe(
+    fetcher: UnifiedDataFetcher,
+    extra_params: dict[str, Any],
+    as_of_date: date,
+) -> list[str]:
+    """Resolve the static universe for hybrid CRSP/SIP simple backtests."""
+    if "universe" in extra_params:
+        return _resolve_symbol_universe(extra_params)
+
+    universe: list[str] = []
+    seen: set[str] = set()
+    for symbol in fetcher.get_universe(as_of_date):
+        normalized = symbol.strip().upper() if isinstance(symbol, str) else ""
+        if normalized and normalized not in seen:
+            universe.append(normalized)
+            seen.add(normalized)
+
+    if not universe:
+        raise ValueError("Hybrid CRSP universe cannot be empty")
+
+    return universe
+
+
+def _validate_hybrid_start_date(start_date: date) -> None:
+    """Fail early when the simple backtest lookback would predate SIP coverage."""
+    if start_date < HYBRID_CRSP_SIP_MIN_START_DATE:
+        raise ValueError(
+            "Hybrid CRSP/SIP backtests require start_date >= "
+            f"{HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} because the simple "
+            "backtester fetches a 90-day lookback and Alpaca SIP daily history "
+            "starts around 2016-01-01. Use CRSP for earlier windows."
+        )
+
+
+def _load_alpaca_sip_manifest(manifest_manager: ManifestManager) -> SyncManifest:
+    """Load the exact Alpaca SIP manifest to pin for one backtest."""
+    manifest = manifest_manager.load_manifest(AlpacaSIPLocalProvider.DATASET_NAME)
+    if manifest is None:
+        raise DataNotFoundError(
+            f"No manifest found for '{AlpacaSIPLocalProvider.DATASET_NAME}'. "
+            "Run Alpaca SIP sync first."
+        )
+    return manifest
+
+
+def _alpaca_sip_dataset_version_ids(manifest: SyncManifest) -> dict[str, str]:
+    """Build metadata required to reproduce Alpaca SIP simple backtests."""
+    spec = get_provider_spec(DataProvider.ALPACA_SIP)
+    manifest_id = getattr(manifest, "manifest_id", None) or build_manifest_id(
+        manifest.dataset, manifest.manifest_version, manifest.checksum
+    )
+    return {
+        "version": f"manifest-v{manifest.manifest_version}",
+        "provider_id": spec.provider_id.value,
+        "provider_version": spec.provider_version,
+        "source_feed": spec.source_feed or "",
+        "adjustment_mode": spec.default_adjustment_mode or "",
+        "manifest_id": manifest_id,
+        "alpaca_sip_daily_dataset": manifest.dataset,
+        "alpaca_sip_daily_manifest_version": str(manifest.manifest_version),
+        "alpaca_sip_daily_checksum": manifest.checksum,
+        "alpaca_sip_daily_schema_version": manifest.schema_version,
+        "alpaca_sip_daily_start_date": manifest.start_date.isoformat(),
+        "alpaca_sip_daily_end_date": manifest.end_date.isoformat(),
+        "alpaca_sip_daily_row_count": str(manifest.row_count),
+    }
+
+
+def _hybrid_sip_dataset_version_ids(
+    manifest: SyncManifest,
+    *,
+    explicit_universe: bool,
+    universe_as_of_date: date,
+) -> dict[str, str]:
+    """Build provenance metadata for hybrid CRSP-universe/SIP-price jobs."""
+    version_ids = {
+        **_alpaca_sip_dataset_version_ids(manifest),
+        "hybrid_price_provider": "alpaca_sip",
+    }
+    if explicit_universe:
+        version_ids["hybrid_universe_provider"] = "explicit_symbols"
+    else:
+        version_ids["hybrid_universe_provider"] = "crsp"
+        version_ids["hybrid_universe_as_of_date"] = universe_as_of_date.isoformat()
+    return version_ids
+
+
+def _legacy_provider_roles(provider: DataProvider, *, explicit_universe: bool) -> dict[str, str]:
+    """Map legacy provider field to role-based provenance metadata."""
+    if provider == DataProvider.CRSP:
+        return {
+            "universe_source": "crsp",
+            "price_source": "crsp",
+            "corp_actions_source": "crsp",
+        }
+    if provider == DataProvider.YFINANCE:
+        return {
+            "universe_source": "explicit_symbols",
+            "price_source": "yfinance",
+            "corp_actions_source": "none",
+        }
+    if provider == DataProvider.ALPACA_SIP:
+        return {
+            "universe_source": "explicit_symbols",
+            "price_source": "alpaca_sip",
+            "corp_actions_source": "alpaca_sip",
+        }
+    if provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+        return {
+            "universe_source": "explicit_symbols" if explicit_universe else "crsp",
+            "price_source": "alpaca_sip",
+            "corp_actions_source": "alpaca_sip",
+        }
+    raise ValueError(f"Unsupported provider for data signature: {provider}")
+
+
+def _manifest_ids_from_dataset_versions(dataset_version_ids: dict[str, Any]) -> dict[str, str]:
+    """Extract manifest IDs from existing dataset-version metadata."""
+    if "manifest_id" in dataset_version_ids:
+        return {"alpaca_sip_daily": str(dataset_version_ids["manifest_id"])}
+
+    manifest_ids: dict[str, str] = {}
+    for key, value in dataset_version_ids.items():
+        if key.endswith("_manifest_id"):
+            manifest_ids[key[: -len("_manifest_id")]] = str(value)
+        elif key.endswith("_manifest_version"):
+            dataset = key[: -len("_manifest_version")]
+            checksum = dataset_version_ids.get(f"{dataset}_checksum", "unknown")
+            manifest_ids[dataset] = build_manifest_id(dataset, value, str(checksum))
+        elif key in {"crsp", "compustat"}:
+            manifest_ids[key] = f"{key}@v{value}:unknown"
+    return manifest_ids
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert provenance metadata to deterministic JSON-compatible values."""
+    return json.loads(json.dumps(value, sort_keys=True, default=str))
+
+
+def _stable_json(value: Any) -> str:
+    return json.dumps(_json_safe(value), sort_keys=True)
+
+
+def _attach_data_signature(
+    result: BacktestResult,
+    provider: DataProvider,
+    *,
+    universe: list[str] | None,
+    explicit_universe: bool,
+    role_metadata: dict[str, Any] | None = None,
+) -> None:
+    """Attach deterministic provider/manifest signature metadata to a result."""
+    spec = get_provider_spec(provider)
+    roles = (
+        {
+            "universe_source": str(role_metadata.get("universe_source") or ""),
+            "price_source": str(role_metadata.get("price_source") or ""),
+            "corp_actions_source": str(role_metadata.get("corp_actions_source") or ""),
+        }
+        if role_metadata
+        else _legacy_provider_roles(provider, explicit_universe=explicit_universe)
+    )
+    dataset_version_ids = dict(result.dataset_version_ids or {})
+    manifest_ids = _manifest_ids_from_dataset_versions(dataset_version_ids)
+    provider_role_validation_error: str | None = None
+    try:
+        provider_ids = provider_ids_for_roles(roles, strict=True)
+    except ValueError as exc:
+        if role_metadata is None:
+            raise
+        provider_role_validation_error = str(exc)
+        provider_ids = provider_ids_for_roles(roles, strict=False)
+    provider_versions = provider_versions_for_ids(provider_ids)
+    source_feeds = source_feeds_for_provider_ids(provider_ids)
+    symbol_set_hash = (
+        compute_symbol_set_hash(universe)
+        if universe is not None
+        else compute_symbol_set_hash([f"snapshot:{result.snapshot_id}"])
+    )
+    adjustment_mode = (
+        str(role_metadata.get("adjustment_mode"))
+        if role_metadata and role_metadata.get("adjustment_mode")
+        else spec.default_adjustment_mode or "none"
+    )
+    payload: dict[str, Any] = {
+        "roles": roles,
+        "provider_ids": provider_ids,
+        "provider_versions": provider_versions,
+        "manifest_ids": manifest_ids,
+        "source_feeds": source_feeds,
+        "source_feed": spec.source_feed or "none",
+        "adjustment_mode": adjustment_mode,
+        "symbol_set_hash": symbol_set_hash,
+    }
+    if role_metadata:
+        payload["role_resolution"] = role_metadata
+    if provider_role_validation_error is not None:
+        payload["provider_role_validation_error"] = provider_role_validation_error
+    safe_payload = _json_safe(payload)
+    data_signature = compute_data_signature(safe_payload)
+    dataset_version_ids["provider_roles"] = _stable_json(roles)
+    dataset_version_ids["provider_ids"] = _stable_json(provider_ids)
+    dataset_version_ids["provider_versions"] = _stable_json(provider_versions)
+    dataset_version_ids["provider_id"] = spec.provider_id.value
+    dataset_version_ids["provider_version"] = spec.provider_version
+    dataset_version_ids["source_feed"] = spec.source_feed or ""
+    dataset_version_ids["adjustment_mode"] = adjustment_mode
+    dataset_version_ids["symbol_set_hash"] = symbol_set_hash
+    dataset_version_ids["data_signature"] = data_signature
+    if provider_role_validation_error is not None:
+        dataset_version_ids["provider_role_validation_error"] = provider_role_validation_error
+    result.dataset_version_ids = dataset_version_ids
+    result.data_signature = data_signature
+    result.data_signature_payload = safe_payload
+
+
+def _load_alpaca_feed_delta_metadata(data_root: Path) -> dict[str, str]:
+    """Load the latest available IEX-vs-SIP monitor metadata, if present."""
+    report_path = _resolve_alpaca_feed_delta_report_path(data_root)
+    if report_path is None:
+        return {}
+
+    try:
+        payload = json.loads(report_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        structlog.get_logger(__name__).warning(
+            "alpaca_feed_delta_report_unreadable",
+            path=str(report_path),
+            error=str(exc),
+        )
+        return {}
+
+    if not isinstance(payload, dict) or payload.get("report_type") != "alpaca_feed_delta":
+        return {}
+
+    tolerances = payload.get("tolerances")
+    tolerance_version = (
+        str(tolerances.get("version"))
+        if isinstance(tolerances, dict) and tolerances.get("version")
+        else ""
+    )
+    metadata = {
+        "alpaca_feed_delta_report": str(report_path),
+        "alpaca_feed_delta_status": str(payload.get("status", "unknown")),
+        "alpaca_feed_delta_hash": str(payload.get("content_hash", "")),
+        "alpaca_feed_delta_start": str(payload.get("start", "")),
+        "alpaca_feed_delta_end": str(payload.get("end", "")),
+        "alpaca_feed_delta_timeframe": str(payload.get("timeframe", "")),
+        "alpaca_feed_delta_tolerance_version": tolerance_version,
+    }
+    return {key: value for key, value in metadata.items() if value}
+
+
+def _resolve_alpaca_feed_delta_report_path(data_root: Path) -> Path | None:
+    configured = os.getenv("ALPACA_FEED_DELTA_REPORT", "").strip()
+    if configured:
+        path = Path(configured)
+        resolved = path.resolve() if path.is_absolute() else (data_root / path).resolve()
+        if not resolved.is_relative_to(data_root.resolve()):
+            structlog.get_logger(__name__).warning(
+                "alpaca_feed_delta_report_outside_data_root",
+                path=str(resolved),
+                data_root=str(data_root.resolve()),
+            )
+            return None
+        return resolved if resolved.exists() else None
+
+    quality_dir = data_root / "quality"
+    if not quality_dir.exists():
+        return None
+    candidates = sorted(
+        quality_dir.glob("alpaca_iex_sip_delta*.json"),
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _attach_alpaca_quality_metadata(
+    result: BacktestResult,
+    provider: DataProvider,
+    data_root: Path,
+) -> None:
+    """Attach non-signature SIP data-quality report status when available."""
+    if provider not in (
+        DataProvider.ALPACA_SIP,
+        DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+    ):
+        return
+
+    metadata = _load_alpaca_feed_delta_metadata(data_root)
+    if not metadata:
+        return
+
+    dataset_version_ids = dict(result.dataset_version_ids or {})
+    dataset_version_ids.update(metadata)
+    result.dataset_version_ids = dataset_version_ids
 
 
 class BacktestWorker:
@@ -387,13 +764,27 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             else BacktestJobQueue.DEFAULT_TIMEOUT
         )
         worker = BacktestWorker(redis, db_pool)
+        provider_cleanup = contextlib.ExitStack()
 
         try:
+            _resolve_auto_provider(job_config)
+            resolved_job_id = job_config.compute_job_id(created_by)
+            if resolved_job_id != job_id:
+                worker.logger.warning(
+                    "auto_provider_resolved_with_legacy_job_id",
+                    queued_job_id=job_id,
+                    resolved_job_id=resolved_job_id,
+                    provider=job_config.provider.value,
+                )
             worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
 
             data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
+            if job_config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+                _validate_hybrid_start_date(job_config.start_date)
             metrics_adapter = AlphaMetricsAdapter()
             alpha = create_alpha(job_config.alpha_name)
+            signature_universe: list[str] | None = None
+            signature_explicit_universe = "universe" in job_config.extra_params
 
             # Common setup
             worker.update_db_status(job_id, "running", started_at=datetime.now(UTC))
@@ -439,100 +830,130 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                     ),
                     cancel_check=lambda: worker.check_cancellation_periodic(job_id, job_timeout),
                 )
-            elif job_config.provider == DataProvider.YFINANCE:
-                # Simple Backtest Path (Yahoo Finance) - development/testing only
-                # SECURITY: Fail-closed production guard - yfinance has no PIT guarantees
-                # and could introduce look-ahead bias in production backtests.
-                raw_environment = os.getenv("ENVIRONMENT", "").lower().strip()
+            elif job_config.provider in (
+                DataProvider.YFINANCE,
+                DataProvider.ALPACA_SIP,
+                DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+            ):
+                # Simple Backtest Path for research-only providers.
+                # SECURITY: fail closed because these paths are not production PIT backtests.
+                provider_label = get_provider_spec(job_config.provider).display_name
+                environment = _resolve_non_pit_environment(provider_label)
+                simple_dataset_version_ids: dict[str, str] | None = None
 
-                # Fail-closed: ENVIRONMENT must be explicitly set to a dev environment
-                if not raw_environment:
-                    raise ValueError(
-                        "ENVIRONMENT variable must be explicitly set to use Yahoo Finance provider. "
-                        "Valid development environments: development, test, local, ci. "
-                        "Use CRSP for production backtests."
+                if job_config.provider == DataProvider.YFINANCE:
+                    yfinance_env_path = os.getenv("YFINANCE_DATA_DIR", "").strip()
+                    if yfinance_env_path:
+                        yfinance_storage = Path(yfinance_env_path)
+                    else:
+                        default_path = data_root / "yfinance"
+                        try:
+                            default_path.mkdir(parents=True, exist_ok=True)
+                            yfinance_storage = default_path
+                        except OSError:
+                            # Fall back to a writable backtest results directory
+                            yfinance_storage = data_root.parent / "backtest_results" / "yfinance"
+
+                    yf_provider = YFinanceProvider(
+                        storage_path=yfinance_storage,
+                        environment=environment,
+                    )
+                    fetcher_config = FetcherConfig(
+                        provider=ProviderType.YFINANCE,
+                        yfinance_storage_path=yfinance_storage,
+                        environment=environment,
+                    )
+                    fetcher = UnifiedDataFetcher(fetcher_config, yfinance_provider=yf_provider)
+                elif job_config.provider == DataProvider.ALPACA_SIP:
+                    alpaca_env_path = (
+                        os.getenv("ALPACA_SIP_DATA_DIR", "").strip()
+                        or os.getenv("ALPACA_SIP_STORAGE_PATH", "").strip()
+                    )
+                    alpaca_storage = (
+                        Path(alpaca_env_path)
+                        if alpaca_env_path
+                        else data_root / "alpaca" / "sip" / "daily"
+                    )
+                    manifest_manager = ManifestManager(data_root=data_root)
+                    alpaca_manifest = _load_alpaca_sip_manifest(manifest_manager)
+                    simple_dataset_version_ids = _alpaca_sip_dataset_version_ids(alpaca_manifest)
+                    alpaca_provider = AlpacaSIPLocalProvider(
+                        storage_path=alpaca_storage,
+                        manifest_manager=manifest_manager,
+                        data_root=data_root,
+                        pinned_manifest=alpaca_manifest,
+                    )
+                    close_alpaca_provider = getattr(alpaca_provider, "close", None)
+                    if callable(close_alpaca_provider):
+                        provider_cleanup.callback(close_alpaca_provider)
+                    fetcher_config = FetcherConfig(
+                        provider=ProviderType.ALPACA_SIP,
+                        alpaca_sip_storage_path=alpaca_storage,
+                        environment=environment,
+                    )
+                    fetcher = UnifiedDataFetcher(
+                        fetcher_config,
+                        alpaca_sip_provider=alpaca_provider,
+                    )
+                else:
+                    alpaca_env_path = (
+                        os.getenv("ALPACA_SIP_DATA_DIR", "").strip()
+                        or os.getenv("ALPACA_SIP_STORAGE_PATH", "").strip()
+                    )
+                    alpaca_storage = (
+                        Path(alpaca_env_path)
+                        if alpaca_env_path
+                        else data_root / "alpaca" / "sip" / "daily"
+                    )
+                    manifest_manager = ManifestManager(data_root=data_root)
+                    alpaca_manifest = _load_alpaca_sip_manifest(manifest_manager)
+                    simple_dataset_version_ids = _hybrid_sip_dataset_version_ids(
+                        alpaca_manifest,
+                        explicit_universe=signature_explicit_universe,
+                        universe_as_of_date=job_config.start_date,
+                    )
+                    crsp_storage = data_root / "wrds" / "crsp" / "daily"
+                    crsp_provider = CRSPLocalProvider(
+                        crsp_storage,
+                        manifest_manager,
+                        data_root=data_root,
+                    )
+                    alpaca_provider = AlpacaSIPLocalProvider(
+                        storage_path=alpaca_storage,
+                        manifest_manager=manifest_manager,
+                        data_root=data_root,
+                        pinned_manifest=alpaca_manifest,
+                    )
+                    close_alpaca_provider = getattr(alpaca_provider, "close", None)
+                    if callable(close_alpaca_provider):
+                        provider_cleanup.callback(close_alpaca_provider)
+                    fetcher_config = FetcherConfig(
+                        provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+                        crsp_storage_path=crsp_storage,
+                        alpaca_sip_storage_path=alpaca_storage,
+                        environment=environment,
+                    )
+                    fetcher = UnifiedDataFetcher(
+                        fetcher_config,
+                        crsp_provider=crsp_provider,
+                        alpaca_sip_provider=alpaca_provider,
                     )
 
-                # Normalize environment names to FetcherConfig vocabulary
-                # FetcherConfig accepts: development, test, staging, production
-                # Worker allowlist (user-facing): dev, development, testing, test, local, ci
-                ENV_NORMALIZATION = {
-                    "dev": "development",
-                    "development": "development",
-                    "testing": "test",
-                    "test": "test",
-                    "local": "development",
-                    "ci": "development",
-                }
-                ALLOWED_DEV_ENVIRONMENTS = frozenset(ENV_NORMALIZATION.keys())
-
-                if raw_environment not in ALLOWED_DEV_ENVIRONMENTS:
-                    raise ValueError(
-                        f"Yahoo Finance provider is only allowed in development environments "
-                        f"({', '.join(sorted(ALLOWED_DEV_ENVIRONMENTS))}). "
-                        f"Current environment: '{raw_environment}'. "
-                        "Use CRSP for production backtests."
+                simple_backtester = SimpleBacktester(
+                    fetcher,
+                    metrics_adapter,
+                    dataset_version_ids=simple_dataset_version_ids,
+                )
+                universe = (
+                    _resolve_hybrid_symbol_universe(
+                        fetcher,
+                        job_config.extra_params,
+                        job_config.start_date,
                     )
-
-                # Normalize to FetcherConfig vocabulary
-                environment = ENV_NORMALIZATION[raw_environment]
-
-                yfinance_env_path = os.getenv("YFINANCE_DATA_DIR", "").strip()
-                if yfinance_env_path:
-                    yfinance_storage = Path(yfinance_env_path)
-                else:
-                    default_path = data_root / "yfinance"
-                    try:
-                        default_path.mkdir(parents=True, exist_ok=True)
-                        yfinance_storage = default_path
-                    except OSError:
-                        # Fall back to a writable backtest results directory
-                        yfinance_storage = data_root.parent / "backtest_results" / "yfinance"
-
-                yf_provider = YFinanceProvider(
-                    storage_path=yfinance_storage,
-                    environment=environment,
+                    if job_config.provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+                    else _resolve_symbol_universe(job_config.extra_params)
                 )
-                fetcher_config = FetcherConfig(
-                    provider=ProviderType.YFINANCE,
-                    yfinance_storage_path=yfinance_storage,  # Use same path for consistency
-                    environment=environment,
-                )
-                fetcher = UnifiedDataFetcher(fetcher_config, yfinance_provider=yf_provider)
-
-                simple_backtester = SimpleBacktester(fetcher, metrics_adapter)
-
-                # Default universe if not provided (immutable tuple to prevent accidental modification)
-                DEFAULT_YFINANCE_UNIVERSE: tuple[str, ...] = (
-                    "SPY",
-                    "QQQ",
-                    "IWM",
-                    "AAPL",
-                    "MSFT",
-                    "GOOGL",
-                    "AMZN",
-                    "NVDA",
-                    "META",
-                    "TSLA",
-                )
-                raw_universe: str | list[str] | tuple[str, ...] | None = (
-                    job_config.extra_params.get("universe", DEFAULT_YFINANCE_UNIVERSE)
-                )
-
-                # Normalize universe input: strip whitespace, uppercase, filter empties
-                if isinstance(raw_universe, str):
-                    universe: list[str] = [
-                        s.strip().upper() for s in raw_universe.split(",") if s.strip()
-                    ]
-                elif isinstance(raw_universe, list | tuple):
-                    universe = [
-                        s.strip().upper() for s in raw_universe if isinstance(s, str) and s.strip()
-                    ]
-                else:
-                    universe = []
-
-                if not universe:
-                    raise ValueError("Universe cannot be empty after normalization")
+                signature_universe = universe
 
                 result = simple_backtester.run_backtest(
                     alpha=alpha,
@@ -552,6 +973,19 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             else:
                 # This should never happen due to enum validation in from_dict
                 raise ValueError(f"Unknown provider: {job_config.provider}")
+
+            _attach_alpaca_quality_metadata(result, job_config.provider, data_root)
+            _attach_data_signature(
+                result,
+                job_config.provider,
+                universe=signature_universe,
+                explicit_universe=signature_explicit_universe,
+                role_metadata=(
+                    job_config.extra_params.get("resolved_data_roles")
+                    if isinstance(job_config.extra_params.get("resolved_data_roles"), dict)
+                    else None
+                ),
+            )
 
             # Extract cost model configuration from extra_params (if provided)
             cost_config: CostModelConfig | None = None
@@ -616,12 +1050,17 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                             result.dataset_version_ids["cost_data_source"] = "crsp"
                             result.dataset_version_ids["cost_data_version"] = crsp_version
 
-                elif cost_config is not None and job_config.provider == DataProvider.YFINANCE:
-                    # For Yahoo Finance, costs are not computed (no PIT ADV/volatility)
+                elif cost_config is not None and job_config.provider in (
+                    DataProvider.YFINANCE,
+                    DataProvider.ALPACA_SIP,
+                    DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+                ):
+                    # For non-PIT providers, costs are not computed without PIT ADV/volatility.
                     worker.logger.info(
-                        "cost_model_skipped_yfinance",
+                        "cost_model_skipped_non_pit_provider",
                         job_id=job_id,
-                        reason="Yahoo Finance does not provide PIT-compliant ADV/volatility",
+                        provider=job_config.provider.value,
+                        reason="Provider does not provide PIT-compliant ADV/volatility",
                     )
 
             worker.update_progress(job_id, 90, "saving_parquet", job_timeout=job_timeout)
@@ -695,6 +1134,15 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 completed_at=datetime.now(UTC),
             )
             raise
+        finally:
+            try:
+                provider_cleanup.close()
+            except Exception as cleanup_error:
+                worker.logger.warning(
+                    "provider_cleanup_failed",
+                    job_id=job_id,
+                    error=str(cleanup_error),
+                )
 
 
 def _save_parquet_artifacts(
@@ -890,6 +1338,8 @@ def _write_summary_json(
         "hit_rate": _sanitize_float(result.hit_rate),
         "snapshot_id": result.snapshot_id,
         "dataset_version_ids": result.dataset_version_ids,
+        "data_signature": getattr(result, "data_signature", None),
+        "data_signature_payload": getattr(result, "data_signature_payload", {}),
     }
 
     # Include cost model data if provided (sanitize nested floats for strict JSON)

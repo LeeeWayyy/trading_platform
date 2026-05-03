@@ -9,12 +9,33 @@ This module provides:
 - CompustatLocalProvider: Read-only Compustat fundamental data access with DuckDB
 - FamaFrenchLocalProvider: Read-only Fama-French factor data access
 - YFinanceProvider: Free market data for development (NOT for production)
+- AlpacaSIPLocalProvider: Local Alpaca SIP daily bars for explicit research
+- HybridDataProviderAdapter: CRSP universe + Alpaca SIP prices for explicit research
 - UnifiedDataFetcher: Unified interface for data access with provider switching
 - DataProvider: Protocol for data provider implementations
 """
 
 import logging as _logging
 
+from libs.data.data_providers.alpaca_corp_actions_sync import (
+    ALPACA_CORP_ACTIONS_COLUMNS,
+    ALPACA_CORP_ACTIONS_SCHEMA,
+    AlpacaCorporateActionsClient,
+    AlpacaCorporateActionsRestClient,
+    AlpacaCorporateActionsSyncManager,
+)
+from libs.data.data_providers.alpaca_sip_local_provider import (
+    ALPACA_SIP_COLUMNS,
+    ALPACA_SIP_SCHEMA,
+    AlpacaSIPLocalProvider,
+    AlpacaSIPManifestVersionChangedError,
+)
+from libs.data.data_providers.alpaca_sip_sync import (
+    AlpacaSIPSyncManager,
+    AlpacaStockBarsClient,
+    AlpacaStockBarsRestClient,
+    SyncedPartition,
+)
 from libs.data.data_providers.compustat_local_provider import (
     AmbiguousGVKEYError,
     CompustatLocalProvider,
@@ -44,18 +65,42 @@ from libs.data.data_providers.locking import (
 from libs.data.data_providers.protocols import (
     UNIFIED_COLUMNS,
     UNIFIED_SCHEMA,
+    AlpacaSIPDataProviderAdapter,
     ConfigurationError,
     CRSPDataProviderAdapter,
     DataProvider,
     DataProviderError,
+    HybridDataProviderAdapter,
     ProductionProviderRequiredError,
     ProviderNotSupportedError,
     ProviderUnavailableError,
     YFinanceDataProviderAdapter,
 )
+from libs.data.data_providers.registry import (
+    ProviderCapabilities,
+    ProviderSpec,
+    ProviderType,
+    all_provider_specs,
+    backtest_provider_specs,
+    build_manifest_id,
+    compute_data_signature,
+    compute_symbol_set_hash,
+    get_provider_spec,
+    provider_display_inverse_map,
+    provider_display_inverse_map_with_options,
+    provider_display_map,
+    provider_display_map_with_options,
+    provider_ids_for_roles,
+    provider_versions_for_ids,
+    source_feeds_for_provider_ids,
+)
+from libs.data.data_providers.role_resolver import (
+    DataRoleConfig,
+    ResolvedDataRoles,
+    resolve_data_roles,
+)
 from libs.data.data_providers.unified_fetcher import (
     FetcherConfig,
-    ProviderType,
     UnifiedDataFetcher,
 )
 from libs.data.data_providers.universe import (
@@ -75,19 +120,20 @@ _dp_logger = _logging.getLogger(__name__)
 # Known optional third-party packages that data-provider submodules may
 # depend on.  If these are absent we degrade gracefully; any *other*
 # missing module is a genuine regression and must fail fast.
-_OPTIONAL_PACKAGES = frozenset({
-    "wrds",       # WRDS database driver
-    "sas7bdat",   # SAS file reader
-    "saspy",      # SAS scripting
-    "paramiko",   # SSH transport for WRDS
-})
+_OPTIONAL_PACKAGES = frozenset(
+    {
+        "wrds",  # WRDS database driver
+        "sas7bdat",  # SAS file reader
+        "saspy",  # SAS scripting
+        "paramiko",  # SSH transport for WRDS
+    }
+)
 
 
 def _is_optional_dep(exc: ModuleNotFoundError) -> bool:
     """Return True when *exc* is caused by a known optional package."""
     return exc.name is not None and any(
-        exc.name == pkg or exc.name.startswith(f"{pkg}.")
-        for pkg in _OPTIONAL_PACKAGES
+        exc.name == pkg or exc.name.startswith(f"{pkg}.") for pkg in _OPTIONAL_PACKAGES
     )
 
 
@@ -95,9 +141,7 @@ try:
     from libs.data.data_providers.sync_manager import SyncManager, SyncProgress
 except ModuleNotFoundError as _exc:
     if _is_optional_dep(_exc):
-        _dp_logger.info(
-            "sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name
-        )
+        _dp_logger.info("sync_manager_unavailable: %s (missing_package=%s)", _exc, _exc.name)
         SyncManager = None  # type: ignore[assignment,misc]
         SyncProgress = None  # type: ignore[assignment,misc]
     else:
@@ -107,9 +151,7 @@ try:
     from libs.data.data_providers.wrds_client import WRDSClient, WRDSConfig
 except ModuleNotFoundError as _exc:
     if _is_optional_dep(_exc):
-        _dp_logger.info(
-            "wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name
-        )
+        _dp_logger.info("wrds_client_unavailable: %s (missing_package=%s)", _exc, _exc.name)
         WRDSClient = None  # type: ignore[assignment,misc]
         WRDSConfig = None  # type: ignore[assignment,misc]
     else:
@@ -149,16 +191,50 @@ __all__ = [
     "YFinanceError",
     "ProductionGateError",
     "DriftDetectedError",
+    # Alpaca SIP Provider
+    "AlpacaSIPLocalProvider",
+    "AlpacaSIPManifestVersionChangedError",
+    "ALPACA_SIP_COLUMNS",
+    "ALPACA_SIP_SCHEMA",
+    "AlpacaSIPSyncManager",
+    "AlpacaStockBarsClient",
+    "AlpacaStockBarsRestClient",
+    "SyncedPartition",
+    "AlpacaCorporateActionsSyncManager",
+    "AlpacaCorporateActionsRestClient",
+    "AlpacaCorporateActionsClient",
+    "ALPACA_CORP_ACTIONS_COLUMNS",
+    "ALPACA_CORP_ACTIONS_SCHEMA",
     # Unified Data Fetcher (P4T1.8)
     "UnifiedDataFetcher",
     "FetcherConfig",
     "ProviderType",
+    "ProviderCapabilities",
+    "ProviderSpec",
+    "all_provider_specs",
+    "backtest_provider_specs",
+    "build_manifest_id",
+    "compute_data_signature",
+    "compute_symbol_set_hash",
+    "get_provider_spec",
+    "provider_display_inverse_map",
+    "provider_display_inverse_map_with_options",
+    "provider_display_map",
+    "provider_display_map_with_options",
+    "provider_ids_for_roles",
+    "provider_versions_for_ids",
+    "source_feeds_for_provider_ids",
+    "DataRoleConfig",
+    "ResolvedDataRoles",
+    "resolve_data_roles",
     "DataProvider",
     "DataProviderError",
     "ProviderUnavailableError",
     "ProviderNotSupportedError",
     "ProductionProviderRequiredError",
     "ConfigurationError",
+    "AlpacaSIPDataProviderAdapter",
+    "HybridDataProviderAdapter",
     "CRSPDataProviderAdapter",
     "YFinanceDataProviderAdapter",
     "UNIFIED_COLUMNS",

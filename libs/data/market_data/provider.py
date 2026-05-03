@@ -28,6 +28,8 @@ from libs.data.market_data.types import ADVData
 
 logger = logging.getLogger(__name__)
 
+ALPACA_BARS_MAX_LIMIT = 10_000
+
 
 class MarketDataProvider:
     """Market data provider wrapper for ADV calculations."""
@@ -200,7 +202,7 @@ class MarketDataProvider:
         symbol = symbol.upper().strip()
         if not symbol:
             return []
-        clamped_limit = max(1, min(limit, 500))
+        clamped_limit = max(1, min(limit, ALPACA_BARS_MAX_LIMIT))
         start, end = self._compute_bars_window(timeframe, clamped_limit)
         resolved_timeframe = self._resolve_timeframe(timeframe)
 

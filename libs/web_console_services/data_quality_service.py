@@ -27,7 +27,7 @@ from .schemas.data_management import (
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french")
+_SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
 
 
 class DataQualityService:

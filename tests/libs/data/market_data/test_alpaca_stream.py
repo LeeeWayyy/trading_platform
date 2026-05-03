@@ -22,6 +22,7 @@ from typing import Any
 from unittest.mock import MagicMock, Mock
 
 import pytest
+from alpaca.data.enums import DataFeed
 from alpaca.data.models import Quote
 from redis.exceptions import RedisError
 
@@ -38,9 +39,15 @@ class _FakeStockDataStream:
     Simulates WebSocket behavior without actual network connections.
     """
 
-    def __init__(self, api_key: str, secret_key: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        secret_key: str,
+        feed: DataFeed = DataFeed.IEX,
+    ) -> None:
         self.api_key = api_key
         self.secret_key = secret_key
+        self.feed = feed
         self.subscriptions: list[tuple[object, tuple[str, ...]]] = []
         self.unsubscribed: list[str] = []
         self.run_called = 0
@@ -126,6 +133,8 @@ class TestAlpacaMarketDataStreamInitialization:
         assert stream.publisher is event_publisher
         assert stream.price_ttl == 300
         assert isinstance(stream.stream, _FakeStockDataStream)
+        assert stream.data_feed == "iex"
+        assert stream.stream.feed is DataFeed.IEX
         assert stream._running is False
         assert stream._connected is False
         assert stream._reconnect_attempts == 0
@@ -147,6 +156,62 @@ class TestAlpacaMarketDataStreamInitialization:
         )
 
         assert stream.price_ttl == 600
+
+    def test_initialization_custom_data_feed(
+        self,
+        fake_stream_cls: type[_FakeStockDataStream],
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+    ) -> None:
+        """Test initialization passes configured data feed to Alpaca."""
+        stream = alpaca_stream.AlpacaMarketDataStream(
+            api_key="test_key",
+            secret_key="test_secret",
+            redis_client=redis_client,
+            event_publisher=event_publisher,
+            data_feed="sip",
+        )
+
+        assert stream.data_feed == "sip"
+        assert isinstance(stream.stream, _FakeStockDataStream)
+        assert stream.stream.feed is DataFeed.SIP
+
+    @pytest.mark.parametrize("configured_feed", ["otc", "boats"])
+    def test_initialization_falls_back_for_rest_only_feeds(
+        self,
+        fake_stream_cls: type[_FakeStockDataStream],
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+        configured_feed: str,
+    ) -> None:
+        """REST-only configured feeds should not prevent stream startup."""
+        stream = alpaca_stream.AlpacaMarketDataStream(
+            api_key="test_key",
+            secret_key="test_secret",
+            redis_client=redis_client,
+            event_publisher=event_publisher,
+            data_feed=configured_feed,
+        )
+
+        assert stream.data_feed == "iex"
+        assert isinstance(stream.stream, _FakeStockDataStream)
+        assert stream.stream.feed is DataFeed.IEX
+
+    def test_initialization_rejects_unknown_feed(
+        self,
+        fake_stream_cls: type[_FakeStockDataStream],
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+    ) -> None:
+        """Unknown configured feeds still fail fast."""
+        with pytest.raises(ValueError, match="Unsupported Alpaca live data feed"):
+            alpaca_stream.AlpacaMarketDataStream(
+                api_key="test_key",
+                secret_key="test_secret",
+                redis_client=redis_client,
+                event_publisher=event_publisher,
+                data_feed="invalid",
+            )
 
     def test_subscription_sources_initialized_empty(
         self, stream: alpaca_stream.AlpacaMarketDataStream
@@ -415,6 +480,45 @@ class TestQuoteHandling:
         event_publisher.publish.assert_not_called()
 
     @pytest.mark.asyncio()
+    async def test_handle_quote_missing_price_no_side_effects(
+        self,
+        stream: alpaca_stream.AlpacaMarketDataStream,
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+    ) -> None:
+        """Test quote with missing price fields is rejected without exception."""
+        quote: dict[str, Any] = {
+            "symbol": "AAPL",
+            "ask_price": "100.10",
+            "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
+        }
+
+        await stream._handle_quote(quote)
+
+        redis_client.set.assert_not_called()
+        event_publisher.publish.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_handle_quote_blank_price_no_side_effects(
+        self,
+        stream: alpaca_stream.AlpacaMarketDataStream,
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+    ) -> None:
+        """Test blank price strings are treated as missing quote data."""
+        quote: dict[str, Any] = {
+            "symbol": "AAPL",
+            "bid_price": "100.00",
+            "ask_price": " ",
+            "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
+        }
+
+        await stream._handle_quote(quote)
+
+        redis_client.set.assert_not_called()
+        event_publisher.publish.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_handle_quote_invalid_timestamp_type_no_side_effects(
         self,
         stream: alpaca_stream.AlpacaMarketDataStream,
@@ -483,13 +587,13 @@ class TestQuoteHandling:
         event_publisher.publish.assert_called_once()
 
     @pytest.mark.asyncio()
-    async def test_handle_quote_validation_error_swallowed(
+    async def test_handle_quote_crossed_market_normalized(
         self,
         stream: alpaca_stream.AlpacaMarketDataStream,
         redis_client: MagicMock,
         event_publisher: MagicMock,
     ) -> None:
-        """Test Pydantic validation error is caught and logged."""
+        """Test transient crossed SIP quotes are normalized instead of dropped."""
         quote: dict[str, Any] = {
             "symbol": "AAPL",
             "bid_price": "101.00",  # Crossed market
@@ -497,11 +601,14 @@ class TestQuoteHandling:
             "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
         }
 
-        # Should not raise, just log
         await stream._handle_quote(quote)
 
-        redis_client.set.assert_not_called()
-        event_publisher.publish.assert_not_called()
+        redis_client.set.assert_called_once()
+        event_publisher.publish.assert_called_once()
+        _, event = event_publisher.publish.call_args.args
+        assert event.bid == Decimal("100.50")
+        assert event.ask == Decimal("100.50")
+        assert event.price == Decimal("100.50")
 
     @pytest.mark.asyncio()
     async def test_handle_quote_invalid_decimal_swallowed(
@@ -770,6 +877,7 @@ class TestConnectionStats:
         assert "subscribed_symbols" in stats
         assert "reconnect_attempts" in stats
         assert "max_reconnect_attempts" in stats
+        assert stats["data_feed"] == "iex"
 
     def test_get_connection_stats_connected_state(
         self, stream: alpaca_stream.AlpacaMarketDataStream

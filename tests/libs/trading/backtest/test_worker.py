@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 import types
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -582,6 +583,40 @@ def test_run_backtest_failure_sets_status(monkeypatch):
 
 
 @pytest.mark.unit()
+def test_run_backtest_auto_resolution_failure_sets_status(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgres://test")
+
+    class DummyPool:
+        def connection(self):
+            conn = MagicMock()
+            conn.__enter__.return_value = conn
+            conn.__exit__.return_value = False
+            conn.cursor.return_value = MagicMock()
+            return conn
+
+    redis = MagicMock()
+    redis.pipeline.return_value = MagicMock()
+    worker_update = MagicMock()
+    raw_config = {
+        "alpha_name": "a1",
+        "start_date": "2024-01-01",
+        "end_date": "2024-01-02",
+        "provider": "auto",
+        "extra_params": {"data": []},
+    }
+    expected_job_id = worker_module.BacktestJobConfig.from_dict(raw_config).compute_job_id("me")
+    monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+    monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+    monkeypatch.setattr(worker_module.BacktestWorker, "update_db_status", worker_update)
+
+    with pytest.raises(ValueError, match="extra_params.data"):
+        worker_module.run_backtest(raw_config, created_by="me")
+
+    assert worker_update.call_args.args[:2] == (expected_job_id, "failed")
+    assert "extra_params.data" in worker_update.call_args.kwargs["error_message"]
+
+
+@pytest.mark.unit()
 def test_save_parquet_artifacts_success(monkeypatch, tmp_path):
     class DummyDF:
         columns = ["date", "permno", "signal", "weight", "ic", "rank_ic"]
@@ -931,6 +966,7 @@ class TestProviderRouting:
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
                 "provider": "yfinance",  # Yahoo Finance provider
+                "extra_params": {"universe": "aapl, msft"},
             },
             created_by="test_user",
         )
@@ -1177,6 +1213,159 @@ class TestProviderRouting:
                 },
                 created_by="test_user",
             )
+
+    @pytest.mark.unit()
+    def test_missing_non_pit_universe_raises(self):
+        """Non-PIT providers must not fall back to an implicit default universe."""
+        with pytest.raises(ValueError, match="explicit symbol universe"):
+            worker_module._resolve_symbol_universe({})
+
+    @pytest.mark.unit()
+    def test_auto_provider_resolves_to_sip_when_crsp_unavailable(self, monkeypatch):
+        """provider=auto bridges role config to the existing SIP execution path."""
+        monkeypatch.setenv("CRSP_AVAILABLE", "false")
+        monkeypatch.setenv("HISTORICAL_UNIVERSE_SOURCE_DEFAULT", "explicit_symbols")
+        monkeypatch.setenv("HISTORICAL_PRICE_SOURCE_DEFAULT", "alpaca_sip")
+        monkeypatch.setenv("HISTORICAL_CORP_ACTIONS_SOURCE_DEFAULT", "alpaca_sip")
+
+        config = worker_module.BacktestJobConfig(
+            alpha_name="test",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            provider=worker_module.DataProvider.AUTO,
+            extra_params={
+                "universe": "aapl, msft",
+                "data": {"requires_pit_universe": False},
+            },
+        )
+
+        worker_module._resolve_auto_provider(config)
+
+        assert config.provider == worker_module.DataProvider.ALPACA_SIP
+        assert config.extra_params["resolved_data_roles"]["universe_source"] == "explicit_symbols"
+        assert config.extra_params["resolved_data_roles"]["price_source"] == "alpaca_sip"
+
+    @pytest.mark.unit()
+    def test_data_signature_records_provider_ids_per_role(self):
+        """Data signatures distinguish roles from concrete provider IDs."""
+        result = types.SimpleNamespace(
+            dataset_version_ids={
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+            },
+            snapshot_id="snap",
+        )
+
+        worker_module._attach_data_signature(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            universe=["AAPL", "MSFT"],
+            explicit_universe=True,
+            role_metadata={
+                "universe_source": "explicit_symbols",
+                "price_source": "alpaca_sip",
+                "corp_actions_source": "alpaca_sip",
+                "adjustment_mode": "raw",
+                "requires_pit_universe": "false",
+            },
+        )
+
+        payload = result.data_signature_payload
+        assert payload["roles"]["universe_source"] == "explicit_symbols"
+        assert payload["provider_ids"]["universe_source"] == "explicit_symbols"
+        assert payload["provider_ids"]["price_source"] == "alpaca_sip"
+        assert payload["provider_versions"]["alpaca_sip"] == "1.0"
+        assert payload["provider_versions"]["explicit_symbols"] == "N/A"
+        assert payload["adjustment_mode"] == "raw"
+        assert result.dataset_version_ids["adjustment_mode"] == "raw"
+        assert result.dataset_version_ids["data_signature"] == result.data_signature
+        assert (
+            json.loads(result.dataset_version_ids["provider_ids"])["price_source"] == "alpaca_sip"
+        )
+
+    @pytest.mark.unit()
+    def test_data_signature_role_metadata_is_json_safe(self):
+        """Role metadata is sanitized before canonical signature serialization."""
+        result = types.SimpleNamespace(
+            dataset_version_ids={
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+            },
+            snapshot_id="snap",
+        )
+
+        worker_module._attach_data_signature(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            universe=["AAPL"],
+            explicit_universe=True,
+            role_metadata={
+                "universe_source": "explicit_symbols",
+                "price_source": "alpaca_sip",
+                "corp_actions_source": "alpaca_sip",
+                "generated_on": date(2024, 1, 1),
+            },
+        )
+
+        assert result.data_signature_payload["role_resolution"]["generated_on"] == "2024-01-01"
+        assert result.dataset_version_ids["data_signature"] == result.data_signature
+
+    @pytest.mark.unit()
+    def test_data_signature_marks_legacy_unknown_role_metadata(self):
+        """Legacy role metadata remains reproducible while surfacing unknown roles."""
+        result = types.SimpleNamespace(
+            dataset_version_ids={
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+            },
+            snapshot_id="snap",
+        )
+
+        worker_module._attach_data_signature(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            universe=["AAPL"],
+            explicit_universe=True,
+            role_metadata={
+                "universe_source": "legacy_custom_universe",
+                "price_source": "alpaca_sip",
+                "adjustment_mode": "raw",
+            },
+        )
+
+        payload = result.data_signature_payload
+        assert payload["provider_ids"]["universe_source"] == "unknown"
+        assert payload["provider_ids"]["corp_actions_source"] == "unknown"
+        assert "provider_role_validation_error" in payload
+        assert "provider_role_validation_error" in result.dataset_version_ids
+
+    @pytest.mark.unit()
+    def test_alpaca_feed_delta_metadata_attached_when_report_exists(self, tmp_path):
+        """SIP reports surface the latest available IEX-vs-SIP monitor status."""
+        quality_dir = tmp_path / "quality"
+        quality_dir.mkdir()
+        report_path = quality_dir / "alpaca_iex_sip_delta_test.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "report_type": "alpaca_feed_delta",
+                    "status": "warning",
+                    "content_hash": "abc123",
+                    "start": "2024-04-22T00:00:00+00:00",
+                    "end": "2024-04-26T00:00:00+00:00",
+                    "timeframe": "1Day",
+                    "tolerances": {"version": "alpaca-iex-sip-delta-v1"},
+                }
+            )
+        )
+        result = types.SimpleNamespace(dataset_version_ids={"provider": "alpaca_sip"})
+
+        worker_module._attach_alpaca_quality_metadata(
+            result,
+            worker_module.DataProvider.ALPACA_SIP,
+            tmp_path,
+        )
+
+        assert result.dataset_version_ids["alpaca_feed_delta_status"] == "warning"
+        assert result.dataset_version_ids["alpaca_feed_delta_hash"] == "abc123"
+        assert result.dataset_version_ids["alpaca_feed_delta_timeframe"] == "1Day"
 
 
 # =============================================================================
@@ -1915,6 +2104,7 @@ class TestWorkerEdgeCases:
                 "end_date": "2024-01-31",
                 "provider": "yfinance",  # Yahoo Finance
                 "extra_params": {
+                    "universe": "aapl, msft",
                     "cost_model": {"enabled": True},
                 },
             },
@@ -2373,8 +2563,12 @@ class TestArtifactWriting:
 
             def __init__(self):
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64", "signal": "Float64",
-                    "weight": "Float64", "ic": "Float64", "rank_ic": "Float64",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "signal": "Float64",
+                    "weight": "Float64",
+                    "ic": "Float64",
+                    "rank_ic": "Float64",
                 }
 
             def __getitem__(self, key):
@@ -2450,8 +2644,12 @@ class TestArtifactWriting:
 
             def __init__(self):
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64", "signal": "Float64",
-                    "weight": "Float64", "ic": "Float64", "rank_ic": "Float64",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "signal": "Float64",
+                    "weight": "Float64",
+                    "ic": "Float64",
+                    "rank_ic": "Float64",
                 }
 
             def __getitem__(self, key):
@@ -2476,29 +2674,38 @@ class TestArtifactWriting:
 
         class DummyReturnsDF(DummyDF):
             """daily_returns with symbol column."""
+
             def __init__(self):
                 self.columns = ["date", "permno", "return", "symbol"]
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64",
-                    "return": "Float64", "symbol": "Utf8",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "return": "Float64",
+                    "symbol": "Utf8",
                 }
 
         class DummyPricesDF(DummyDF):
             """daily_prices with symbol column."""
+
             def __init__(self):
                 self.columns = ["date", "permno", "price", "symbol"]
                 self.dtype_map = {
-                    "date": "Date", "permno": "Int64",
-                    "price": "Float64", "symbol": "Utf8",
+                    "date": "Date",
+                    "permno": "Int64",
+                    "price": "Float64",
+                    "symbol": "Utf8",
                 }
 
         class DummyNetReturnsDF(DummyDF):
             """net_returns_df for cost model output."""
+
             def __init__(self):
                 self.columns = ["date", "gross_return", "cost_drag", "net_return"]
                 self.dtype_map = {
-                    "date": "Date", "gross_return": "Float64",
-                    "cost_drag": "Float64", "net_return": "Float64",
+                    "date": "Date",
+                    "gross_return": "Float64",
+                    "cost_drag": "Float64",
+                    "net_return": "Float64",
                 }
 
         class DummyPolars(types.SimpleNamespace):
@@ -2523,7 +2730,9 @@ class TestArtifactWriting:
         )
 
         path = worker_module._save_parquet_artifacts(
-            "jid", bt_result, net_returns_df=DummyNetReturnsDF(),  # type: ignore[arg-type]
+            "jid",
+            bt_result,
+            net_returns_df=DummyNetReturnsDF(),  # type: ignore[arg-type]
         )
 
         assert (path / "daily_returns.parquet").exists()
@@ -2670,7 +2879,10 @@ class TestArtifactWriting:
         )
 
         worker_module._save_result_to_db(
-            conn, "jid", result, Path("p"),
+            conn,
+            "jid",
+            result,
+            Path("p"),
             cost_config=cost_config,  # type: ignore[arg-type]
             cost_summary=cost_summary,  # type: ignore[arg-type]
         )
@@ -2937,11 +3149,19 @@ class TestYFinanceEdgeCases:
 
             def run_backtest(self, *args, **kwargs):
                 return types.SimpleNamespace(
-                    mean_ic=0.1, icir=0.2, hit_rate=0.3, coverage=0.4,
-                    long_short_spread=0.5, average_turnover=0.6, decay_half_life=10,
-                    snapshot_id="snap", dataset_version_ids={"ds": 1},
-                    daily_signals=MagicMock(), daily_weights=MagicMock(),
-                    daily_ic=MagicMock(), daily_portfolio_returns=MagicMock(),
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"ds": 1},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
                 )
 
         redis_pipeline = MagicMock()
@@ -2973,12 +3193,402 @@ class TestYFinanceEdgeCases:
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
                 "provider": "yfinance",
+                "extra_params": {"universe": "aapl, msft"},
             },
             created_by="test_user",
         )
 
         assert len(captured_storage) == 1
         assert str(captured_storage[0]) == str(tmp_path / "custom_yf")
+
+    @pytest.mark.unit()
+    def test_alpaca_sip_custom_data_dir(self, monkeypatch, tmp_path):
+        """Test that ALPACA_SIP_DATA_DIR is used for Alpaca SIP jobs."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+        monkeypatch.setenv("ALPACA_SIP_DATA_DIR", str(tmp_path / "custom_sip"))
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        captured_storage = []
+        captured_universe = []
+        captured_dataset_version_ids = []
+        captured_pinned_manifest = []
+        captured_provider_closed = []
+
+        class MockManifestManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def load_manifest(self, dataset):
+                return types.SimpleNamespace(
+                    dataset=dataset,
+                    manifest_version=7,
+                    checksum="sip-checksum",
+                    schema_version="v1.0.0",
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 31),
+                    row_count=123,
+                )
+
+        class MockAlpacaSIPLocalProvider:
+            DATASET_NAME = "alpaca_sip_daily"
+
+            def __init__(self, *args, storage_path=None, pinned_manifest=None, **kwargs):
+                captured_storage.append(storage_path)
+                captured_pinned_manifest.append(pinned_manifest)
+
+            def close(self):
+                captured_provider_closed.append(True)
+
+        class MockSimpleBacktester:
+            def __init__(self, *args, dataset_version_ids=None, **kwargs):
+                captured_dataset_version_ids.append(dataset_version_ids)
+
+            def run_backtest(self, *args, **kwargs):
+                captured_universe.extend(kwargs["universe"])
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"provider": "alpaca_sip"},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "ManifestManager", MockManifestManager)
+        monkeypatch.setattr(worker_module, "AlpacaSIPLocalProvider", MockAlpacaSIPLocalProvider)
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MagicMock())
+        monkeypatch.setattr(worker_module, "FetcherConfig", MagicMock())
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "alpaca_sip",
+                "extra_params": {"universe": "aapl, msft"},
+            },
+            created_by="test_user",
+        )
+
+        assert len(captured_storage) == 1
+        assert str(captured_storage[0]) == str(tmp_path / "custom_sip")
+        assert captured_pinned_manifest[0].manifest_version == 7
+        assert captured_provider_closed == [True]
+        assert captured_universe == ["AAPL", "MSFT"]
+        assert captured_dataset_version_ids == [
+            {
+                "version": "manifest-v7",
+                "provider_id": "alpaca_sip",
+                "provider_version": "1.0",
+                "source_feed": "sip",
+                "adjustment_mode": "raw",
+                "manifest_id": "alpaca_sip_daily@v7:sip-checksum",
+                "alpaca_sip_daily_dataset": "alpaca_sip_daily",
+                "alpaca_sip_daily_manifest_version": "7",
+                "alpaca_sip_daily_checksum": "sip-checksum",
+                "alpaca_sip_daily_schema_version": "v1.0.0",
+                "alpaca_sip_daily_start_date": "2024-01-01",
+                "alpaca_sip_daily_end_date": "2024-01-31",
+                "alpaca_sip_daily_row_count": "123",
+            }
+        ]
+
+    @pytest.mark.unit()
+    def test_alpaca_sip_blocked_in_production(self, monkeypatch):
+        """Test that Alpaca SIP provider is blocked in production environment."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(ValueError, match="only allowed in development"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "alpaca_sip",
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_alpaca_sip_missing_manifest_raises(self, monkeypatch, tmp_path):
+        """Test that Alpaca SIP jobs fail closed when no manifest is pinned."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        class MockManifestManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def load_manifest(self, dataset):
+                return None
+
+        class MockAlpacaSIPLocalProvider:
+            DATASET_NAME = "alpaca_sip_daily"
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.get.return_value = None
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "ManifestManager", MockManifestManager)
+        monkeypatch.setattr(worker_module, "AlpacaSIPLocalProvider", MockAlpacaSIPLocalProvider)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        with pytest.raises(worker_module.DataNotFoundError, match="Run Alpaca SIP sync first"):
+            worker_module.run_backtest(
+                {
+                    "alpha_name": "test",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "provider": "alpaca_sip",
+                },
+                created_by="test_user",
+            )
+
+    @pytest.mark.unit()
+    def test_hybrid_records_universe_provenance(self, monkeypatch, tmp_path):
+        """Test hybrid jobs distinguish CRSP and explicit-symbol universe provenance."""
+        monkeypatch.setenv("DATABASE_URL", "postgres://test")
+        monkeypatch.setenv("ENVIRONMENT", "development")
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path / "data"))
+        monkeypatch.setenv("ALPACA_SIP_DATA_DIR", str(tmp_path / "custom_sip"))
+
+        class DummyPool:
+            def connection(self):
+                conn = MagicMock()
+                conn.__enter__.return_value = conn
+                conn.__exit__.return_value = False
+                conn.cursor.return_value = MagicMock()
+                return conn
+
+        class MockManifestManager:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def load_manifest(self, dataset):
+                return types.SimpleNamespace(
+                    dataset=dataset,
+                    manifest_version=7,
+                    checksum="sip-checksum",
+                    schema_version="v1.0.0",
+                    start_date=date(2024, 1, 1),
+                    end_date=date(2024, 1, 31),
+                    row_count=123,
+                )
+
+        captured_crsp_storage = []
+        captured_alpaca_storage = []
+        captured_dataset_version_ids = []
+        captured_universe = []
+        captured_universe_dates = []
+        captured_fetcher_config = []
+        captured_alpaca_closed = []
+
+        class MockCRSPLocalProvider:
+            def __init__(self, storage_path, *args, **kwargs):
+                captured_crsp_storage.append(storage_path)
+
+        class MockAlpacaSIPLocalProvider:
+            DATASET_NAME = "alpaca_sip_daily"
+
+            def __init__(self, *args, storage_path=None, **kwargs):
+                captured_alpaca_storage.append(storage_path)
+
+            def close(self):
+                captured_alpaca_closed.append(True)
+
+        class MockUnifiedDataFetcher:
+            def __init__(self, config, *args, **kwargs):
+                captured_fetcher_config.append(config)
+
+            def get_universe(self, as_of_date):
+                captured_universe_dates.append(as_of_date)
+                return ["aapl", "MSFT", "AAPL"]
+
+        class MockSimpleBacktester:
+            def __init__(self, *args, dataset_version_ids=None, **kwargs):
+                captured_dataset_version_ids.append(dataset_version_ids)
+
+            def run_backtest(self, *args, **kwargs):
+                captured_universe.extend(kwargs["universe"])
+                return types.SimpleNamespace(
+                    mean_ic=0.1,
+                    icir=0.2,
+                    hit_rate=0.3,
+                    coverage=0.4,
+                    long_short_spread=0.5,
+                    average_turnover=0.6,
+                    decay_half_life=10,
+                    snapshot_id="snap",
+                    dataset_version_ids={"provider": "hybrid"},
+                    daily_signals=MagicMock(),
+                    daily_weights=MagicMock(),
+                    daily_ic=MagicMock(),
+                    daily_portfolio_returns=MagicMock(),
+                )
+
+        redis_pipeline = MagicMock()
+        redis_pipeline.set.return_value = redis_pipeline
+        redis_pipeline.expire.return_value = redis_pipeline
+        redis_pipeline.execute.return_value = None
+        redis = MagicMock()
+        redis.pipeline.return_value = redis_pipeline
+        redis.exists.return_value = 0
+
+        monkeypatch.setattr(worker_module.Redis, "from_url", lambda *_a, **_k: redis)
+        monkeypatch.setattr(worker_module, "_get_worker_pool", lambda: DummyPool())
+        monkeypatch.setattr(worker_module, "AlphaMetricsAdapter", MagicMock())
+        monkeypatch.setattr(worker_module, "create_alpha", lambda name: MagicMock(name=name))
+        monkeypatch.setattr(worker_module, "ManifestManager", MockManifestManager)
+        monkeypatch.setattr(worker_module, "CRSPLocalProvider", MockCRSPLocalProvider)
+        monkeypatch.setattr(worker_module, "AlpacaSIPLocalProvider", MockAlpacaSIPLocalProvider)
+        monkeypatch.setattr(worker_module, "UnifiedDataFetcher", MockUnifiedDataFetcher)
+        monkeypatch.setattr(worker_module, "SimpleBacktester", MockSimpleBacktester)
+        monkeypatch.setattr(worker_module, "_save_parquet_artifacts", lambda *_, **__: tmp_path)
+        monkeypatch.setattr(worker_module, "_save_result_to_db", lambda *_, **__: None)
+        monkeypatch.setattr(
+            worker_module, "get_current_job", lambda: types.SimpleNamespace(timeout=400)
+        )
+        monkeypatch.setattr(worker_module.BacktestWorker, "check_memory", lambda self: None)
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "hybrid_crsp_universe_sip_prices",
+            },
+            created_by="test_user",
+        )
+
+        assert str(captured_crsp_storage[0]) == str(tmp_path / "data" / "wrds" / "crsp" / "daily")
+        assert str(captured_alpaca_storage[0]) == str(tmp_path / "custom_sip")
+        assert (
+            captured_fetcher_config[0].provider
+            == worker_module.ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+        )
+        assert captured_fetcher_config[0].crsp_storage_path == (
+            tmp_path / "data" / "wrds" / "crsp" / "daily"
+        )
+        assert captured_universe_dates == [date(2024, 1, 1)]
+        assert captured_universe == ["AAPL", "MSFT"]
+        assert captured_alpaca_closed == [True]
+        assert captured_dataset_version_ids[0]["hybrid_universe_provider"] == "crsp"
+        assert captured_dataset_version_ids[0]["hybrid_price_provider"] == "alpaca_sip"
+        assert captured_dataset_version_ids[0]["hybrid_universe_as_of_date"] == "2024-01-01"
+
+        captured_dataset_version_ids.clear()
+        captured_universe.clear()
+        captured_universe_dates.clear()
+        captured_alpaca_closed.clear()
+
+        worker_module.run_backtest(
+            {
+                "alpha_name": "test",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "provider": "hybrid_crsp_universe_sip_prices",
+                "extra_params": {"universe": ["tsla", "MSFT"]},
+            },
+            created_by="test_user",
+        )
+
+        assert captured_universe_dates == []
+        assert captured_universe == ["TSLA", "MSFT"]
+        assert captured_alpaca_closed == [True]
+        assert captured_dataset_version_ids[0]["hybrid_universe_provider"] == "explicit_symbols"
+        assert captured_dataset_version_ids[0]["hybrid_price_provider"] == "alpaca_sip"
+        assert "hybrid_universe_as_of_date" not in captured_dataset_version_ids[0]
+
+    @pytest.mark.unit()
+    def test_hybrid_rejects_start_date_before_sip_lookback_boundary(self):
+        """Test hybrid jobs fail early when the 90-day lookback predates SIP coverage."""
+        with pytest.raises(ValueError, match="2016-04-01"):
+            worker_module._validate_hybrid_start_date(date(2016, 3, 31))
+
+        worker_module._validate_hybrid_start_date(date(2016, 4, 1))
 
     @pytest.mark.unit()
     def test_yfinance_non_standard_universe_type_falls_to_empty(self, monkeypatch):

@@ -86,6 +86,16 @@ class SyncManifest(BaseModel):
     manifest_version: int = 1
     previous_checksum: str | None = None
 
+    # Provider provenance (optional for legacy manifests)
+    provider_id: str | None = None
+    provider_version: str | None = None
+    source_feed: str | None = None
+    adjustment_mode: str | None = None
+    manifest_id: str | None = None
+    symbol_set_hash: str | None = None
+    sync_started_at: datetime | None = None
+    sync_finished_at: datetime | None = None
+
     model_config = {"frozen": False}
 
     @field_validator("sync_timestamp")
@@ -97,6 +107,19 @@ class SyncManifest(BaseModel):
         offset = v.utcoffset()
         if offset is None or offset.total_seconds() != 0:
             raise ValueError("sync_timestamp must be UTC (offset == 0)")
+        return v
+
+    @field_validator("sync_started_at", "sync_finished_at")
+    @classmethod
+    def validate_optional_utc(cls, v: datetime | None) -> datetime | None:
+        """Ensure optional run timestamps are UTC when present."""
+        if v is None:
+            return v
+        if v.tzinfo is None:
+            raise ValueError("sync run timestamps must be timezone-aware")
+        offset = v.utcoffset()
+        if offset is None or offset.total_seconds() != 0:
+            raise ValueError("sync run timestamps must be UTC (offset == 0)")
         return v
 
     @field_validator("end_date")
@@ -213,6 +236,14 @@ class ManifestManager:
             return resolved.is_relative_to(data_root)
         except (ValueError, OSError):
             return False
+
+    def _resolve_data_file_path(self, file_path: Path) -> Path:
+        """Resolve manifest data paths against data_root when they are portable."""
+        if file_path.is_absolute():
+            return file_path.resolve()
+        if file_path.parts and file_path.parts[0] == self.data_root.name:
+            return (self.data_root.parent / file_path).resolve()
+        return (self.data_root / file_path).resolve()
 
     def _manifest_path(self, dataset: str) -> Path:
         """Get manifest file path for dataset."""
@@ -478,7 +509,7 @@ class ManifestManager:
         # Verify all referenced files exist and have non-zero size
         # This prevents "signing off" on missing or corrupt data
         for file_path_str in manifest.file_paths:
-            file_path = Path(file_path_str)
+            file_path = self._resolve_data_file_path(Path(file_path_str))
             if not file_path.exists():
                 raise QuarantineError(
                     f"Data integrity error: file '{file_path_str}' does not exist. "
@@ -501,7 +532,7 @@ class ManifestManager:
             # Calculate actual file sizes from manifest.file_paths
             total_file_size = 0
             for file_path_str in manifest.file_paths:
-                file_path = Path(file_path_str)
+                file_path = self._resolve_data_file_path(Path(file_path_str))
                 if file_path.exists():
                     total_file_size += file_path.stat().st_size
             # Use file sizes if available, otherwise fall back to manifest size
@@ -532,6 +563,10 @@ class ManifestManager:
             # Update version and previous checksum
             manifest.manifest_version = current.manifest_version + 1
             manifest.previous_checksum = current.checksum
+
+        manifest.manifest_id = (
+            f"{manifest.dataset}@v{manifest.manifest_version}:{manifest.checksum}"
+        )
 
         # Atomic write new manifest
         manifest_path = self._manifest_path(manifest.dataset)
@@ -865,7 +900,7 @@ class ManifestManager:
             missing_files: list[str] = []
 
             for file_path_str in manifest.file_paths:
-                src_path = Path(file_path_str)
+                src_path = self._resolve_data_file_path(Path(file_path_str))
                 if src_path.exists():
                     # Resolve to canonical path NOW to prevent symlink swaps
                     resolved_path = src_path.resolve()

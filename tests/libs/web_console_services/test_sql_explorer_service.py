@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -95,7 +96,9 @@ def test_sensitive_table_blocking_exact_and_prefix() -> None:
     _check_sensitive_tables(["crsp_daily"])
 
 
-def test_path_validation_rejects_traversal_and_quotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_path_validation_rejects_traversal_and_quotes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     allowed_root = (tmp_path / "data").resolve()
     allowed_root.mkdir(parents=True)
     monkeypatch.setattr(module, "_ALLOWED_DATA_ROOTS", [allowed_root])
@@ -156,8 +159,246 @@ def test_create_query_connection_sets_extension_lockdown(monkeypatch: pytest.Mon
     assert "SET enable_extension_loading = false" in fake_conn.statements
 
 
+def test_validate_table_paths_detects_alpaca_sip_snapshot_partition(
+    tmp_path: Path,
+) -> None:
+    snapshot_dir = tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1"
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / "2024.parquet").write_bytes(b"PAR1")
+
+    available, warnings = module._validate_table_paths(
+        {
+            "alpaca_sip_daily": str(
+                tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "*" / "*.parquet"
+            )
+        }
+    )
+
+    assert available["alpaca_sip"] == {"alpaca_sip_daily"}
+    assert not any("alpaca_sip_daily" in warning for warning in warnings)
+
+
+def test_resolve_table_paths_uses_alpaca_manifest_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    corp_storage_root = data_root / "alpaca" / "sip" / "corp_actions"
+    corp_partition = corp_storage_root / "snapshots" / "sync-1" / "corporate_actions.parquet"
+    corp_partition.parent.mkdir(parents=True)
+    corp_partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text(
+        json.dumps({"file_paths": [str(partition)]}),
+        encoding="utf-8",
+    )
+    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+        json.dumps({"file_paths": [str(corp_partition)]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == (str(partition),)
+    assert paths["alpaca_sip_corp_actions"] == (str(corp_partition),)
+
+
+def test_resolve_table_paths_uses_nested_relative_manifest_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text(
+        json.dumps({"file_paths": ["snapshots/sync-1/2024.parquet"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == (str(partition),)
+
+
+def test_resolve_table_paths_keeps_valid_alpaca_manifest_paths_with_missing_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text(
+        json.dumps(
+            {
+                "file_paths": [
+                    "snapshots/sync-1/2024.parquet",
+                    "snapshots/sync-1/missing.parquet",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == (str(partition),)
+    assert "sql_explorer_alpaca_sip_manifest_invalid_paths" in caplog.text
+
+
+def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    fallback_partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    fallback_partition.parent.mkdir(parents=True)
+    fallback_partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+
+
+def test_resolve_table_paths_fail_closed_on_non_object_alpaca_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    fallback_partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    fallback_partition.parent.mkdir(parents=True)
+    fallback_partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+    assert any(
+        getattr(record, "error", None) == "Manifest JSON is not an object"
+        for record in caplog.records
+    )
+
+
+def test_alpaca_manifest_path_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+    monkeypatch.setattr(module, "_MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES", 2)
+
+    try:
+        for index in range(3):
+            module._cache_alpaca_sip_manifest_path(
+                f"manifest-{index}",
+                module._ManifestPathCacheEntry(
+                    mtime_ns=index,
+                    size=index,
+                    path_spec=(f"/tmp/partition-{index}.parquet",),
+                ),
+            )
+
+        assert list(module._ALPACA_SIP_MANIFEST_PATH_CACHE) == [
+            "manifest-1",
+            "manifest-2",
+        ]
+    finally:
+        module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+
+
+def test_create_query_connection_handles_manifest_path_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResult:
+        def fetchall(self) -> list[tuple[str]]:
+            return [("core_functions",), ("parquet",)]
+
+    class FakeConn:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def execute(self, sql: str) -> FakeResult | None:
+            self.statements.append(sql)
+            if "duckdb_extensions" in sql:
+                return FakeResult()
+            return None
+
+        def close(self) -> None:
+            return None
+
+    data_root = tmp_path / "data"
+    partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    corp_partition = (
+        data_root
+        / "alpaca"
+        / "sip"
+        / "corp_actions"
+        / "snapshots"
+        / "sync-1"
+        / "corporate_actions.parquet"
+    )
+    corp_partition.parent.mkdir(parents=True)
+    corp_partition.write_bytes(b"PAR1")
+    fake_conn = FakeConn()
+    monkeypatch.setattr(module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
+    monkeypatch.setattr(
+        module,
+        "_resolve_table_paths",
+        lambda: {
+            "alpaca_sip_daily": (str(partition),),
+            "alpaca_sip_corp_actions": (str(corp_partition),),
+        },
+    )
+
+    module._create_query_connection(
+        "alpaca_sip",
+        available_tables={"alpaca_sip_daily", "alpaca_sip_corp_actions"},
+    )
+
+    view_statements = [stmt for stmt in fake_conn.statements if "CREATE OR REPLACE VIEW" in stmt]
+    assert len(view_statements) == 2
+    assert any(f"read_parquet(['{partition}'])" in stmt for stmt in view_statements)
+    assert any(f"read_parquet(['{corp_partition}'])" in stmt for stmt in view_statements)
+
+
 def test_can_query_dataset_default_deny_for_unmapped(operator_user: dict[str, str]) -> None:
     assert can_query_dataset(operator_user, "crsp") is True
+    assert can_query_dataset(operator_user, "alpaca_sip") is True
 
     module.DATASET_TABLES["new_dataset"] = ["new_table"]
     try:
@@ -205,7 +446,9 @@ async def test_execute_query_viewer_allowed_single_admin(
 ) -> None:
     """P6T19: Viewer can execute queries — single-admin model."""
     service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
-    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: _DummyConn())
+    monkeypatch.setattr(
+        module, "_create_query_connection", lambda dataset, available_tables: _DummyConn()
+    )
 
     result = await service.execute_query(viewer_user, "crsp", "SELECT * FROM crsp_daily")
     assert result is not None
@@ -255,7 +498,9 @@ async def test_execute_query_concurrency_cap(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio()
-async def test_execute_query_audit_statuses(operator_user: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_query_audit_statuses(
+    operator_user: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     statuses: list[str] = []
 
     def capture_log(
@@ -276,7 +521,9 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
     service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
 
     # success
-    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: _DummyConn())
+    monkeypatch.setattr(
+        module, "_create_query_connection", lambda dataset, available_tables: _DummyConn()
+    )
     await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
     # P6T19: authorization_denied path removed — has_permission always True
@@ -318,7 +565,11 @@ async def test_execute_query_audit_statuses(operator_user: dict[str, str], monke
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
     # error
-    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        module,
+        "_create_query_connection",
+        lambda dataset, available_tables: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
     with pytest.raises(RuntimeError):
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
@@ -359,7 +610,8 @@ async def test_export_csv_rate_limited(operator_user: dict[str, str]) -> None:
 
 
 def test_verify_sandbox_missing_dir_not_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """FileNotFoundError from missing probe directory should not count as failure."""
     import socket as _socket
@@ -382,7 +634,8 @@ def test_verify_sandbox_missing_dir_not_failure(
 
 
 def test_verify_sandbox_writable_dir_is_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """A writable directory should be reported as a sandbox failure."""
     import socket as _socket

@@ -405,9 +405,7 @@ def test_get_requested_backtest_tab_valid(
     dummy_ui: DummyUI,
 ) -> None:
     """Tab parser preserves valid tab query values."""
-    dummy_ui.context.client.request = SimpleNamespace(
-        scope={"query_string": b"tab=running"}
-    )
+    dummy_ui.context.client.request = SimpleNamespace(scope={"query_string": b"tab=running"})
 
     result = backtest_module._get_requested_backtest_tab()
 
@@ -418,9 +416,7 @@ def test_get_requested_backtest_tab_invalid_defaults_to_new(
     dummy_ui: DummyUI,
 ) -> None:
     """Tab parser defaults to New Backtest on unknown tab values."""
-    dummy_ui.context.client.request = SimpleNamespace(
-        scope={"query_string": b"tab=invalid"}
-    )
+    dummy_ui.context.client.request = SimpleNamespace(scope={"query_string": b"tab=invalid"})
 
     result = backtest_module._get_requested_backtest_tab()
 
@@ -709,7 +705,7 @@ def test_get_user_jobs_sync_falls_back_on_missing_cost_summary_column() -> None:
         def execute(self, *_: Any, **__: Any) -> None:
             self.calls += 1
             if self.calls == 1:
-                raise pg_errors.UndefinedColumn("column \"cost_summary\" does not exist")
+                raise pg_errors.UndefinedColumn('column "cost_summary" does not exist')
 
         def __enter__(self) -> QueryCursor:
             return self
@@ -1060,7 +1056,7 @@ def test_get_user_jobs_sync_returns_empty_when_backtest_table_missing() -> None:
 
     class QueryCursor:
         def execute(self, *_: Any, **__: Any) -> None:
-            raise pg_errors.UndefinedTable("relation \"backtest_jobs\" does not exist")
+            raise pg_errors.UndefinedTable('relation "backtest_jobs" does not exist')
 
         def __enter__(self) -> QueryCursor:
             return self
@@ -1141,7 +1137,9 @@ def test_verify_job_ownership_returns_true_for_owner() -> None:
             return FakeConn()
 
     result = backtest_module._verify_job_ownership(
-        "job123", "u1", FakePool()  # type: ignore[arg-type]
+        "job123",
+        "u1",
+        FakePool(),  # type: ignore[arg-type]
     )
     assert result is True
 
@@ -1171,7 +1169,9 @@ def test_verify_job_ownership_returns_false_for_nonowner() -> None:
             return FakeConn()
 
     result = backtest_module._verify_job_ownership(
-        "job123", "u2", FakePool()  # type: ignore[arg-type]
+        "job123",
+        "u2",
+        FakePool(),  # type: ignore[arg-type]
     )
     assert result is False
 
@@ -1201,7 +1201,9 @@ def test_verify_job_ownership_returns_false_for_missing_job() -> None:
             return FakeConn()
 
     result = backtest_module._verify_job_ownership(
-        "job999", "u1", FakePool()  # type: ignore[arg-type]
+        "job999",
+        "u1",
+        FakePool(),  # type: ignore[arg-type]
     )
     assert result is False
 
@@ -1294,11 +1296,13 @@ async def test_render_new_backtest_form_creates_ui_elements(
     await backtest_module._render_new_backtest_form({"user_id": "u1"})
 
     # Check for key UI elements
-    assert any(s.label == "Data Source" for s in dummy_ui.selects)
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    assert "Alpaca SIP (local, non-PIT)" in provider_select.kwargs["options"]
+    assert "Auto (role-resolved)" in provider_select.kwargs["options"]
     assert any(s.label == "Alpha Signal" for s in dummy_ui.selects)
     assert any(s.label == "Weight Method" for s in dummy_ui.selects)
     assert any(s.label == "Priority" for s in dummy_ui.selects)
-    assert any(i.label == "Yahoo Universe (comma-separated tickers)" for i in dummy_ui.inputs)
+    assert any(i.label == "Symbol Universe (comma-separated tickers)" for i in dummy_ui.inputs)
     assert len(dummy_ui.dates) == 2  # Start and end date
     assert any(b.label == "Run Backtest" for b in dummy_ui.buttons)
 
@@ -1320,7 +1324,7 @@ async def test_submit_job_invalid_symbols(
     # Find form elements
     provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
     universe_input = next(
-        i for i in dummy_ui.inputs if i.label == "Yahoo Universe (comma-separated tickers)"
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
     )
     submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
 
@@ -1355,7 +1359,7 @@ async def test_submit_job_valid_symbols(dummy_ui: DummyUI, monkeypatch: pytest.M
 
     provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
     universe_input = next(
-        i for i in dummy_ui.inputs if i.label == "Yahoo Universe (comma-separated tickers)"
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
     )
     submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
 
@@ -1368,6 +1372,191 @@ async def test_submit_job_valid_symbols(dummy_ui: DummyUI, monkeypatch: pytest.M
     # Should submit successfully
     assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
     assert any(n["type"] == "positive" for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+async def test_submit_job_alpaca_sip_provider(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test submit_job sends Alpaca SIP provider and symbol universe."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+    captured_configs: list[Any] = []
+
+    class DummyQueue:
+        def enqueue(self, config: Any, *_: Any, **__: Any) -> Any:
+            captured_configs.append(config)
+            return SimpleNamespace(id="job123")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Alpaca SIP (local, non-PIT)"
+    universe_input.value = "aapl, msft"
+
+    await _call(submit_button._on_click)
+
+    assert len(captured_configs) == 1
+    assert captured_configs[0].provider.value == "alpaca_sip"
+    assert captured_configs[0].extra_params["universe"] == ["AAPL", "MSFT"]
+    assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    "provider_label",
+    ["Yahoo Finance (dev only)", "Alpaca SIP (local, non-PIT)"],
+)
+async def test_submit_job_non_pit_provider_requires_universe(
+    provider_label: str,
+    dummy_ui: DummyUI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test non-PIT providers are rejected before enqueue without a universe."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+
+    class DummyQueue:
+        def enqueue(self, *_: Any, **__: Any) -> Any:
+            raise AssertionError("non-PIT provider without universe must not enqueue")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = provider_label
+    universe_input.value = ""
+
+    await _call(submit_button._on_click)
+
+    assert any("requires an explicit symbol universe" in n["text"] for n in dummy_ui.notifications)
+    assert any(n["type"] == "negative" for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+async def test_submit_job_auto_provider_keeps_explicit_universe(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test submit_job sends Auto provider with explicit universe for role resolution."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+    captured_configs: list[Any] = []
+
+    class DummyQueue:
+        def enqueue(self, config: Any, *_: Any, **__: Any) -> Any:
+            captured_configs.append(config)
+            return SimpleNamespace(id="job123")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Auto (role-resolved)"
+    universe_input.value = "aapl, msft"
+
+    await _call(submit_button._on_click)
+
+    assert len(captured_configs) == 1
+    assert captured_configs[0].provider.value == "auto"
+    assert captured_configs[0].extra_params["universe"] == ["AAPL", "MSFT"]
+    assert captured_configs[0].extra_params["data"] == {"requires_pit_universe": False}
+    assert any("Backtest queued" in n["text"] for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+async def test_submit_job_auto_provider_rejects_empty_non_pit_resolution(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test Auto rejects empty universes when CRSP is unavailable."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+    monkeypatch.setenv("CRSP_AVAILABLE", "false")
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+
+    class DummyQueue:
+        def enqueue(self, *_: Any, **__: Any) -> Any:
+            raise AssertionError("auto non-PIT resolution without universe must not enqueue")
+
+    monkeypatch.setattr(backtest_module, "_get_job_queue", lambda: DummyQueue())
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    universe_input = next(
+        i for i in dummy_ui.inputs if i.label == "Symbol Universe (comma-separated tickers)"
+    )
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Auto (role-resolved)"
+    universe_input.value = ""
+
+    await _call(submit_button._on_click)
+
+    assert any("Auto provider requires an explicit symbol universe" in n["text"] for n in dummy_ui.notifications)
+    assert any(n["type"] == "negative" for n in dummy_ui.notifications)
+
+
+@pytest.mark.asyncio()
+async def test_submit_job_hybrid_rejects_pre_sip_lookback_start(
+    dummy_ui: DummyUI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test hybrid provider enforces the SIP lookback boundary before enqueue."""
+    monkeypatch.setattr(backtest_module, "_get_available_alphas", lambda: ["alpha1"])
+
+    async def io_bound(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(backtest_module.run, "io_bound", io_bound)
+
+    await backtest_module._render_new_backtest_form({"user_id": "u1"})
+
+    provider_select = next(s for s in dummy_ui.selects if s.label == "Data Source")
+    start_date = dummy_ui.dates[0]
+    end_date = dummy_ui.dates[1]
+    submit_button = next(b for b in dummy_ui.buttons if b.label == "Run Backtest")
+
+    provider_select.value = "Hybrid CRSP Universe + Alpaca SIP Prices (research)"
+    start_date.value = "2016-03-31"
+    end_date.value = "2016-05-01"
+
+    await _call(submit_button._on_click)
+
+    assert any("2016-04-01" in n["text"] for n in dummy_ui.notifications)
+    assert any(n["type"] == "negative" for n in dummy_ui.notifications)
 
 
 @pytest.mark.asyncio()
@@ -1578,7 +1767,9 @@ async def test_render_running_jobs_no_jobs(
     monkeypatch.setattr(backtest_module, "ClientLifecycleManager", MockLifecycleMgr)
 
     await backtest_module._render_running_jobs(
-        {"user_id": "u1"}, FakePool(), FakeRedis()  # type: ignore[arg-type]
+        {"user_id": "u1"},
+        FakePool(),
+        FakeRedis(),  # type: ignore[arg-type]
     )
 
     assert any("No running or queued jobs" in label.text for label in dummy_ui.labels)
@@ -1626,7 +1817,9 @@ async def test_render_running_jobs_with_jobs(
         pass
 
     await backtest_module._render_running_jobs(
-        {"user_id": "u1"}, FakePool(), FakeRedis()  # type: ignore[arg-type]
+        {"user_id": "u1"},
+        FakePool(),
+        FakeRedis(),  # type: ignore[arg-type]
     )
 
     # Should display alpha name
@@ -1681,7 +1874,9 @@ async def test_cancel_job_security_check(
         pass
 
     await backtest_module._render_running_jobs(
-        {"user_id": "u1"}, FakePool(), FakeRedis()  # type: ignore[arg-type]
+        {"user_id": "u1"},
+        FakePool(),
+        FakeRedis(),  # type: ignore[arg-type]
     )
 
     cancel_button = next(b for b in dummy_ui.buttons if b.label == "Cancel")
@@ -1715,7 +1910,9 @@ async def test_render_backtest_results_no_results(
         pass
 
     await backtest_module._render_backtest_results(
-        {"user_id": "u1"}, FakePool(), FakeRedis()  # type: ignore[arg-type]
+        {"user_id": "u1"},
+        FakePool(),
+        FakeRedis(),  # type: ignore[arg-type]
     )
 
     assert any("No completed backtests" in label.text for label in dummy_ui.labels)
@@ -1752,7 +1949,9 @@ async def test_render_backtest_results_comparison_mode_too_few(
         pass
 
     await backtest_module._render_backtest_results(
-        {"user_id": "u1"}, FakePool(), FakeRedis()  # type: ignore[arg-type]
+        {"user_id": "u1"},
+        FakePool(),
+        FakeRedis(),  # type: ignore[arg-type]
     )
 
     # Enable comparison mode
@@ -1786,7 +1985,24 @@ async def test_render_backtest_result_with_metrics(
         coverage=0.95,
         turnover_result=SimpleNamespace(average_turnover=0.25),
         daily_ic=None,
-        dataset_version_ids={"provider": "crsp"},
+        dataset_version_ids={
+            "provider": "crsp",
+            "provider_roles": json.dumps(
+                {
+                    "universe_source": "crsp",
+                    "price_source": "crsp",
+                    "corp_actions_source": "crsp",
+                }
+            ),
+            "data_signature": "abcdef1234567890deadbeef",
+            "source_feed": "crsp",
+            "adjustment_mode": "crsp_ret",
+            "alpaca_feed_delta_status": "passed",
+            "alpaca_feed_delta_hash": "1234567890abcdefdeadbeef",
+            "alpaca_feed_delta_timeframe": "1Day",
+        },
+        data_signature="abcdef1234567890deadbeef",
+        data_signature_payload={},
         daily_prices=None,
         daily_signals=None,
         daily_returns=None,
@@ -1800,6 +2016,9 @@ async def test_render_backtest_result_with_metrics(
     # Should show metrics
     assert any("alpha1" in label.text for label in dummy_ui.labels)
     assert any("CRSP" in label.text for label in dummy_ui.labels)
+    assert any("Data Signature: abcdef1234567890" in label.text for label in dummy_ui.labels)
+    assert any("Data Roles: universe=crsp" in label.text for label in dummy_ui.labels)
+    assert any("IEX-vs-SIP Monitor: status=passed" in label.text for label in dummy_ui.labels)
 
 
 @pytest.mark.asyncio()

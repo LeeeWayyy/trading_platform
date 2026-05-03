@@ -49,6 +49,8 @@ from apps.web_console_ng.components.backtest_comparison_chart import (
     render_tracking_error_vs_baseline,
 )
 from apps.web_console_ng.components.config_editor import (
+    PROVIDER_DISPLAY,
+    PROVIDER_DISPLAY_INVERSE,
     FormState,
     form_state_to_json,
     render_config_editor,
@@ -60,6 +62,8 @@ from apps.web_console_ng.core.request_query import (
     get_request_query_param,
 )
 from apps.web_console_ng.ui.helpers import safe_classes
+from libs.data.data_providers.registry import ProviderType as RegistryProviderType
+from libs.data.data_providers.registry import get_provider_spec
 from libs.platform.web_console_auth.permissions import Permission, has_permission
 
 if TYPE_CHECKING:
@@ -76,6 +80,7 @@ _schema_probe_cache: WeakKeyDictionary[Any, tuple[int, bool]] = WeakKeyDictionar
 
 class _SchemaProbeUnavailableError(Exception):
     """Internal sentinel for fail-closed schema probe failures."""
+
 
 # Constants
 BACKTEST_JOB_QUERY_LIMIT = 50
@@ -126,9 +131,7 @@ def _probe_cost_summary_column_uncached(db_pool: ConnectionPool) -> bool:
     """
     conn_ctx = db_pool.connection()
     if not hasattr(conn_ctx, "__enter__") or not hasattr(conn_ctx, "__exit__"):
-        raise TypeError(
-            "Backtest job queries require sync ConnectionPool from get_sync_db_pool()"
-        )
+        raise TypeError("Backtest job queries require sync ConnectionPool from get_sync_db_pool()")
     with conn_ctx as probe_conn, probe_conn.cursor() as probe_cur:
         probe_cur.execute(probe_sql)
         row = probe_cur.fetchone()
@@ -512,10 +515,12 @@ async def _render_new_backtest_form(
 ) -> None:
     """Render the new backtest submission form."""
     from libs.trading.backtest.job_queue import (
+        HYBRID_CRSP_SIP_MIN_START_DATE,
         BacktestJobConfig,
         DataProvider,
         JobPriority,
         WeightMethod,
+        resolve_auto_provider,
     )
 
     with ui.card().classes("w-full p-4"):
@@ -530,20 +535,28 @@ async def _render_new_backtest_form(
                 data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
                 crsp_manifest_path = data_root / "manifests" / "crsp.json"
                 crsp_available = crsp_manifest_path.exists()
+                alpaca_manifest_path = data_root / "manifests" / "alpaca_sip_daily.json"
+                alpaca_sip_available = alpaca_manifest_path.exists()
 
                 data_provider_select = ui.select(
                     label="Data Source",
-                    options=["CRSP (production)", "Yahoo Finance (dev only)"],
-                    value="CRSP (production)",
+                    options=list(PROVIDER_DISPLAY.values()),
+                    value=PROVIDER_DISPLAY["crsp"],
                 ).classes("w-full")
                 provider_help = ui.label(
                     "CRSP is required for point-in-time backtests and universe filtering. "
-                    "Yahoo Finance is for development only and does not support PIT checks."
+                    "Yahoo Finance and Alpaca SIP are explicit research/dev paths; hybrid "
+                    "uses CRSP for a static universe and Alpaca SIP for prices."
                 ).classes("text-xs text-gray-500")
                 status_label = ui.label("").classes("text-xs")
 
+                def _provider_from_display_label(value: str | None) -> DataProvider:
+                    provider_value = PROVIDER_DISPLAY_INVERSE.get(str(value or ""), value or "")
+                    return DataProvider.from_string(str(provider_value))
+
                 def _update_provider_status(value: str) -> None:
-                    if value.startswith("CRSP"):
+                    provider_value = PROVIDER_DISPLAY_INVERSE.get(str(value), "")
+                    if provider_value == DataProvider.CRSP.value:
                         status_text = (
                             "CRSP manifest found"
                             if crsp_available
@@ -558,6 +571,54 @@ async def _render_new_backtest_form(
                         provider_help.set_text(
                             "CRSP is required for point-in-time backtests and universe filtering. "
                             "Yahoo Finance is for development only and does not support PIT checks."
+                        )
+                    elif provider_value == DataProvider.ALPACA_SIP.value:
+                        status_text = (
+                            "Alpaca SIP manifest found"
+                            if alpaca_sip_available
+                            else "Alpaca SIP manifest missing (data/manifests/alpaca_sip_daily.json)"
+                        )
+                        status_label.set_text(status_text)
+                        safe_classes(
+                            status_label,
+                            replace="text-xs "
+                            + ("text-green-600" if alpaca_sip_available else "text-amber-600"),
+                        )
+                        provider_help.set_text(
+                            "Alpaca SIP uses local synced SIP bars for execution-feed parity. "
+                            "It is non-PIT in this phase and requires an explicit symbol universe."
+                        )
+                    elif provider_value == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES.value:
+                        hybrid_available = crsp_available and alpaca_sip_available
+                        missing = []
+                        if not crsp_available:
+                            missing.append("CRSP")
+                        if not alpaca_sip_available:
+                            missing.append("Alpaca SIP")
+                        status_text = (
+                            "Hybrid manifests found"
+                            if hybrid_available
+                            else f"Hybrid missing {' and '.join(missing)} manifest(s)"
+                        )
+                        status_label.set_text(status_text)
+                        safe_classes(
+                            status_label,
+                            replace="text-xs "
+                            + ("text-green-600" if hybrid_available else "text-amber-600"),
+                        )
+                        provider_help.set_text(
+                            "Hybrid uses CRSP for the static backtest universe and Alpaca SIP "
+                            "for local price history. It is research-only and requires "
+                            f"start dates on or after {HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} "
+                            "to preserve the simple backtest lookback window."
+                        )
+                    elif provider_value == DataProvider.AUTO.value:
+                        status_label.set_text("Auto resolves data roles at worker runtime")
+                        safe_classes(status_label, replace="text-xs text-blue-600")
+                        provider_help.set_text(
+                            "Auto uses extra_params.data roles plus environment defaults. "
+                            "When CRSP is unavailable, it can route prices to local Alpaca SIP "
+                            "only if an explicit symbol universe is supplied."
                         )
                     else:
                         status_label.set_text("Yahoo Finance uses cached data in data/yfinance")
@@ -623,11 +684,12 @@ async def _render_new_backtest_form(
                 ui.label("End Date").classes("text-sm text-gray-500 -mt-2")
 
                 universe_input = ui.input(
-                    label="Yahoo Universe (comma-separated tickers)",
+                    label="Symbol Universe (comma-separated tickers)",
                     placeholder="AAPL, MSFT, NVDA",
                 ).classes("w-full")
                 ui.label(
-                    "Only used for Yahoo Finance. Leave blank to use a small default universe."
+                    "Used for Yahoo Finance and Alpaca SIP. For hybrid, leave blank to use the "
+                    "CRSP universe as of the start date."
                 ).classes("text-xs text-gray-500 -mt-2")
 
             # Right column
@@ -714,8 +776,14 @@ async def _render_new_backtest_form(
             if not cost_enabled.value:
                 return None
             # Set adv_source based on provider to accurately represent data provenance
-            # CRSP provider uses PIT-compliant CRSP ADV data; Yahoo uses yahoo data
-            adv_source = "crsp" if provider == DataProvider.CRSP else "yahoo"
+            # CRSP provider uses PIT-compliant CRSP ADV data; non-PIT providers are skipped.
+            adv_source_by_provider = {
+                DataProvider.CRSP: "crsp",
+                DataProvider.AUTO: "crsp",
+                DataProvider.ALPACA_SIP: "alpaca",
+                DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES: "hybrid_crsp_sip",
+            }
+            adv_source = adv_source_by_provider.get(provider, "yahoo")
             # Let the backend handle None values and type coercion.
             # The UI provides the participation limit in %, so we convert it to a fraction.
             part_limit_val = participation_limit_input.value
@@ -734,7 +802,7 @@ async def _render_new_backtest_form(
         def _get_form_json() -> str:
             """Serialize current form state to JSON for the editor."""
             selected_provider = data_provider_select.value
-            dp = DataProvider.CRSP if selected_provider.startswith("CRSP") else DataProvider.YFINANCE
+            dp = _provider_from_display_label(selected_provider)
             return form_state_to_json(
                 alpha_name=alpha_select.value or "",
                 start_date=start_date_input.value or "",
@@ -771,6 +839,7 @@ async def _render_new_backtest_form(
                 return
 
             try:
+
                 def submit_sync() -> Any:
                     queue = _get_job_queue()
                     logger.info(
@@ -790,7 +859,9 @@ async def _render_new_backtest_form(
                     type="positive",
                 )
             except (ConnectionError, OSError) as e:
-                logger.error("backtest_submit_db_connection_failed", extra={"error": str(e)}, exc_info=True)
+                logger.error(
+                    "backtest_submit_db_connection_failed", extra={"error": str(e)}, exc_info=True
+                )
                 ui.notify("Failed to submit backtest: Database connection error", type="negative")
             except (ValueError, TypeError) as e:
                 logger.error("backtest_submit_data_error", extra={"error": str(e)}, exc_info=True)
@@ -840,12 +911,15 @@ async def _render_new_backtest_form(
         async def submit_job() -> None:
             ui.notify("Submitting backtest...", type="info")
             selected_provider = data_provider_select.value
-            data_provider = (
-                DataProvider.CRSP if selected_provider.startswith("CRSP") else DataProvider.YFINANCE
-            )
+            data_provider = _provider_from_display_label(selected_provider)
 
             universe: list[str] | None = None
-            if data_provider == DataProvider.YFINANCE:
+            if data_provider in (
+                DataProvider.YFINANCE,
+                DataProvider.ALPACA_SIP,
+                DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
+                DataProvider.AUTO,
+            ):
                 raw_universe_value = universe_input.value
                 raw_universe = ""
                 if raw_universe_value is not None:
@@ -869,6 +943,13 @@ async def _render_new_backtest_form(
                             type="negative",
                         )
                         return
+
+            if data_provider in (DataProvider.YFINANCE, DataProvider.ALPACA_SIP) and not universe:
+                ui.notify(
+                    f"{PROVIDER_DISPLAY[data_provider.value]} requires an explicit symbol universe.",
+                    type="negative",
+                )
+                return
 
             # Validate dates
             try:
@@ -897,6 +978,17 @@ async def _render_new_backtest_form(
             if start_dt.year < 1990 or end_dt.year > 2100:
                 ui.notify("Dates must be between 1990 and 2100", type="negative")
                 return
+            if (
+                data_provider == DataProvider.HYBRID_CRSP_UNIVERSE_SIP_PRICES
+                and start_dt < HYBRID_CRSP_SIP_MIN_START_DATE
+            ):
+                ui.notify(
+                    "Hybrid CRSP/SIP requires start_date >= "
+                    f"{HYBRID_CRSP_SIP_MIN_START_DATE.isoformat()} because Alpaca SIP "
+                    "history starts around 2016 and the simple backtester needs a 90-day lookback.",
+                    type="negative",
+                )
+                return
 
             # Build config
             try:
@@ -912,17 +1004,48 @@ async def _render_new_backtest_form(
                 end_date=end_dt,
                 weight_method=weight_method,
                 provider=data_provider,
+                extra_params=dict(_extra_params_hidden),
             )
             if universe:
                 job_config.extra_params["universe"] = universe
+                if data_provider == DataProvider.AUTO:
+                    role_config = job_config.extra_params.get("data")
+                    if not isinstance(role_config, dict):
+                        role_config = {}
+                    role_config.setdefault("requires_pit_universe", False)
+                    job_config.extra_params["data"] = role_config
+            elif data_provider == DataProvider.AUTO:
+                try:
+                    validation_config = BacktestJobConfig(
+                        alpha_name=job_config.alpha_name,
+                        start_date=job_config.start_date,
+                        end_date=job_config.end_date,
+                        weight_method=job_config.weight_method,
+                        provider=job_config.provider,
+                        extra_params=dict(job_config.extra_params),
+                    )
+                    resolve_auto_provider(validation_config)
+                except (ValueError, TypeError) as exc:
+                    ui.notify(
+                        "Auto provider requires an explicit symbol universe for the "
+                        f"current data roles: {exc}",
+                        type="negative",
+                    )
+                    return
 
             # Add cost model configuration if enabled (T9.2)
             cost_config = build_cost_config(data_provider)
             if cost_config is not None:
-                if data_provider == DataProvider.YFINANCE:
-                    # Warn user that cost model will be skipped for Yahoo
+                if data_provider == DataProvider.AUTO:
                     ui.notify(
-                        "Cost model enabled but Yahoo Finance lacks PIT ADV data. "
+                        "Cost model enabled with Auto provider. Cost calculations will run "
+                        "only if Auto resolves to CRSP; non-PIT routes will skip costs.",
+                        type="warning",
+                    )
+                elif data_provider != DataProvider.CRSP:
+                    # Warn user that cost model will be skipped for non-PIT providers.
+                    ui.notify(
+                        "Cost model enabled but the selected provider lacks PIT ADV data. "
                         "Cost calculations will be skipped. Use CRSP for cost analysis.",
                         type="warning",
                     )
@@ -1263,8 +1386,7 @@ async def _render_backtest_results(
                 if any_missing_net:
                     active_basis = "gross"
                     ui.notify(
-                        "Some backtests lack cost model data; "
-                        "showing gross returns for all.",
+                        "Some backtests lack cost model data; " "showing gross returns for all.",
                         type="warning",
                     )
 
@@ -1388,11 +1510,14 @@ async def _render_backtest_results(
                                 except Exception:  # noqa: BLE001 - best-effort cache
                                     async_redis = None
                                     logger.warning(
-                                        "async_redis_unavailable_for_result", exc_info=True,
+                                        "async_redis_unavailable_for_result",
+                                        exc_info=True,
                                     )
 
                                 data_access = StrategyScopedDataAccess(
-                                    async_pool, async_redis, user,
+                                    async_pool,
+                                    async_redis,
+                                    user,
                                 )
                                 storage = BacktestResultStorage(db_pool)
                                 service = BacktestAnalyticsService(data_access, storage)
@@ -1400,7 +1525,10 @@ async def _render_backtest_results(
                                 _render_backtest_result(result, user)
                                 # Live vs Backtest Overlay (T12.3)
                                 await _render_live_overlay_section(
-                                    result, job_id, user, db_pool,
+                                    result,
+                                    job_id,
+                                    user,
+                                    db_pool,
                                 )
                             except PermissionError:
                                 ui.notify("Result not found or access denied", type="negative")
@@ -1941,6 +2069,8 @@ def _render_export_buttons(
                 "n_symbols_avg": result.n_symbols_avg,
             },
             "dataset_version_ids": result.dataset_version_ids,
+            "data_signature": getattr(result, "data_signature", None),
+            "data_signature_payload": getattr(result, "data_signature_payload", {}),
             "snapshot_id": result.snapshot_id,
         }
 
@@ -2000,6 +2130,105 @@ def _render_export_buttons(
             ui.button("Download Net Returns Parquet", on_click=download_net_returns_parquet)
 
 
+def _parse_json_mapping(value: Any) -> dict[str, Any]:
+    """Parse JSON object strings used in dataset provenance metadata."""
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _backtest_provenance_lines(result: Any) -> list[str]:
+    """Build user-visible data-provenance lines for backtest reports."""
+    dataset_version_ids = getattr(result, "dataset_version_ids", None)
+    if not isinstance(dataset_version_ids, dict):
+        dataset_version_ids = {}
+
+    lines: list[str] = []
+    provider = dataset_version_ids.get("provider_id") or dataset_version_ids.get("provider")
+    if provider:
+        lines.append(f"Data Source: {str(provider).upper()}")
+
+    provider_roles = _parse_json_mapping(dataset_version_ids.get("provider_roles"))
+    payload = getattr(result, "data_signature_payload", None)
+    if not provider_roles and isinstance(payload, dict):
+        provider_roles = _parse_json_mapping(payload.get("roles"))
+
+    if provider_roles:
+        lines.append(
+            "Data Roles: "
+            f"universe={provider_roles.get('universe_source', '-')}, "
+            f"prices={provider_roles.get('price_source', '-')}, "
+            f"corp_actions={provider_roles.get('corp_actions_source', '-')}"
+        )
+
+    data_signature = getattr(result, "data_signature", None) or dataset_version_ids.get(
+        "data_signature"
+    )
+    if data_signature:
+        lines.append(f"Data Signature: {str(data_signature)[:16]}")
+
+    manifest_ids = {}
+    if isinstance(payload, dict):
+        manifest_ids = _parse_json_mapping(payload.get("manifest_ids"))
+    if not manifest_ids:
+        manifest_ids = {
+            key[: -len("_manifest_id")]: value
+            for key, value in dataset_version_ids.items()
+            if str(key).endswith("_manifest_id")
+        }
+    if manifest_ids:
+        manifest_text = ", ".join(f"{key}={value}" for key, value in sorted(manifest_ids.items()))
+        lines.append(f"Manifest IDs: {manifest_text}")
+
+    source_feed = dataset_version_ids.get("source_feed")
+    adjustment = dataset_version_ids.get("adjustment_mode")
+    if source_feed or adjustment:
+        lines.append(f"Feed/Adjustment: {source_feed or '-'} / {adjustment or '-'}")
+
+    feed_delta_status = dataset_version_ids.get("alpaca_feed_delta_status")
+    if feed_delta_status:
+        feed_delta_hash = str(dataset_version_ids.get("alpaca_feed_delta_hash") or "")
+        feed_delta_timeframe = str(dataset_version_ids.get("alpaca_feed_delta_timeframe") or "-")
+        suffix = f", hash={feed_delta_hash[:16]}" if feed_delta_hash else ""
+        lines.append(
+            "IEX-vs-SIP Monitor: "
+            f"status={feed_delta_status}, timeframe={feed_delta_timeframe}{suffix}"
+        )
+
+    if provider:
+        try:
+            spec = get_provider_spec(RegistryProviderType.from_string(str(provider)))
+            caps = spec.capabilities
+            lines.append(
+                "Capabilities: "
+                f"pit_universe={str(caps.supports_pit_universe).lower()}, "
+                f"production_feed_parity={str(caps.production_feed_parity).lower()}, "
+                f"survivorship_safe={str(caps.survivorship_safe).lower()}"
+            )
+        except ValueError:
+            pass
+
+    role_values = {str(value) for value in provider_roles.values()}
+    provider_value = str(provider or "")
+    if (
+        provider_value in {"alpaca_sip", "hybrid_crsp_universe_sip_prices"}
+        or "alpaca_sip" in role_values
+        or "explicit_symbols" in role_values
+    ):
+        lines.append(
+            "Survivorship disclosure: SIP or explicit-symbol backtests are not "
+            "survivorship-free and do not provide point-in-time universe membership."
+        )
+
+    return lines
+
+
 def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
     """Render complete backtest result with metrics and charts."""
 
@@ -2010,11 +2239,11 @@ def _render_backtest_result(result: Any, user: dict[str, Any]) -> None:
         f"Days: {result.n_days} | "
         f"Avg Symbols: {result.n_symbols_avg:.0f}"
     ).classes("text-sm text-gray-500 mb-4")
-    provider = None
-    if isinstance(getattr(result, "dataset_version_ids", None), dict):
-        provider = result.dataset_version_ids.get("provider")
-    if provider:
-        ui.label(f"Data Source: {provider.upper()}").classes("text-sm text-gray-500 mb-4")
+    for line in _backtest_provenance_lines(result):
+        style = "text-sm text-gray-500 mb-1"
+        if line.startswith("Survivorship disclosure:"):
+            style = "text-xs text-amber-600 mb-1"
+        ui.label(line).classes(style)
 
     # Metrics summary
     ic_note = None
@@ -2229,9 +2458,9 @@ async def _render_live_overlay_section(
 
     ui.separator().classes("my-4")
     with ui.expansion("Live vs Backtest Overlay", icon="compare_arrows").classes("w-full"):
-        ui.label(
-            "Compare live trading returns against this backtest's expected returns."
-        ).classes("text-xs text-gray-500 mb-2")
+        ui.label("Compare live trading returns against this backtest's expected returns.").classes(
+            "text-xs text-gray-500 mb-2"
+        )
 
         overlay_strat_select = ui.select(
             label="Strategy (live data source)",
@@ -2290,7 +2519,9 @@ async def _render_live_overlay_section(
             _end = _to_date(result.end_date)
             try:
                 live_rows = await data_access.get_portfolio_returns(
-                    strat_id, _start, _end,
+                    strat_id,
+                    _start,
+                    _end,
                 )
             except PermissionError:
                 ui.notify("Not authorized for this strategy", type="negative")
@@ -2318,7 +2549,9 @@ async def _render_live_overlay_section(
                 render_live_vs_backtest_overlay(overlay_res, bt_basis)
 
         ui.button(
-            "Load Overlay", on_click=_load_overlay, color="primary",
+            "Load Overlay",
+            on_click=_load_overlay,
+            color="primary",
         ).classes("mt-2")
 
 

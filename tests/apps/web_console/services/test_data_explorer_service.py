@@ -49,8 +49,7 @@ async def test_list_datasets_filters_by_permissions(
     datasets = await service.list_datasets(operator_user)
 
     names = {item.name for item in datasets}
-    # Operators have access to crsp, compustat, fama_french, and taq (P6T8: TCA)
-    assert names == {"crsp", "compustat", "fama_french", "taq"}
+    assert names == {"crsp", "compustat", "fama_french", "taq", "alpaca_sip"}
 
 
 @pytest.mark.asyncio()
@@ -74,6 +73,19 @@ async def test_export_data_any_dataset_allowed_single_admin(
         query="select * from crsp_daily",
         format="csv",
     )
+    assert result is not None
+
+
+@pytest.mark.asyncio()
+async def test_execute_query_alpaca_sip_table_allowed(
+    service: DataExplorerService, operator_user: DummyUser
+) -> None:
+    result = await service.execute_query(
+        operator_user,
+        dataset="alpaca_sip",
+        query="select * from alpaca_sip_daily",
+    )
+
     assert result is not None
 
 

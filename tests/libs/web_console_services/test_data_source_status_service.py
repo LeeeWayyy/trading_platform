@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 import redis.exceptions
 
+from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
 from libs.web_console_services import data_source_status_service as module
 from libs.web_console_services.data_source_status_service import (
@@ -78,10 +81,11 @@ async def test_get_all_sources_returns_all_for_admin(admin_user: DummyUser) -> N
 
     sources = await service.get_all_sources(admin_user)
 
-    assert len(sources) == 5
+    assert len(sources) == 6
     assert {s.name for s in sources} == {
         "crsp",
         "yfinance",
+        "alpaca_sip",
         "compustat",
         "fama_french",
         "taq",
@@ -94,7 +98,7 @@ async def test_get_all_sources_researcher_allowed_single_admin(researcher_user: 
     service = DataSourceStatusService()
 
     sources = await service.get_all_sources(researcher_user)
-    assert len(sources) == 5
+    assert len(sources) == 6
 
 
 @pytest.mark.asyncio()
@@ -105,7 +109,7 @@ async def test_get_all_sources_viewer_sees_all_single_admin(viewer_user: DummyUs
     sources = await service.get_all_sources(viewer_user)
 
     # Single-admin: has_dataset_permission always True, all sources visible
-    assert len(sources) == 5
+    assert len(sources) == 6
 
 
 @pytest.mark.asyncio()
@@ -135,6 +139,156 @@ async def test_refresh_source_viewer_allowed_single_admin(viewer_user: DummyUser
 
     refreshed = await service.refresh_source(viewer_user, "crsp")
     assert refreshed.name == "crsp"
+
+
+@pytest.mark.asyncio()
+async def test_refresh_alpaca_sip_source(operator_user: DummyUser) -> None:
+    service = DataSourceStatusService(redis_client_factory=None)
+
+    refreshed = await service.refresh_source(operator_user, "alpaca_sip")
+
+    assert refreshed.name == "alpaca_sip"
+    assert refreshed.dataset_key == "alpaca_sip"
+    assert refreshed.status == "unknown"
+    assert refreshed.last_update is None
+    assert refreshed.age_seconds is None
+    assert refreshed.tables == ["alpaca_sip_daily", "alpaca_sip_corp_actions"]
+
+
+@pytest.mark.asyncio()
+async def test_alpaca_sip_source_uses_manifest_status(
+    admin_user: DummyUser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    sync_timestamp = datetime(2026, 4, 30, 12, tzinfo=UTC)
+    manifest = SyncManifest(
+        dataset="alpaca_sip_daily",
+        sync_timestamp=sync_timestamp,
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=42,
+        checksum="sip-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="query",
+        file_paths=["alpaca_sip_daily.parquet"],
+        validation_status="passed",
+    )
+    corp_manifest = SyncManifest(
+        dataset="alpaca_sip_corp_actions",
+        sync_timestamp=sync_timestamp,
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=3,
+        checksum="corp-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="query",
+        file_paths=["alpaca_sip_corp_actions.parquet"],
+        validation_status="passed",
+    )
+    (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
+    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+        corp_manifest.model_dump_json()
+    )
+    monkeypatch.setenv("DATA_ROOT", str(data_root))
+
+    service = DataSourceStatusService()
+    sources = await service.get_all_sources(admin_user)
+
+    sip = next(source for source in sources if source.name == "alpaca_sip")
+    assert sip.status == "ok"
+    assert sip.row_count == 45
+    assert sip.error_message is None
+
+
+@pytest.mark.asyncio()
+async def test_alpaca_sip_source_requires_all_expected_manifests(
+    admin_user: DummyUser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    manifest = SyncManifest(
+        dataset="alpaca_sip_daily",
+        sync_timestamp=datetime(2026, 4, 30, 12, tzinfo=UTC),
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=42,
+        checksum="sip-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="query",
+        file_paths=["alpaca_sip_daily.parquet"],
+        validation_status="passed",
+    )
+    (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
+    monkeypatch.setenv("DATA_ROOT", str(data_root))
+
+    service = DataSourceStatusService()
+    sources = await service.get_all_sources(admin_user)
+
+    sip = next(source for source in sources if source.name == "alpaca_sip")
+    assert sip.status == "error"
+    assert sip.row_count == 42
+    assert sip.error_message == "Missing SIP manifests: alpaca_sip_corp_actions"
+
+
+@pytest.mark.asyncio()
+async def test_refresh_alpaca_sip_rechecks_manifests_after_cached_unknown(
+    operator_user: DummyUser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    monkeypatch.setenv("DATA_ROOT", str(data_root))
+    service = DataSourceStatusService(redis_client_factory=None)
+
+    first_refresh = await service.refresh_source(operator_user, "alpaca_sip")
+    assert first_refresh.status == "unknown"
+
+    manifest = SyncManifest(
+        dataset="alpaca_sip_daily",
+        sync_timestamp=datetime(2026, 5, 1, 12, tzinfo=UTC),
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=42,
+        checksum="sip-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="query",
+        file_paths=["alpaca_sip_daily.parquet"],
+        validation_status="passed",
+    )
+    corp_manifest = SyncManifest(
+        dataset="alpaca_sip_corp_actions",
+        sync_timestamp=datetime(2026, 5, 1, 12, tzinfo=UTC),
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=3,
+        checksum="corp-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="query",
+        file_paths=["alpaca_sip_corp_actions.parquet"],
+        validation_status="passed",
+    )
+    (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
+    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+        corp_manifest.model_dump_json()
+    )
+
+    listed = await service.get_all_sources(operator_user)
+    listed_sip = next(source for source in listed if source.name == "alpaca_sip")
+    assert listed_sip.status == "ok"
+    assert listed_sip.row_count == 45
+
+    refreshed = await service.refresh_source(operator_user, "alpaca_sip")
+    assert refreshed.status == "ok"
+    assert refreshed.row_count == 45
 
 
 @pytest.mark.asyncio()

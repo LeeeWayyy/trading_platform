@@ -18,9 +18,7 @@ from __future__ import annotations
 
 # CDN with SRI hash for supply-chain security
 # Hash generated via: curl -s "$CDN_URL" | openssl dgst -sha384 -binary | openssl base64 -A
-LIGHTWEIGHT_CHARTS_CDN = (
-    "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
-)
+LIGHTWEIGHT_CHARTS_CDN = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"
 LIGHTWEIGHT_CHARTS_SRI = "sha384-rcCMiCptH4kTlEbg0euOTUKWe72TESbrjElatnG+9BfbmUIV268UK/Pro5biJdGm"
 
 # Local fallback path (for airgapped/high-security deployments)
@@ -104,6 +102,7 @@ CHART_INIT_JS = """
     const lwc = window.LightweightCharts;
     const MIN_CHART_WIDTH = 320;
     const MIN_CHART_HEIGHT = 180;
+    const MIN_BAR_SPACING = 0.03;
 
     // Create chart
     const initialWidth = Math.max(container.clientWidth || 0, {width}, MIN_CHART_WIDTH);
@@ -125,6 +124,7 @@ CHART_INIT_JS = """
         timeScale: {{
             timeVisible: true,
             secondsVisible: false,
+            minBarSpacing: MIN_BAR_SPACING,
         }},
     }});
 

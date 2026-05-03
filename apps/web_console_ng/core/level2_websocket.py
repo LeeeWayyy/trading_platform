@@ -1,4 +1,9 @@
-"""Level 2 order book streaming service (Alpaca Pro)."""
+"""Level 2 order book streaming service.
+
+Alpaca stock SIP provides trades, bars, and top-of-book NBBO quotes. It does
+not provide stock market-depth/order-book data, so this service remains disabled
+unless a separate real stock-depth provider is implemented.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +20,10 @@ from apps.web_console_ng.core.redis_ha import get_redis_store
 
 logger = logging.getLogger(__name__)
 
-STREAM_URL = "wss://stream.data.alpaca.markets/v2/sip"
+SIP_NO_DEPTH_MESSAGE = (
+    "Alpaca SIP provides stock trades, bars, and NBBO quotes, but not Level 2 "
+    "depth; configure a separate stock-depth provider to enable this panel"
+)
 
 
 def l2_channel(user_id: str, symbol: str) -> str:
@@ -76,12 +84,12 @@ class Level2WebSocketService:
         enabled_raw = os.getenv("ALPACA_L2_ENABLED")
         enabled = str(enabled_raw or "").lower() in {"1", "true", "yes"}
         if not enabled:
-            return False, "Level 2 data not enabled"
+            return False, SIP_NO_DEPTH_MESSAGE
         api_key = os.getenv("ALPACA_PRO_API_KEY", "").strip()
         api_secret = os.getenv("ALPACA_PRO_API_SECRET", "").strip()
         if not api_key or not api_secret:
-            return False, "Alpaca Pro credentials missing"
-        return False, "Real Level 2 provider not implemented"
+            return False, f"{SIP_NO_DEPTH_MESSAGE}; external L2 credentials missing"
+        return False, f"{SIP_NO_DEPTH_MESSAGE}; real provider not implemented"
 
     def _should_use_mock(self) -> bool:
         if os.getenv("ALPACA_L2_USE_MOCK", "").lower() in {"1", "true", "yes"}:

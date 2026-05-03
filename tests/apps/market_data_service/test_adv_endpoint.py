@@ -234,6 +234,23 @@ def test_bars_returns_400_for_invalid_limit(test_client):
     assert response.status_code == 400
 
 
+def test_bars_accepts_alpaca_page_limit(test_client, monkeypatch):
+    from apps.market_data_service.routes import market_data
+
+    provider = DummyProvider(bars_data=[])
+    monkeypatch.setattr(market_data, "_get_provider", lambda: provider)
+
+    response = test_client.get("/api/v1/market-data/AAPL/bars?limit=10000")
+
+    assert response.status_code == 200
+
+
+def test_bars_rejects_limit_above_alpaca_page_limit(test_client):
+    response = test_client.get("/api/v1/market-data/AAPL/bars?limit=10001")
+    assert response.status_code == 400
+    assert "10000" in response.text
+
+
 def test_bars_returns_400_for_invalid_timeframe(test_client, monkeypatch):
     from apps.market_data_service.routes import market_data
 

@@ -132,6 +132,12 @@ def test_validate_accepts_simple_select(validator: SQLValidator) -> None:
     assert error is None
 
 
+def test_validate_accepts_alpaca_sip_corp_actions_table(validator: SQLValidator) -> None:
+    ok, error = validator.validate("SELECT * FROM alpaca_sip_corp_actions", "alpaca_sip")
+    assert ok is True
+    assert error is None
+
+
 def test_extract_tables_ignores_cte(validator: SQLValidator) -> None:
     query = (
         "WITH temp AS (SELECT * FROM crsp_daily) "

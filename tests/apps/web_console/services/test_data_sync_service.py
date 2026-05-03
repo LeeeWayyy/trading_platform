@@ -60,8 +60,7 @@ async def test_get_sync_status_filters_datasets(
     statuses = await service.get_sync_status(operator_user)
 
     datasets = {status.dataset for status in statuses}
-    # Operators have access to crsp, compustat, fama_french, and taq (P6T8: TCA)
-    assert datasets == {"crsp", "compustat", "fama_french", "taq"}
+    assert datasets == {"crsp", "compustat", "fama_french", "taq", "alpaca_sip"}
 
 
 @pytest.mark.asyncio()

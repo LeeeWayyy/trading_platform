@@ -28,6 +28,7 @@ from libs.platform.web_console_auth.permissions import Permission
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["MarketData"])
+HISTORICAL_BARS_MAX_LIMIT = 10_000
 
 # =============================================================================
 # Auth + Rate Limiting
@@ -251,10 +252,10 @@ async def get_historical_bars(
 ) -> BarsResponse:
     """Get historical OHLCV bars for a symbol."""
     normalized_symbol = symbol.upper()
-    if limit < 1 or limit > 500:
+    if limit < 1 or limit > HISTORICAL_BARS_MAX_LIMIT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="limit must be between 1 and 500",
+            detail=f"limit must be between 1 and {HISTORICAL_BARS_MAX_LIMIT}",
         )
 
     provider = _get_provider()

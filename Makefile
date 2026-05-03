@@ -1,4 +1,13 @@
-.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs fmt fmt-check lint check-doc-freshness check-architecture test test-cov test-watch ui-crawl ui-deep clean clean-cache clean-all install requirements install-hooks ci-local pre-push
+.PHONY: help up up-dev up-dev-fast ensure-requirements down down-dev logs \
+	fmt fmt-check lint check-doc-freshness check-architecture \
+	test test-cov test-watch ui-crawl ui-deep \
+	sync-alpaca-sip sync-alpaca-sip-status sync-alpaca-sip-verify \
+	sync-alpaca-sip-estimate sync-alpaca-sip-integrity \
+	sync-alpaca-corp-actions sync-alpaca-corp-actions-status \
+	sync-alpaca-corp-actions-verify sync-alpaca-corp-actions-roundtrip \
+	alpaca-feed-delta \
+	clean clean-cache clean-all install requirements install-hooks \
+	ci-local pre-push
 
 # CI step formatting - reduces duplication in ci-local target
 SEPARATOR := ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -148,6 +157,36 @@ perf: ## Run performance tests (requires RUN_PERF_TESTS=1)
 
 test-watch: ## Run tests in watch mode
 	poetry run pytest-watch
+
+sync-alpaca-sip: ## Sync Alpaca SIP daily bars. Usage: make sync-alpaca-sip ARGS="--symbols AAPL,MSFT --start-year 2020"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py full-sync $(ARGS)
+
+sync-alpaca-sip-status: ## Show Alpaca SIP sync manifest status
+	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py status
+
+sync-alpaca-sip-verify: ## Verify Alpaca SIP synced files against manifest
+	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py verify $(ARGS)
+
+sync-alpaca-sip-estimate: ## Estimate Alpaca SIP sync size/duration. Usage: make sync-alpaca-sip-estimate ARGS="--symbols AAPL,MSFT --start-year 2020 --requests-per-minute 200"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py estimate $(ARGS)
+
+sync-alpaca-sip-integrity: ## Re-pull a SIP window and compare hashes. Usage: make sync-alpaca-sip-integrity ARGS="--symbols AAPL,MSFT --start 2024-04-22 --end 2024-04-26"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_sip_sync.py integrity $(ARGS)
+
+sync-alpaca-corp-actions: ## Sync Alpaca corporate actions. Usage: make sync-alpaca-corp-actions ARGS="--symbols AAPL,MSFT --start-date 2020-01-01 --end-date 2024-12-31"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_corp_actions_sync.py full-sync $(ARGS)
+
+sync-alpaca-corp-actions-status: ## Show Alpaca corporate-actions sync manifest status
+	PYTHONPATH=. poetry run python scripts/data/alpaca_corp_actions_sync.py status
+
+sync-alpaca-corp-actions-verify: ## Verify Alpaca corporate-actions files against manifest
+	PYTHONPATH=. poetry run python scripts/data/alpaca_corp_actions_sync.py verify $(ARGS)
+
+sync-alpaca-corp-actions-roundtrip: ## Validate known split/dividend events through Alpaca corporate-actions API
+	PYTHONPATH=. poetry run python scripts/data/alpaca_corp_actions_sync.py round-trip $(ARGS)
+
+alpaca-feed-delta: ## Compare Alpaca IEX-vs-SIP bars. Usage: make alpaca-feed-delta ARGS="--symbols AAPL,MSFT --start 2026-04-20 --end 2026-04-24"
+	PYTHONPATH=. poetry run python scripts/data/alpaca_feed_delta.py $(ARGS)
 
 ui-crawl: ## Run broad Playwright UI crawler (manual E2E diagnostic)
 	PYTHONPATH=. poetry run python tests/e2e/ui_crawl.py

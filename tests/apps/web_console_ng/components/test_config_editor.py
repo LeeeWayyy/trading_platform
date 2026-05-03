@@ -150,12 +150,82 @@ class TestValidateBacktestParams:
     def test_yahoo_cost_model_warning(self, valid_config: dict[str, Any]) -> None:
         valid_config["provider"] = "yfinance"
         valid_config["extra_params"] = {
+            "universe": ["AAPL", "MSFT"],
             "cost_model": {"enabled": True, "bps_per_trade": 5.0},
         }
         result = validate_backtest_params(valid_config)
         assert result.is_valid  # warning, not error
         assert len(result.warnings) == 1
         assert "Yahoo" in result.warnings[0]
+
+    def test_alpaca_sip_cost_model_warning(self, valid_config: dict[str, Any]) -> None:
+        valid_config["provider"] = "alpaca_sip"
+        valid_config["extra_params"] = {
+            "universe": ["AAPL", "MSFT"],
+            "cost_model": {"enabled": True, "bps_per_trade": 5.0},
+        }
+        result = validate_backtest_params(valid_config)
+        assert result.is_valid
+        assert len(result.warnings) == 1
+        assert "Alpaca SIP" in result.warnings[0]
+
+    def test_auto_provider_with_role_config_is_valid(self, valid_config: dict[str, Any]) -> None:
+        valid_config["provider"] = "auto"
+        valid_config["extra_params"] = {
+            "universe": ["AAPL", "MSFT"],
+            "data": {
+                "universe_source": "auto",
+                "price_source": "auto",
+                "corp_actions_source": "auto",
+                "requires_pit_universe": False,
+            },
+        }
+
+        result = validate_backtest_params(valid_config)
+
+        assert result.is_valid
+
+    @pytest.mark.parametrize("provider", ["yfinance", "alpaca_sip"])
+    def test_non_pit_provider_requires_universe(
+        self, valid_config: dict[str, Any], provider: str
+    ) -> None:
+        valid_config["provider"] = provider
+
+        result = validate_backtest_params(valid_config)
+
+        assert not result.is_valid
+        assert any("requires an explicit symbol universe" in error for error in result.errors)
+
+    def test_json_universe_string_is_valid(self, valid_config: dict[str, Any]) -> None:
+        valid_config["provider"] = "alpaca_sip"
+        valid_config["extra_params"] = {"universe": "AAPL, MSFT"}
+
+        result = validate_backtest_params(valid_config)
+
+        assert result.is_valid
+
+    def test_auto_provider_rejects_empty_non_pit_resolution(
+        self, valid_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("CRSP_AVAILABLE", "false")
+        valid_config["provider"] = "auto"
+
+        result = validate_backtest_params(valid_config)
+
+        assert not result.is_valid
+        assert any("Auto provider requires an explicit symbol universe" in e for e in result.errors)
+
+    def test_hybrid_rejects_start_date_before_sip_lookback_boundary(
+        self, valid_config: dict[str, Any]
+    ) -> None:
+        valid_config["provider"] = "hybrid_crsp_universe_sip_prices"
+        valid_config["start_date"] = "2016-03-31"
+        valid_config["end_date"] = "2016-05-01"
+
+        result = validate_backtest_params(valid_config)
+
+        assert not result.is_valid
+        assert any("2016-04-01" in error for error in result.errors)
 
     def test_provider_defaults_to_crsp(self) -> None:
         config = {
@@ -174,6 +244,9 @@ class TestProviderMapping:
     def test_display_keys(self) -> None:
         assert "crsp" in PROVIDER_DISPLAY
         assert "yfinance" in PROVIDER_DISPLAY
+        assert "alpaca_sip" in PROVIDER_DISPLAY
+        assert "hybrid_crsp_universe_sip_prices" in PROVIDER_DISPLAY
+        assert "auto" in PROVIDER_DISPLAY
 
     def test_inverse_roundtrip(self) -> None:
         for key, display in PROVIDER_DISPLAY.items():
@@ -213,6 +286,49 @@ class TestFormJsonRoundTrip:
         assert data["provider"] == "yfinance"
         assert data["extra_params"]["universe"] == ["AAPL", "MSFT", "NVDA"]
 
+    def test_roundtrip_with_alpaca_sip(self) -> None:
+        json_str = form_state_to_json(
+            alpha_name="alpha1",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            weight_method="rank",
+            provider_display_label="Alpaca SIP (local, non-PIT)",
+            universe_csv="AAPL, MSFT",
+            cost_config=None,
+        )
+        data = json.loads(json_str)
+        assert data["provider"] == "alpaca_sip"
+        assert data["extra_params"]["universe"] == ["AAPL", "MSFT"]
+
+    def test_roundtrip_with_auto_universe_adds_non_pit_role_config(self) -> None:
+        json_str = form_state_to_json(
+            alpha_name="alpha1",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            weight_method="rank",
+            provider_display_label="Auto (role-resolved)",
+            universe_csv="AAPL, MSFT",
+            cost_config=None,
+        )
+        data = json.loads(json_str)
+        assert data["provider"] == "auto"
+        assert data["extra_params"]["universe"] == ["AAPL", "MSFT"]
+        assert data["extra_params"]["data"] == {"requires_pit_universe": False}
+
+    def test_roundtrip_with_hybrid(self) -> None:
+        json_str = form_state_to_json(
+            alpha_name="alpha1",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            weight_method="rank",
+            provider_display_label="Hybrid CRSP Universe + Alpaca SIP Prices (research)",
+            universe_csv=None,
+            cost_config=None,
+        )
+        data = json.loads(json_str)
+        assert data["provider"] == "hybrid_crsp_universe_sip_prices"
+        assert "extra_params" not in data
+
     def test_roundtrip_with_cost_model(self) -> None:
         cost = {"enabled": True, "bps_per_trade": 5.0}
         json_str = form_state_to_json(
@@ -242,13 +358,15 @@ class TestFormJsonRoundTrip:
         assert data["extra_params"]["custom_key"] == 42
 
     def test_json_to_form_basic(self) -> None:
-        raw = json.dumps({
-            "alpha_name": "momentum_1m",
-            "start_date": "2024-01-01",
-            "end_date": "2025-12-31",
-            "weight_method": "quantile",
-            "provider": "yfinance",
-        })
+        raw = json.dumps(
+            {
+                "alpha_name": "momentum_1m",
+                "start_date": "2024-01-01",
+                "end_date": "2025-12-31",
+                "weight_method": "quantile",
+                "provider": "yfinance",
+            }
+        )
         fs = json_to_form_state(raw)
         assert fs.alpha_name == "momentum_1m"
         assert fs.weight_method == "quantile"
@@ -256,18 +374,53 @@ class TestFormJsonRoundTrip:
         assert fs.universe_csv == ""
         assert fs.cost_config is None
 
+    def test_json_to_form_alpaca_sip(self) -> None:
+        raw = json.dumps(
+            {
+                "alpha_name": "momentum_1m",
+                "start_date": "2024-01-01",
+                "end_date": "2025-12-31",
+                "weight_method": "quantile",
+                "provider": "alpaca_sip",
+            }
+        )
+        fs = json_to_form_state(raw)
+        assert fs.provider_display_label == "Alpaca SIP (local, non-PIT)"
+
+    def test_json_to_form_auto_preserves_role_config(self) -> None:
+        raw = json.dumps(
+            {
+                "alpha_name": "momentum_1m",
+                "start_date": "2024-01-01",
+                "end_date": "2025-12-31",
+                "weight_method": "quantile",
+                "provider": "auto",
+                "extra_params": {
+                    "universe": ["AAPL", "MSFT"],
+                    "data": {"requires_pit_universe": False},
+                },
+            }
+        )
+
+        fs = json_to_form_state(raw)
+
+        assert fs.provider_display_label == "Auto (role-resolved)"
+        assert fs.extra_params_hidden["data"] == {"requires_pit_universe": False}
+
     def test_json_to_form_with_extras(self) -> None:
-        raw = json.dumps({
-            "alpha_name": "alpha1",
-            "start_date": "2024-01-01",
-            "end_date": "2024-12-31",
-            "provider": "crsp",
-            "extra_params": {
-                "universe": ["AAPL", "MSFT"],
-                "cost_model": {"enabled": True},
-                "custom_key": "secret",
-            },
-        })
+        raw = json.dumps(
+            {
+                "alpha_name": "alpha1",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "provider": "crsp",
+                "extra_params": {
+                    "universe": ["AAPL", "MSFT"],
+                    "cost_model": {"enabled": True},
+                    "custom_key": "secret",
+                },
+            }
+        )
         fs = json_to_form_state(raw)
         assert fs.universe_csv == "AAPL, MSFT"
         assert fs.cost_config == {"enabled": True}
@@ -343,9 +496,7 @@ class TestValidationWithFromDict:
         assert config.alpha_name == "momentum_1m"
         assert config.provider.value == "crsp"
 
-    def test_config_with_extras_passes_from_dict(
-        self, config_with_extras: dict[str, Any]
-    ) -> None:
+    def test_config_with_extras_passes_from_dict(self, config_with_extras: dict[str, Any]) -> None:
         from libs.trading.backtest.job_queue import BacktestJobConfig
 
         result = validate_backtest_params(config_with_extras)
