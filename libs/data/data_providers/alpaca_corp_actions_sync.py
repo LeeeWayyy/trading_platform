@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -272,15 +273,19 @@ class AlpacaCorporateActionsSyncManager:
         *,
         data_root: Path | None = None,
         limit: int = DEFAULT_LIMIT,
+        request_interval_seconds: float = 0.0,
     ) -> None:
         if limit < 1:
             raise ValueError("limit must be >= 1")
+        if request_interval_seconds < 0:
+            raise ValueError("request_interval_seconds must be >= 0")
 
         self.client = client
         self.storage_path = Path(storage_path).resolve()
         self.manifest_manager = manifest_manager
         self.data_root = (data_root or self.DEFAULT_DATA_ROOT).resolve()
         self.limit = limit
+        self.request_interval_seconds = request_interval_seconds
 
         if not self.storage_path.is_relative_to(self.data_root):
             raise ValueError(
@@ -314,6 +319,7 @@ class AlpacaCorporateActionsSyncManager:
         manifest_manager: ManifestManager | None = None,
         data_root: Path | None = None,
         limit: int = DEFAULT_LIMIT,
+        request_interval_seconds: float = 0.0,
         base_url: str | None = None,
     ) -> AlpacaCorporateActionsSyncManager:
         """Build a manager from standard Alpaca environment variables."""
@@ -344,6 +350,7 @@ class AlpacaCorporateActionsSyncManager:
             manifest_manager=resolved_manifest_manager,
             data_root=resolved_data_root,
             limit=limit,
+            request_interval_seconds=request_interval_seconds,
         )
 
     def full_sync(
@@ -469,7 +476,7 @@ class AlpacaCorporateActionsSyncManager:
     ) -> CorporateActionRoundTripReport:
         """Verify known split/dividend events are visible through the API."""
         results: list[CorporateActionRoundTripResult] = []
-        for check in checks:
+        for check_index, check in enumerate(checks):
             self._validate_date_range(check.start_date, check.end_date)
             params = self._build_base_params(
                 start_date=check.start_date,
@@ -493,6 +500,8 @@ class AlpacaCorporateActionsSyncManager:
                     status="passed" if matches else "failed",
                 )
             )
+            if self.request_interval_seconds > 0 and check_index < len(checks) - 1:
+                time.sleep(self.request_interval_seconds)
 
         report_status = (
             "passed" if all(result.status == "passed" for result in results) else "failed"
@@ -530,7 +539,8 @@ class AlpacaCorporateActionsSyncManager:
     ) -> list[Mapping[str, Any]]:
         if symbols and not ids:
             actions: list[Mapping[str, Any]] = []
-            for symbol_chunk in self._chunks(symbols, self.SYMBOL_REQUEST_CHUNK_SIZE):
+            symbol_chunks = self._chunks(symbols, self.SYMBOL_REQUEST_CHUNK_SIZE)
+            for chunk_index, symbol_chunk in enumerate(symbol_chunks):
                 chunk_params = self._build_base_params(
                     start_date=start_date,
                     end_date=end_date,
@@ -539,6 +549,8 @@ class AlpacaCorporateActionsSyncManager:
                     ids=[],
                 )
                 actions.extend(self._fetch_all_pages(chunk_params))
+                if self.request_interval_seconds > 0 and chunk_index < len(symbol_chunks) - 1:
+                    time.sleep(self.request_interval_seconds)
             return actions
         return self._fetch_all_pages(base_params)
 

@@ -104,6 +104,40 @@ async def test_get_sync_status_uses_alpaca_sip_manifests(
 
 
 @pytest.mark.asyncio()
+async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
+    service: DataSyncService,
+    operator_user: DummyUser,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    sync_timestamp = datetime(2026, 4, 30, 12, tzinfo=UTC)
+    manifest = SyncManifest(
+        dataset="alpaca_sip_daily",
+        sync_timestamp=sync_timestamp,
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+        row_count=10,
+        checksum="alpaca_sip_daily-checksum",
+        schema_version="v1.0.0",
+        wrds_query_hash="alpaca_sip_daily-query",
+        file_paths=["alpaca_sip_daily.parquet"],
+        validation_status="passed",
+    )
+    (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
+    monkeypatch.setenv("DATA_ROOT", str(data_root))
+
+    results = await service.get_sync_status(operator_user)
+
+    sip = next(item for item in results if item.dataset == "alpaca_sip")
+    assert sip.last_sync == sync_timestamp
+    assert sip.row_count == 10
+    assert sip.validation_status == "missing: alpaca_sip_corp_actions"
+
+
+@pytest.mark.asyncio()
 async def test_get_sync_status_researcher_allowed_single_admin(service: DataSyncService) -> None:
     """P6T19: Researcher can view sync status — single-admin model."""
     user = DummyUser(user_id="researcher-1", role=Role.RESEARCHER)

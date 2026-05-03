@@ -56,13 +56,19 @@ def _manifest_manager() -> ManifestManager:
     )
 
 
-def _manager(*, storage_path: Path, limit: int) -> AlpacaCorporateActionsSyncManager:
+def _manager(
+    *,
+    storage_path: Path,
+    limit: int,
+    throttle_seconds: float = 0.0,
+) -> AlpacaCorporateActionsSyncManager:
     _load_dotenv()
     return AlpacaCorporateActionsSyncManager.from_env(
         storage_path=storage_path,
         manifest_manager=_manifest_manager(),
         data_root=DATA_ROOT,
         limit=limit,
+        request_interval_seconds=throttle_seconds,
     )
 
 
@@ -73,7 +79,11 @@ def _run_full_sync(args: argparse.Namespace) -> int:
     if not symbols and not ids:
         raise ValueError("Provide --symbols or --ids to bound the corporate-actions sync")
 
-    with _manager(storage_path=args.storage_path, limit=args.limit) as manager:
+    with _manager(
+        storage_path=args.storage_path,
+        limit=args.limit,
+        throttle_seconds=args.throttle_seconds,
+    ) as manager:
         manifest = manager.full_sync(
             start_date=args.start_date,
             end_date=args.end_date,
@@ -124,7 +134,11 @@ def _run_verify(args: argparse.Namespace) -> int:
 
 
 def _run_round_trip(args: argparse.Namespace) -> int:
-    with _manager(storage_path=args.storage_path, limit=args.limit) as manager:
+    with _manager(
+        storage_path=args.storage_path,
+        limit=args.limit,
+        throttle_seconds=args.throttle_seconds,
+    ) as manager:
         report = manager.run_round_trip_checks()
     payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
     if args.output is None:
@@ -172,6 +186,12 @@ def _build_parser() -> argparse.ArgumentParser:
     full_sync.add_argument(
         "--limit", type=int, default=AlpacaCorporateActionsSyncManager.DEFAULT_LIMIT
     )
+    full_sync.add_argument(
+        "--throttle-seconds",
+        type=float,
+        default=0.0,
+        help="Sleep this many seconds between chunked Alpaca requests.",
+    )
     full_sync.set_defaults(func=_run_full_sync)
 
     status = subparsers.add_parser("status", help="Show current manifest status.")
@@ -190,6 +210,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=AlpacaCorporateActionsSyncManager.DEFAULT_LIMIT,
+    )
+    round_trip.add_argument(
+        "--throttle-seconds",
+        type=float,
+        default=0.0,
+        help="Sleep this many seconds between chunked Alpaca requests.",
     )
     round_trip.add_argument("--output", type=Path, default=None, help="Optional JSON output path.")
     round_trip.set_defaults(func=_run_round_trip)

@@ -480,6 +480,45 @@ class TestQuoteHandling:
         event_publisher.publish.assert_not_called()
 
     @pytest.mark.asyncio()
+    async def test_handle_quote_missing_price_no_side_effects(
+        self,
+        stream: alpaca_stream.AlpacaMarketDataStream,
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+    ) -> None:
+        """Test quote with missing price fields is rejected without exception."""
+        quote: dict[str, Any] = {
+            "symbol": "AAPL",
+            "ask_price": "100.10",
+            "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
+        }
+
+        await stream._handle_quote(quote)
+
+        redis_client.set.assert_not_called()
+        event_publisher.publish.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_handle_quote_blank_price_no_side_effects(
+        self,
+        stream: alpaca_stream.AlpacaMarketDataStream,
+        redis_client: MagicMock,
+        event_publisher: MagicMock,
+    ) -> None:
+        """Test blank price strings are treated as missing quote data."""
+        quote: dict[str, Any] = {
+            "symbol": "AAPL",
+            "bid_price": "100.00",
+            "ask_price": " ",
+            "timestamp": datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
+        }
+
+        await stream._handle_quote(quote)
+
+        redis_client.set.assert_not_called()
+        event_publisher.publish.assert_not_called()
+
+    @pytest.mark.asyncio()
     async def test_handle_quote_invalid_timestamp_type_no_side_effects(
         self,
         stream: alpaca_stream.AlpacaMarketDataStream,

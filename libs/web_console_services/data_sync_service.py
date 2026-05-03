@@ -238,7 +238,14 @@ class DataSyncService:
 
         latest = max(manifest.sync_timestamp for manifest in manifests)
         statuses = {manifest.validation_status for manifest in manifests}
-        validation_status = "ok" if statuses == {"passed"} else ",".join(sorted(statuses))
+        present_datasets = {manifest.dataset for manifest in manifests}
+        missing_datasets = sorted(set(_ALPACA_SIP_MANIFEST_DATASETS) - present_datasets)
+        if missing_datasets:
+            validation_status = f"missing: {', '.join(missing_datasets)}"
+        elif statuses == {"passed"}:
+            validation_status = "ok"
+        else:
+            validation_status = ",".join(sorted(statuses))
         schema_versions = sorted({manifest.schema_version for manifest in manifests})
         return SyncStatusDTO(
             dataset=dataset,

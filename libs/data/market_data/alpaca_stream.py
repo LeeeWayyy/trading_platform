@@ -56,6 +56,11 @@ def _normalize_crossed_quote_prices(
     return midpoint, midpoint
 
 
+def _is_missing_quote_price(value: Any) -> bool:
+    """Return true when a quote price field is absent or blank."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 class AlpacaMarketDataStream:
     """
     WebSocket client for Alpaca real-time market data.
@@ -364,9 +369,13 @@ class AlpacaMarketDataStream:
 
         try:
             # Convert Alpaca Quote to our QuoteData model
-            symbol = quote["symbol"] if isinstance(quote, Mapping) else quote.symbol
-            bid_price_value = quote["bid_price"] if isinstance(quote, Mapping) else quote.bid_price
-            ask_price_value = quote["ask_price"] if isinstance(quote, Mapping) else quote.ask_price
+            raw_symbol = quote.get("symbol") if isinstance(quote, Mapping) else quote.symbol
+            if not isinstance(raw_symbol, str) or not raw_symbol.strip():
+                logger.warning("Received quote without symbol")
+                return
+            symbol = raw_symbol.strip()
+            bid_price_value = quote.get("bid_price") if isinstance(quote, Mapping) else quote.bid_price
+            ask_price_value = quote.get("ask_price") if isinstance(quote, Mapping) else quote.ask_price
             bid_size_value = (
                 quote.get("bid_size", 0) if isinstance(quote, Mapping) else quote.bid_size
             )
@@ -401,6 +410,12 @@ class AlpacaMarketDataStream:
                 if isinstance(quote, Mapping)
                 else getattr(quote, "ask_exchange", "UNKNOWN")
             )
+
+            if _is_missing_quote_price(bid_price_value) or _is_missing_quote_price(
+                ask_price_value
+            ):
+                logger.warning("Received quote without bid/ask price for symbol %s", symbol)
+                return
 
             bid_price = Decimal(str(bid_price_value))
             ask_price = Decimal(str(ask_price_value))

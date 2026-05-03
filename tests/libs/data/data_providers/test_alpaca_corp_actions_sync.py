@@ -221,20 +221,23 @@ def test_full_sync_chunks_large_symbol_requests(
         storage_path=sync_paths["storage"],
         manifest_manager=manifest_manager,
         data_root=sync_paths["data_root"],
+        request_interval_seconds=0.25,
     )
     manager.SYMBOL_REQUEST_CHUNK_SIZE = 2
 
-    manager.full_sync(
-        start_date=datetime.date(2024, 1, 1),
-        end_date=datetime.date(2024, 12, 31),
-        symbols=["aapl", "MSFT", "NVDA", "TSLA", "GOOG"],
-    )
+    with patch("libs.data.data_providers.alpaca_corp_actions_sync.time.sleep") as sleep_mock:
+        manager.full_sync(
+            start_date=datetime.date(2024, 1, 1),
+            end_date=datetime.date(2024, 12, 31),
+            symbols=["aapl", "MSFT", "NVDA", "TSLA", "GOOG"],
+        )
 
     assert [request["symbols"] for request in client.requests] == [
         "AAPL,GOOG",
         "MSFT,NVDA",
         "TSLA",
     ]
+    assert [call.args for call in sleep_mock.call_args_list] == [(0.25,), (0.25,)]
 
 
 def test_full_sync_allows_empty_result_manifest(
