@@ -399,8 +399,7 @@ class AlpacaCorporateActionsSyncManager:
             timeout_seconds=60.0,
         ) as lock_token:
             self._check_disk_space(estimated_rows=max(1, len(actions)))
-            self._atomic_write_parquet(df, output_path)
-            checksum = self._compute_combined_checksum_for_paths([output_path])
+            checksum = self._atomic_write_parquet(df, output_path)
             manifest = self._create_manifest(
                 file_paths=[str(output_path.relative_to(self.data_root))],
                 row_count=df.height,
