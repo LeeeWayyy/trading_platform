@@ -72,11 +72,14 @@ def _requires_complete_adjusted_close(provider_name: str) -> bool:
 
 
 def _allows_close_return_fallback(provider_name: str) -> bool:
-    """Return whether close can safely backfill returns when adj_close is absent."""
+    """Return whether close can backfill returns when adjusted prices are absent."""
     try:
         provider_type = ProviderType.from_string(provider_name, allow_auto=False)
     except ValueError:
         return False
+
+    if provider_type == ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+        return True
 
     spec = get_provider_spec(provider_type)
     return spec.default_adjustment_mode == "provider_adjusted"
