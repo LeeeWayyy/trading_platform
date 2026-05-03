@@ -6,6 +6,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import polars as pl
@@ -137,6 +138,31 @@ class TestAlpacaSIPLocalProvider:
         assert provider._duckdb_memory_limit == "512MB"
         assert provider._duckdb_threads == 2
         provider.close()
+
+    def test_stale_thread_connection_closed_on_generation_bump(
+        self,
+        mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+        stale_conn = MagicMock()
+        fresh_conn = MagicMock()
+        connections = [stale_conn, fresh_conn]
+
+        def new_connection() -> Any:
+            return connections.pop(0)
+
+        monkeypatch.setattr(provider, "_new_connection", new_connection)
+
+        assert provider._connection_for_current_thread() is stale_conn
+        provider._connection_generation += 1
+        assert provider._connection_for_current_thread() is fresh_conn
+        stale_conn.close.assert_called_once()
 
     def test_invalid_duckdb_connection_settings_raise(
         self,

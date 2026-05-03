@@ -20,6 +20,7 @@ from typing import Any, cast
 import duckdb
 import polars as pl
 
+from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
 from libs.data.data_quality.exceptions import DataNotFoundError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
@@ -221,19 +222,11 @@ class AlpacaSIPLocalProvider:
 
     def _resolve_manifest_path(self, path: Path) -> Path:
         """Resolve manifest paths without depending on process working directory."""
-        if path.is_absolute():
-            return path.resolve()
-
-        if len(path.parts) == 1:
-            return (self.storage_path / path).resolve()
-
-        if path.parts[0] == self.data_root.name:
-            return (self.data_root.parent / path).resolve()
-
-        if path.parts[0] == "alpaca":
-            return (self.data_root / path).resolve()
-
-        return (self.storage_path / path).resolve()
+        return resolve_alpaca_sip_manifest_path(
+            path,
+            data_root=self.data_root,
+            storage_root=self.storage_path,
+        )
 
     def _execute_query(
         self,
@@ -284,6 +277,8 @@ class AlpacaSIPLocalProvider:
         cached_generation = getattr(self._thread_local, "connection_generation", None)
         if cached_conn is not None and cached_generation == self._connection_generation:
             return cached_conn
+        if cached_conn is not None:
+            self._drop_thread_local_connection(cached_conn)
 
         with self._connection_lock:
             generation = self._connection_generation
@@ -300,6 +295,23 @@ class AlpacaSIPLocalProvider:
         conn.execute(f"PRAGMA memory_limit='{self._duckdb_memory_limit}'")
         conn.execute(f"PRAGMA threads={self._duckdb_threads}")
         return conn
+
+    def _drop_thread_local_connection(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Remove and close a stale thread-local connection immediately."""
+        with self._connection_lock:
+            self._connections.discard(conn)
+        self._close_duckdb_connection(conn)
+        if hasattr(self._thread_local, "connection"):
+            del self._thread_local.connection
+        if hasattr(self._thread_local, "connection_generation"):
+            del self._thread_local.connection_generation
+
+    @staticmethod
+    def _close_duckdb_connection(conn: duckdb.DuckDBPyConnection) -> None:
+        try:
+            conn.close()
+        except Exception as exc:  # pragma: no cover - defensive cleanup path
+            logger.debug("Failed to close Alpaca SIP DuckDB connection: %s", exc)
 
     @staticmethod
     def _resolve_duckdb_memory_limit(value: str | None) -> str:
@@ -342,7 +354,7 @@ class AlpacaSIPLocalProvider:
         if hasattr(self._thread_local, "connection_generation"):
             del self._thread_local.connection_generation
         for conn in connections:
-            conn.close()
+            self._close_duckdb_connection(conn)
         logger.debug("Closed %d Alpaca SIP DuckDB connection(s)", len(connections))
 
     def __enter__(self) -> AlpacaSIPLocalProvider:

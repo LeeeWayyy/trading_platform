@@ -21,6 +21,7 @@ import polars as pl
 import sqlglot
 from sqlglot import exp
 
+from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import (
     DatasetPermission,
@@ -347,7 +348,7 @@ def _resolve_alpaca_sip_snapshot_paths(
                     if not isinstance(raw_path, str):
                         invalid_paths.append(repr(raw_path))
                         continue
-                    resolved = _resolve_alpaca_sip_manifest_path(
+                    resolved = resolve_alpaca_sip_manifest_path(
                         _Path(raw_path),
                         data_root=data_root_path,
                         storage_root=storage_root,
@@ -409,24 +410,6 @@ def _resolve_alpaca_sip_corp_actions_paths(data_root: str) -> _TablePathSpec:
         manifest_name="alpaca_sip_corp_actions.json",
         unreadable_log_event="sql_explorer_alpaca_sip_corp_actions_manifest_unreadable",
     )
-
-
-def _resolve_alpaca_sip_manifest_path(
-    path: _Path,
-    *,
-    data_root: _Path,
-    storage_root: _Path,
-) -> _Path:
-    """Resolve manifest path forms written by AlpacaSIPSyncManager."""
-    if path.is_absolute():
-        return path.resolve()
-    if len(path.parts) == 1:
-        return (storage_root / path).resolve()
-    if path.parts[0] == data_root.name:
-        return (data_root.parent / path).resolve()
-    if path.parts[0] == "alpaca":
-        return (data_root / path).resolve()
-    return (storage_root / path).resolve()
 
 
 def _duckdb_read_parquet_arg(path_spec: _TablePathSpec) -> str:
