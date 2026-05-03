@@ -150,6 +150,7 @@ class TestValidateBacktestParams:
     def test_yahoo_cost_model_warning(self, valid_config: dict[str, Any]) -> None:
         valid_config["provider"] = "yfinance"
         valid_config["extra_params"] = {
+            "universe": ["AAPL", "MSFT"],
             "cost_model": {"enabled": True, "bps_per_trade": 5.0},
         }
         result = validate_backtest_params(valid_config)
@@ -160,6 +161,7 @@ class TestValidateBacktestParams:
     def test_alpaca_sip_cost_model_warning(self, valid_config: dict[str, Any]) -> None:
         valid_config["provider"] = "alpaca_sip"
         valid_config["extra_params"] = {
+            "universe": ["AAPL", "MSFT"],
             "cost_model": {"enabled": True, "bps_per_trade": 5.0},
         }
         result = validate_backtest_params(valid_config)
@@ -182,6 +184,36 @@ class TestValidateBacktestParams:
         result = validate_backtest_params(valid_config)
 
         assert result.is_valid
+
+    @pytest.mark.parametrize("provider", ["yfinance", "alpaca_sip"])
+    def test_non_pit_provider_requires_universe(
+        self, valid_config: dict[str, Any], provider: str
+    ) -> None:
+        valid_config["provider"] = provider
+
+        result = validate_backtest_params(valid_config)
+
+        assert not result.is_valid
+        assert any("requires an explicit symbol universe" in error for error in result.errors)
+
+    def test_json_universe_string_is_valid(self, valid_config: dict[str, Any]) -> None:
+        valid_config["provider"] = "alpaca_sip"
+        valid_config["extra_params"] = {"universe": "AAPL, MSFT"}
+
+        result = validate_backtest_params(valid_config)
+
+        assert result.is_valid
+
+    def test_auto_provider_rejects_empty_non_pit_resolution(
+        self, valid_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("CRSP_AVAILABLE", "false")
+        valid_config["provider"] = "auto"
+
+        result = validate_backtest_params(valid_config)
+
+        assert not result.is_valid
+        assert any("Auto provider requires an explicit symbol universe" in e for e in result.errors)
 
     def test_hybrid_rejects_start_date_before_sip_lookback_boundary(
         self, valid_config: dict[str, Any]

@@ -27,6 +27,10 @@ from libs.data.data_providers.registry import (
     compute_symbol_set_hash,
     get_provider_spec,
 )
+from libs.data.data_providers.sync_file_utils import (
+    atomic_write_parquet,
+    compute_combined_checksum_for_paths,
+)
 from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
@@ -406,7 +410,7 @@ class AlpacaCorporateActionsSyncManager:
             timeout_seconds=60.0,
         ) as lock_token:
             self._check_disk_space(estimated_rows=max(1, len(actions)))
-            checksum = self._atomic_write_parquet(df, output_path)
+            checksum = atomic_write_parquet(df, output_path)
             manifest = self._create_manifest(
                 file_paths=[str(output_path.relative_to(self.data_root))],
                 row_count=df.height,
@@ -455,7 +459,7 @@ class AlpacaCorporateActionsSyncManager:
         if errors:
             return errors
 
-        computed_checksum = self._compute_combined_checksum_for_paths(partition_paths)
+        computed_checksum = compute_combined_checksum_for_paths(partition_paths)
         if computed_checksum != manifest.checksum:
             errors.append(
                 "Checksum mismatch: "
@@ -751,7 +755,18 @@ class AlpacaCorporateActionsSyncManager:
                     return value.date()
                 return value.astimezone(datetime.UTC).date()
             if isinstance(value, str):
-                return datetime.date.fromisoformat(value[:10])
+                value = value.strip()
+                if not value:
+                    continue
+                try:
+                    return datetime.date.fromisoformat(value)
+                except ValueError:
+                    timestamp = datetime.datetime.fromisoformat(
+                        value.replace("Z", "+00:00")
+                    )
+                    if timestamp.tzinfo is not None:
+                        timestamp = timestamp.astimezone(datetime.UTC)
+                    return timestamp.date()
             raise ValueError(f"Unsupported date value for {name}: {value!r}")
         return None
 
@@ -821,46 +836,6 @@ class AlpacaCorporateActionsSyncManager:
         ).hexdigest()[:12]
         return params_hash
 
-    def _atomic_write_parquet(self, df: pl.DataFrame, target_path: Path) -> str:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = target_path.with_suffix(".parquet.tmp")
-        try:
-            df.write_parquet(temp_path)
-            temp_checksum = self._compute_checksum_and_fsync(temp_path)
-            temp_path.replace(target_path)
-            self._fsync_directory(target_path.parent)
-            return temp_checksum
-        except OSError as exc:
-            if exc.errno == 28:
-                raise DiskSpaceError(f"Disk full writing {target_path}") from exc
-            raise
-        finally:
-            temp_path.unlink(missing_ok=True)
-
-    @staticmethod
-    def _compute_checksum(path: Path) -> str:
-        hasher = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(8192), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
-
-    @staticmethod
-    def _compute_checksum_and_fsync(path: Path) -> str:
-        hasher = hashlib.sha256()
-        with open(path, "r+b") as handle:
-            for chunk in iter(lambda: handle.read(8192), b""):
-                hasher.update(chunk)
-            os.fsync(handle.fileno())
-        return hasher.hexdigest()
-
-    def _compute_combined_checksum_for_paths(self, paths: Sequence[Path]) -> str:
-        hasher = hashlib.sha256()
-        for path in sorted(paths, key=str):
-            if path.exists():
-                hasher.update(self._compute_checksum(path).encode())
-        return hasher.hexdigest()
-
     def _manifest_paths_for_verify(self, manifest: SyncManifest) -> tuple[list[Path], list[str]]:
         paths: list[Path] = []
         errors: list[str] = []
@@ -885,27 +860,6 @@ class AlpacaCorporateActionsSyncManager:
         if path.parts[0] == "alpaca":
             return (self.data_root / path).resolve()
         return (self.storage_path / path).resolve()
-
-    @staticmethod
-    def _fsync_directory(path: Path) -> None:
-        fd: int | None = None
-        try:
-            fd = os.open(path, os.O_RDONLY)
-            os.fsync(fd)
-        except OSError as exc:
-            logger.debug(
-                "Alpaca corporate actions directory fsync skipped",
-                extra={"path": str(path), "error": str(exc)},
-            )
-        finally:
-            if fd is not None:
-                try:
-                    os.close(fd)
-                except OSError as exc:
-                    logger.debug(
-                        "Alpaca corporate actions directory fsync close skipped",
-                        extra={"path": str(path), "error": str(exc)},
-                    )
 
     def _create_manifest(
         self,

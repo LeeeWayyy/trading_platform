@@ -306,6 +306,20 @@ def test_full_sync_preserves_grouped_live_payload_types(
     assert '"rate": 0.24' in df["raw"][0]
 
 
+def test_row_from_action_parses_iso_timestamp_dates() -> None:
+    action = {
+        "process_date": "2024-02-15T23:30:00-05:00",
+        "ex_date": "2024-02-09T00:00:00Z",
+    }
+
+    assert AlpacaCorporateActionsSyncManager._optional_date(
+        action, "process_date"
+    ) == datetime.date(2024, 2, 16)
+    assert AlpacaCorporateActionsSyncManager._optional_date(
+        action, "ex_date"
+    ) == datetime.date(2024, 2, 9)
+
+
 def test_full_sync_flattens_grouped_dict_payloads(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,

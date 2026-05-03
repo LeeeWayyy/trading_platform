@@ -29,6 +29,10 @@ from libs.data.data_providers.registry import (
     compute_symbol_set_hash,
     get_provider_spec,
 )
+from libs.data.data_providers.sync_file_utils import (
+    atomic_write_parquet,
+    compute_combined_checksum_for_paths,
+)
 from libs.data.data_quality.exceptions import DiskSpaceError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
@@ -393,7 +397,7 @@ class AlpacaSIPSyncManager:
             )
         self._check_disk_space(estimated_rows=max(1, df.height))
         output_path = partition_dir / f"{year}.parquet"
-        checksum = self._atomic_write_parquet(df, output_path)
+        checksum = atomic_write_parquet(df, output_path)
         start_date, end_date = self._frame_date_bounds(df)
 
         logger.info(
@@ -439,7 +443,7 @@ class AlpacaSIPSyncManager:
         if errors:
             return errors
 
-        computed_checksum = self._compute_combined_checksum_for_paths(partition_paths)
+        computed_checksum = compute_combined_checksum_for_paths(partition_paths)
         if computed_checksum != manifest.checksum:
             errors.append(
                 "Checksum mismatch: "
@@ -664,51 +668,10 @@ class AlpacaSIPSyncManager:
         ).row(0, named=True)
         return cast(datetime.date, row["start_date"]), cast(datetime.date, row["end_date"])
 
-    def _atomic_write_parquet(self, df: pl.DataFrame, target_path: Path) -> str:
-        """Write a Parquet file atomically."""
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = target_path.with_suffix(".parquet.tmp")
-        try:
-            df.write_parquet(temp_path)
-            checksum = self._compute_checksum_and_fsync(temp_path)
-            temp_path.replace(target_path)
-            self._fsync_directory(target_path.parent)
-            return checksum
-        except OSError as exc:
-            if exc.errno == 28:
-                raise DiskSpaceError(f"Disk full writing {target_path}") from exc
-            raise
-        finally:
-            temp_path.unlink(missing_ok=True)
-
-    @staticmethod
-    def _compute_checksum(path: Path) -> str:
-        hasher = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(8192), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
-
-    @staticmethod
-    def _compute_checksum_and_fsync(path: Path) -> str:
-        hasher = hashlib.sha256()
-        with open(path, "r+b") as handle:
-            for chunk in iter(lambda: handle.read(8192), b""):
-                hasher.update(chunk)
-            os.fsync(handle.fileno())
-        return hasher.hexdigest()
-
     def _compute_combined_checksum(self, file_paths: Sequence[str]) -> str:
-        return self._compute_combined_checksum_for_paths(
+        return compute_combined_checksum_for_paths(
             [self._resolve_manifest_path(Path(path)) for path in file_paths]
         )
-
-    def _compute_combined_checksum_for_paths(self, paths: Sequence[Path]) -> str:
-        hasher = hashlib.sha256()
-        for path in sorted(paths, key=str):
-            if path.exists():
-                hasher.update(self._compute_checksum(path).encode())
-        return hasher.hexdigest()
 
     def _manifest_paths_for_verify(self, manifest: SyncManifest) -> tuple[list[Path], list[str]]:
         """Resolve manifest file paths and reject anything outside storage_path."""
@@ -740,27 +703,6 @@ class AlpacaSIPSyncManager:
             return (self.data_root / path).resolve()
 
         return (self.storage_path / path).resolve()
-
-    @staticmethod
-    def _fsync_directory(path: Path) -> None:
-        fd: int | None = None
-        try:
-            fd = os.open(path, os.O_RDONLY)
-            os.fsync(fd)
-        except OSError as exc:
-            logger.debug(
-                "Alpaca SIP directory fsync skipped",
-                extra={"path": str(path), "error": str(exc)},
-            )
-        finally:
-            if fd is not None:
-                try:
-                    os.close(fd)
-                except OSError as exc:
-                    logger.debug(
-                        "Alpaca SIP directory fsync close skipped",
-                        extra={"path": str(path), "error": str(exc)},
-                    )
 
     def _create_manifest(
         self,

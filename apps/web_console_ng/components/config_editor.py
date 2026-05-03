@@ -30,7 +30,12 @@ from libs.data.data_providers.registry import (
     provider_display_inverse_map_with_options,
     provider_display_map_with_options,
 )
-from libs.trading.backtest.job_queue import HYBRID_CRSP_SIP_MIN_START_DATE, BacktestJobConfig
+from libs.trading.backtest.job_queue import (
+    HYBRID_CRSP_SIP_MIN_START_DATE,
+    BacktestJobConfig,
+    DataProvider,
+    resolve_auto_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +58,22 @@ def _get_known_config_keys() -> set[str]:
 
 # Symbol validation (same regex as backtest.py – imported for reuse)
 SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+_NON_PIT_UNIVERSE_PROVIDERS = {"yfinance", "alpaca_sip"}
 
 # Date bounds shared with form validation
 MIN_BACKTEST_PERIOD_DAYS = 30
+
+
+def _normalize_universe(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [symbol.strip().upper() for symbol in value.split(",") if symbol.strip()]
+    if isinstance(value, list | tuple):
+        return [
+            symbol.strip().upper()
+            for symbol in value
+            if isinstance(symbol, str) and symbol.strip()
+        ]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -135,23 +153,48 @@ def validate_backtest_params(config_dict: dict[str, Any]) -> ValidationResult:
         )
 
     # --- Universe symbol validation -------------------------------------
-    extra = config_dict.get("extra_params", {})
-    if isinstance(extra, dict):
-        universe = extra.get("universe")
-        if universe and isinstance(universe, list):
-            invalid_symbols = [s for s in universe if not SYMBOL_PATTERN.match(str(s).upper())]
-            if invalid_symbols:
-                sanitized = [
-                    str(s).replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]
-                ]
-                errors.append(
-                    f"Invalid universe symbols: {', '.join(sanitized)}. "
-                    "Symbols must start with a letter, be 1-10 characters "
-                    "(alphanumeric/dots/hyphens)."
-                )
+    extra_raw = config_dict.get("extra_params", {})
+    if extra_raw is None:
+        extra: dict[str, Any] = {}
+    elif isinstance(extra_raw, dict):
+        extra = extra_raw
+    else:
+        errors.append("extra_params must be an object when provided")
+        extra = {}
+
+    universe = _normalize_universe(extra.get("universe"))
+    if universe:
+        invalid_symbols = [s for s in universe if not SYMBOL_PATTERN.match(s)]
+        if invalid_symbols:
+            sanitized = [s.replace("\n", "").replace("\r", "")[:10] for s in invalid_symbols[:5]]
+            errors.append(
+                f"Invalid universe symbols: {', '.join(sanitized)}. "
+                "Symbols must start with a letter, be 1-10 characters "
+                "(alphanumeric/dots/hyphens)."
+            )
 
     # --- Provider-specific warnings ------------------------------------
     normalized_provider = str(provider).lower().strip()
+    if normalized_provider in _NON_PIT_UNIVERSE_PROVIDERS and not universe:
+        errors.append(
+            f"{PROVIDER_DISPLAY[normalized_provider]} requires an explicit symbol universe."
+        )
+    elif normalized_provider == "auto" and not universe:
+        try:
+            validation_config = BacktestJobConfig(
+                alpha_name=str(config_dict["alpha_name"]),
+                start_date=start_dt,
+                end_date=end_dt,
+                provider=DataProvider.AUTO,
+                extra_params=dict(extra),
+            )
+            resolve_auto_provider(validation_config)
+        except (ValueError, TypeError) as exc:
+            errors.append(
+                "Auto provider requires an explicit symbol universe for the current "
+                f"data roles: {exc}"
+            )
+
     if (
         normalized_provider == "hybrid_crsp_universe_sip_prices"
         and start_dt < HYBRID_CRSP_SIP_MIN_START_DATE
