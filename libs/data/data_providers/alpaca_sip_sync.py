@@ -244,22 +244,23 @@ class AlpacaSIPSyncManager:
         partition_dates: list[tuple[datetime.date, datetime.date]] = []
         row_count = 0
         self._check_disk_space(estimated_rows=len(years) * len(normalized_symbols) * 252)
-        year_frames = [(year, self._fetch_year_frame(normalized_symbols, year)) for year in years]
+
+        for year in years:
+            df = self._fetch_year_frame(normalized_symbols, year)
+            partition = self._write_year_partition(df, year, output_dir=output_dir)
+            file_paths.append(str(partition.path.relative_to(self.data_root)))
+            row_count += partition.row_count
+            if partition.start_date is not None and partition.end_date is not None:
+                partition_dates.append((partition.start_date, partition.end_date))
+
+        if row_count == 0 or not partition_dates:
+            raise ValueError("No Alpaca SIP rows returned; manifest not updated")
+
         with self.manifest_manager.acquire_lock(
             self.DATASET_NAME,
             writer_id=f"alpaca-sip-sync:{os.getpid()}",
             timeout_seconds=60.0,
         ) as lock_token:
-            for year, df in year_frames:
-                partition = self._write_year_partition(df, year, output_dir=output_dir)
-                file_paths.append(str(partition.path.relative_to(self.data_root)))
-                row_count += partition.row_count
-                if partition.start_date is not None and partition.end_date is not None:
-                    partition_dates.append((partition.start_date, partition.end_date))
-
-            if row_count == 0 or not partition_dates:
-                raise ValueError("No Alpaca SIP rows returned; manifest not updated")
-
             manifest = self._create_manifest(
                 file_paths=file_paths,
                 row_count=row_count,

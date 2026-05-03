@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -383,7 +383,7 @@ class AlpacaCorporateActionsSyncManager:
             ids=normalized_ids,
         )
         sync_id = self._build_sync_id(base_params)
-        output_path = self.storage_path / "snapshots" / sync_id / "corporate_actions.parquet"
+        output_dir = self.storage_path / "snapshots" / sync_id
 
         self._check_disk_space(
             estimated_rows=self._estimate_pre_fetch_rows(
@@ -394,26 +394,51 @@ class AlpacaCorporateActionsSyncManager:
                 ids=normalized_ids,
             )
         )
-        actions = self._fetch_actions(
+        file_paths: list[str] = []
+        partition_paths: list[Path] = []
+        row_count = 0
+        part_index = 0
+
+        for actions in self._iter_actions(
             start_date=start_date,
             end_date=end_date,
             symbols=normalized_symbols,
             ca_types=normalized_types,
             ids=normalized_ids,
             base_params=base_params,
-        )
-        df = self._rows_to_frame([self._row_from_action(action) for action in actions])
+        ):
+            if not actions:
+                continue
+            output_path, rows_written = self._write_actions_partition(
+                actions,
+                output_dir=output_dir,
+                part_index=part_index,
+            )
+            file_paths.append(str(output_path.relative_to(self.data_root)))
+            partition_paths.append(output_path)
+            row_count += rows_written
+            part_index += 1
+
+        if not partition_paths:
+            output_path, rows_written = self._write_actions_partition(
+                [],
+                output_dir=output_dir,
+                part_index=0,
+            )
+            file_paths.append(str(output_path.relative_to(self.data_root)))
+            partition_paths.append(output_path)
+            row_count += rows_written
+
+        checksum = compute_combined_checksum_for_paths(partition_paths)
 
         with self.manifest_manager.acquire_lock(
             self.DATASET_NAME,
             writer_id=f"alpaca-corp-actions-sync:{os.getpid()}",
             timeout_seconds=60.0,
         ) as lock_token:
-            self._check_disk_space(estimated_rows=max(1, len(actions)))
-            checksum = atomic_write_parquet(df, output_path)
             manifest = self._create_manifest(
-                file_paths=[str(output_path.relative_to(self.data_root))],
-                row_count=df.height,
+                file_paths=file_paths,
+                row_count=row_count,
                 start_date=start_date,
                 end_date=end_date,
                 checksum=checksum,
@@ -429,8 +454,8 @@ class AlpacaCorporateActionsSyncManager:
             extra={
                 "event": "alpaca_corp_actions.sync.complete",
                 "dataset": self.DATASET_NAME,
-                "row_count": df.height,
-                "file": str(output_path),
+                "row_count": row_count,
+                "file_count": len(file_paths),
             },
         )
         return manifest
@@ -512,9 +537,11 @@ class AlpacaCorporateActionsSyncManager:
         )
         return CorporateActionRoundTripReport(status=report_status, results=tuple(results))
 
-    def _fetch_all_pages(self, base_params: Mapping[str, str | int]) -> list[Mapping[str, Any]]:
+    def _iter_all_pages(
+        self,
+        base_params: Mapping[str, str | int],
+    ) -> Iterator[list[Mapping[str, Any]]]:
         params: dict[str, str | int] = dict(base_params)
-        actions: list[Mapping[str, Any]] = []
         page_count = 0
         while True:
             page_count += 1
@@ -524,12 +551,44 @@ class AlpacaCorporateActionsSyncManager:
                     f"{self.MAX_PAGES_PER_REQUEST} pages"
                 )
             payload = self.client.get_corporate_actions(params)
-            actions.extend(self._actions_from_payload(payload))
+            yield self._actions_from_payload(payload)
             next_page_token = self._next_page_token(payload)
             if not next_page_token:
                 break
             params["page_token"] = next_page_token
+
+    def _fetch_all_pages(self, base_params: Mapping[str, str | int]) -> list[Mapping[str, Any]]:
+        actions: list[Mapping[str, Any]] = []
+        for page_actions in self._iter_all_pages(base_params):
+            actions.extend(page_actions)
         return actions
+
+    def _iter_actions(
+        self,
+        *,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        symbols: Sequence[str],
+        ca_types: Sequence[str],
+        ids: Sequence[str],
+        base_params: Mapping[str, str | int],
+    ) -> Iterator[list[Mapping[str, Any]]]:
+        if symbols and not ids:
+            symbol_chunks = self._chunks(symbols, self.SYMBOL_REQUEST_CHUNK_SIZE)
+            for chunk_index, symbol_chunk in enumerate(symbol_chunks):
+                chunk_params = self._build_base_params(
+                    start_date=start_date,
+                    end_date=end_date,
+                    symbols=symbol_chunk,
+                    ca_types=ca_types,
+                    ids=[],
+                )
+                yield from self._iter_all_pages(chunk_params)
+                if self.request_interval_seconds > 0 and chunk_index < len(symbol_chunks) - 1:
+                    time.sleep(self.request_interval_seconds)
+            return
+
+        yield from self._iter_all_pages(base_params)
 
     def _fetch_actions(
         self,
@@ -557,6 +616,20 @@ class AlpacaCorporateActionsSyncManager:
                     time.sleep(self.request_interval_seconds)
             return actions
         return self._fetch_all_pages(base_params)
+
+    def _write_actions_partition(
+        self,
+        actions: Sequence[Mapping[str, Any]],
+        *,
+        output_dir: Path,
+        part_index: int,
+    ) -> tuple[Path, int]:
+        rows = [self._row_from_action(action) for action in actions]
+        df = self._rows_to_frame(rows)
+        self._check_disk_space(estimated_rows=max(1, df.height))
+        output_path = output_dir / f"part-{part_index:05d}.parquet"
+        atomic_write_parquet(df, output_path)
+        return output_path, df.height
 
     @staticmethod
     def _actions_from_payload(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:

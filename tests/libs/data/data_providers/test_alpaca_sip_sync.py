@@ -172,6 +172,68 @@ def test_full_sync_writes_partition_and_manifest(
     assert first_request_fields["adjustment"].value == "raw"
 
 
+def test_full_sync_streams_year_partitions(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeAlpacaClient(
+        [
+            FakeResponse(
+                {
+                    "AAPL": [
+                        FakeBar(
+                            symbol="AAPL",
+                            timestamp=datetime.datetime(2023, 1, 3, tzinfo=datetime.UTC),
+                            close=100.0,
+                        )
+                    ]
+                }
+            ),
+            FakeResponse(
+                {
+                    "AAPL": [
+                        FakeBar(
+                            symbol="AAPL",
+                            timestamp=datetime.datetime(2024, 1, 3, tzinfo=datetime.UTC),
+                            close=101.0,
+                        )
+                    ]
+                }
+            ),
+        ]
+    )
+    manager = AlpacaSIPSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+    events: list[str] = []
+    original_fetch = manager._fetch_year_frame
+    original_write = manager._write_year_partition
+
+    def fetch_year_frame(symbols: Sequence[str], year: int) -> pl.DataFrame:
+        events.append(f"fetch:{year}")
+        return original_fetch(symbols, year)
+
+    def write_year_partition(
+        df: pl.DataFrame,
+        year: int,
+        *,
+        output_dir: Path | None = None,
+    ) -> Any:
+        events.append(f"write:{year}")
+        return original_write(df, year, output_dir=output_dir)
+
+    monkeypatch.setattr(manager, "_fetch_year_frame", fetch_year_frame)
+    monkeypatch.setattr(manager, "_write_year_partition", write_year_partition)
+
+    manager.full_sync(["AAPL"], start_year=2023, end_year=2024)
+
+    assert events == ["fetch:2023", "write:2023", "fetch:2024", "write:2024"]
+
+
 def test_manager_rejects_non_raw_canonical_adjustment(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,

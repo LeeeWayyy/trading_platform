@@ -3221,6 +3221,7 @@ class TestYFinanceEdgeCases:
         captured_universe = []
         captured_dataset_version_ids = []
         captured_pinned_manifest = []
+        captured_provider_closed = []
 
         class MockManifestManager:
             def __init__(self, *args, **kwargs):
@@ -3243,6 +3244,9 @@ class TestYFinanceEdgeCases:
             def __init__(self, *args, storage_path=None, pinned_manifest=None, **kwargs):
                 captured_storage.append(storage_path)
                 captured_pinned_manifest.append(pinned_manifest)
+
+            def close(self):
+                captured_provider_closed.append(True)
 
         class MockSimpleBacktester:
             def __init__(self, *args, dataset_version_ids=None, **kwargs):
@@ -3304,6 +3308,7 @@ class TestYFinanceEdgeCases:
         assert len(captured_storage) == 1
         assert str(captured_storage[0]) == str(tmp_path / "custom_sip")
         assert captured_pinned_manifest[0].manifest_version == 7
+        assert captured_provider_closed == [True]
         assert captured_universe == ["AAPL", "MSFT"]
         assert captured_dataset_version_ids == [
             {
@@ -3459,6 +3464,7 @@ class TestYFinanceEdgeCases:
         captured_universe = []
         captured_universe_dates = []
         captured_fetcher_config = []
+        captured_alpaca_closed = []
 
         class MockCRSPLocalProvider:
             def __init__(self, storage_path, *args, **kwargs):
@@ -3469,6 +3475,9 @@ class TestYFinanceEdgeCases:
 
             def __init__(self, *args, storage_path=None, **kwargs):
                 captured_alpaca_storage.append(storage_path)
+
+            def close(self):
+                captured_alpaca_closed.append(True)
 
         class MockUnifiedDataFetcher:
             def __init__(self, config, *args, **kwargs):
@@ -3545,6 +3554,7 @@ class TestYFinanceEdgeCases:
         )
         assert captured_universe_dates == [date(2024, 1, 1)]
         assert captured_universe == ["AAPL", "MSFT"]
+        assert captured_alpaca_closed == [True]
         assert captured_dataset_version_ids[0]["hybrid_universe_provider"] == "crsp"
         assert captured_dataset_version_ids[0]["hybrid_price_provider"] == "alpaca_sip"
 

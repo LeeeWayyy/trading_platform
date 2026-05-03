@@ -121,6 +121,13 @@ def _save_manifest(
     return saved
 
 
+def _read_manifest_frame(sync_paths: dict[str, Path], manifest: SyncManifest) -> pl.DataFrame:
+    frames = [pl.read_parquet(sync_paths["data_root"] / path) for path in manifest.file_paths]
+    if len(frames) == 1:
+        return frames[0]
+    return pl.concat(frames)
+
+
 def test_full_sync_writes_corporate_actions_and_manifest(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,
@@ -172,7 +179,7 @@ def test_full_sync_writes_corporate_actions_and_manifest(
 
     assert manifest.dataset == "alpaca_sip_corp_actions"
     assert manifest.row_count == 2
-    assert len(manifest.file_paths) == 1
+    assert len(manifest.file_paths) == 2
     assert manifest.provider_id == "alpaca_sip"
     assert manifest.provider_version == "1.0"
     assert manifest.source_feed == "sip"
@@ -181,11 +188,12 @@ def test_full_sync_writes_corporate_actions_and_manifest(
     assert manifest.symbol_set_hash is not None
     assert manifest.sync_started_at is not None
     assert manifest.sync_finished_at is not None
-    partition = sync_paths["data_root"] / manifest.file_paths[0]
-    assert partition.exists()
-    assert partition.parent.parent == sync_paths["storage"] / "snapshots"
+    partitions = [sync_paths["data_root"] / path for path in manifest.file_paths]
+    for partition in partitions:
+        assert partition.exists()
+        assert partition.parent.parent == sync_paths["storage"] / "snapshots"
 
-    df = pl.read_parquet(partition)
+    df = pl.concat([pl.read_parquet(partition) for partition in partitions])
     assert df["id"].to_list() == ["ca-1", "ca-2"]
     assert df["symbol"].to_list() == ["AAPL", "MSFT"]
     assert df["ca_type"].to_list() == ["split", "dividend"]
@@ -194,7 +202,7 @@ def test_full_sync_writes_corporate_actions_and_manifest(
 
     saved_manifest = manifest_manager.load_manifest("alpaca_sip_corp_actions")
     assert saved_manifest is not None
-    assert saved_manifest.file_paths == [str(partition.relative_to(sync_paths["data_root"]))]
+    assert saved_manifest.file_paths == manifest.file_paths
 
     assert client.requests[0]["symbols"] == "AAPL,MSFT"
     assert client.requests[0]["types"] == "dividend,split"
@@ -300,7 +308,7 @@ def test_full_sync_preserves_grouped_live_payload_types(
         symbols=["AAPL"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["ca_type"].to_list() == ["cash_dividends"]
     assert df["cash"].to_list() == [0.24]
     assert '"rate": 0.24' in df["raw"][0]
@@ -359,7 +367,7 @@ def test_full_sync_flattens_grouped_dict_payloads(
         symbols=["AAPL", "MSFT"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == ["ca-div-1", "ca-div-2"]
     assert df["ca_type"].to_list() == ["cash_dividends", "cash_dividends"]
 
@@ -398,7 +406,7 @@ def test_full_sync_flattens_grouped_dict_payloads_with_action_field_keys(
         symbols=["AAPL"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == ["ca-split-1"]
     assert df["symbol"].to_list() == ["AAPL"]
     assert df["ca_type"].to_list() == ["stock_splits"]
@@ -447,7 +455,7 @@ def test_full_sync_flattens_nested_grouped_list_payloads(
         symbols=["AAPL", "MSFT"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == ["ca-div-1", "ca-div-2"]
     assert df["ca_type"].to_list() == ["cash_dividends", "cash_dividends"]
 
@@ -485,7 +493,7 @@ def test_full_sync_does_not_use_symbol_group_keys_as_action_types(
         symbols=["AAPL"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == ["ca-aapl-1"]
     assert df["symbol"].to_list() == ["AAPL"]
     assert df["ca_type"].to_list() == [None]
@@ -524,7 +532,7 @@ def test_full_sync_reads_top_level_action_container_aliases(
         symbols=["AAPL"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == [f"ca-{container_key}"]
 
 
@@ -565,7 +573,7 @@ def test_full_sync_ignores_wrapper_scalars_when_flattening_items(
         symbols=["AAPL"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == ["ca-div-1"]
     assert df["ca_type"].to_list() == ["cash_dividends"]
 
@@ -607,7 +615,7 @@ def test_full_sync_ignores_unexpected_grouped_scalars(
         symbols=["AAPL"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df["id"].to_list() == ["ca-div-1"]
     assert df["ca_type"].to_list() == ["cash_dividends"]
 
@@ -659,7 +667,7 @@ def test_full_sync_deduplicates_present_ids_and_preserves_missing_ids(
         symbols=["AAPL", "MSFT"],
     )
 
-    df = pl.read_parquet(manifest.file_paths[0])
+    df = _read_manifest_frame(sync_paths, manifest)
     assert df.height == 3
     assert df["id"].null_count() == 2
     row_with_id = df.filter(pl.col("id") == "ca-1")

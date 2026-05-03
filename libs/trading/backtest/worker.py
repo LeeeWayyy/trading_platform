@@ -745,6 +745,7 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             else BacktestJobQueue.DEFAULT_TIMEOUT
         )
         worker = BacktestWorker(redis, db_pool)
+        provider_cleanup = contextlib.ExitStack()
 
         try:
             _resolve_auto_provider(job_config)
@@ -863,6 +864,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         data_root=data_root,
                         pinned_manifest=alpaca_manifest,
                     )
+                    close_alpaca_provider = getattr(alpaca_provider, "close", None)
+                    if callable(close_alpaca_provider):
+                        provider_cleanup.callback(close_alpaca_provider)
                     fetcher_config = FetcherConfig(
                         provider=ProviderType.ALPACA_SIP,
                         alpaca_sip_storage_path=alpaca_storage,
@@ -902,6 +906,9 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                         data_root=data_root,
                         pinned_manifest=alpaca_manifest,
                     )
+                    close_alpaca_provider = getattr(alpaca_provider, "close", None)
+                    if callable(close_alpaca_provider):
+                        provider_cleanup.callback(close_alpaca_provider)
                     fetcher_config = FetcherConfig(
                         provider=ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES,
                         crsp_storage_path=crsp_storage,
@@ -1109,6 +1116,15 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
                 completed_at=datetime.now(UTC),
             )
             raise
+        finally:
+            try:
+                provider_cleanup.close()
+            except Exception as cleanup_error:
+                worker.logger.warning(
+                    "provider_cleanup_failed",
+                    job_id=job_id,
+                    error=str(cleanup_error),
+                )
 
 
 def _save_parquet_artifacts(
