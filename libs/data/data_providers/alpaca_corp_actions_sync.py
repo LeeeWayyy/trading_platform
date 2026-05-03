@@ -266,6 +266,7 @@ class AlpacaCorporateActionsSyncManager:
     UNFILTERED_ROWS_PER_YEAR_ESTIMATE = 50_000
     FILTERED_ROWS_PER_SYMBOL_YEAR_ESTIMATE = 25
     SYMBOL_REQUEST_CHUNK_SIZE = 200
+    ACTION_PARTITION_ROW_TARGET = 100_000
     MAX_PAGES_PER_REQUEST = 1000
     MAX_ACTION_NESTING_DEPTH = 64
 
@@ -396,6 +397,7 @@ class AlpacaCorporateActionsSyncManager:
         )
         file_paths: list[str] = []
         partition_paths: list[Path] = []
+        row_buffer: list[dict[str, Any]] = []
         row_count = 0
         part_index = 0
 
@@ -409,21 +411,25 @@ class AlpacaCorporateActionsSyncManager:
         ):
             if not actions:
                 continue
-            output_path, rows_written = self._write_actions_partition(
-                actions,
+            row_buffer.extend(self._row_from_action(action) for action in actions)
+            while len(row_buffer) >= self.ACTION_PARTITION_ROW_TARGET:
+                rows_to_write = row_buffer[: self.ACTION_PARTITION_ROW_TARGET]
+                del row_buffer[: self.ACTION_PARTITION_ROW_TARGET]
+                output_path, rows_written = self._write_action_rows_partition(
+                    rows_to_write,
+                    output_dir=output_dir,
+                    part_index=part_index,
+                )
+                file_paths.append(str(output_path.relative_to(self.data_root)))
+                partition_paths.append(output_path)
+                row_count += rows_written
+                part_index += 1
+
+        if row_buffer or not partition_paths:
+            output_path, rows_written = self._write_action_rows_partition(
+                row_buffer,
                 output_dir=output_dir,
                 part_index=part_index,
-            )
-            file_paths.append(str(output_path.relative_to(self.data_root)))
-            partition_paths.append(output_path)
-            row_count += rows_written
-            part_index += 1
-
-        if not partition_paths:
-            output_path, rows_written = self._write_actions_partition(
-                [],
-                output_dir=output_dir,
-                part_index=0,
             )
             file_paths.append(str(output_path.relative_to(self.data_root)))
             partition_paths.append(output_path)
@@ -617,15 +623,14 @@ class AlpacaCorporateActionsSyncManager:
             return actions
         return self._fetch_all_pages(base_params)
 
-    def _write_actions_partition(
+    def _write_action_rows_partition(
         self,
-        actions: Sequence[Mapping[str, Any]],
+        rows: Sequence[dict[str, Any]],
         *,
         output_dir: Path,
         part_index: int,
     ) -> tuple[Path, int]:
-        rows = [self._row_from_action(action) for action in actions]
-        df = self._rows_to_frame(rows)
+        df = self._rows_to_frame(list(rows))
         self._check_disk_space(estimated_rows=max(1, df.height))
         output_path = output_dir / f"part-{part_index:05d}.parquet"
         atomic_write_parquet(df, output_path)

@@ -179,7 +179,7 @@ def test_full_sync_writes_corporate_actions_and_manifest(
 
     assert manifest.dataset == "alpaca_sip_corp_actions"
     assert manifest.row_count == 2
-    assert len(manifest.file_paths) == 2
+    assert len(manifest.file_paths) == 1
     assert manifest.provider_id == "alpaca_sip"
     assert manifest.provider_version == "1.0"
     assert manifest.source_feed == "sip"
@@ -246,6 +246,47 @@ def test_full_sync_chunks_large_symbol_requests(
         "TSLA",
     ]
     assert [call.args for call in sleep_mock.call_args_list] == [(0.25,), (0.25,)]
+
+
+def test_full_sync_splits_corporate_actions_when_row_target_exceeded(
+    sync_paths: dict[str, Path],
+    manifest_manager: ManifestManager,
+) -> None:
+    client = FakeCorporateActionsClient(
+        [
+            {
+                "corporate_actions": [
+                    {
+                        "id": "ca-1",
+                        "symbol": "AAPL",
+                        "process_date": "2024-02-01",
+                    },
+                    {
+                        "id": "ca-2",
+                        "symbol": "MSFT",
+                        "process_date": "2024-03-01",
+                    },
+                ]
+            }
+        ]
+    )
+    manager = AlpacaCorporateActionsSyncManager(
+        client=client,
+        storage_path=sync_paths["storage"],
+        manifest_manager=manifest_manager,
+        data_root=sync_paths["data_root"],
+    )
+    manager.ACTION_PARTITION_ROW_TARGET = 1
+
+    manifest = manager.full_sync(
+        start_date=datetime.date(2024, 1, 1),
+        end_date=datetime.date(2024, 12, 31),
+        symbols=["AAPL", "MSFT"],
+    )
+
+    assert len(manifest.file_paths) == 2
+    df = _read_manifest_frame(sync_paths, manifest)
+    assert df["id"].to_list() == ["ca-1", "ca-2"]
 
 
 def test_full_sync_allows_empty_result_manifest(

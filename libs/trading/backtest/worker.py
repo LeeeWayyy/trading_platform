@@ -751,12 +751,12 @@ def run_backtest(config: dict[str, Any], created_by: str) -> dict[str, Any]:
             _resolve_auto_provider(job_config)
             resolved_job_id = job_config.compute_job_id(created_by)
             if resolved_job_id != job_id:
-                raise RuntimeError(
-                    "provider=auto job_id changed after provider resolution; "
-                    "AUTO jobs must be resolved before enqueue. "
-                    f"queued_job_id={job_id} resolved_job_id={resolved_job_id}"
+                worker.logger.warning(
+                    "auto_provider_resolved_with_legacy_job_id",
+                    queued_job_id=job_id,
+                    resolved_job_id=resolved_job_id,
+                    provider=job_config.provider.value,
                 )
-            job_id = resolved_job_id
             worker.update_progress(job_id, 5, "init_dependencies", job_timeout=job_timeout)
 
             data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()

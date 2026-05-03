@@ -202,9 +202,7 @@ class SimpleBacktester:
                 )
             return_price = pl.col("close") if allows_close_fallback else pl.lit(None)
         else:
-            missing_adjusted_close_count = int(
-                df.select(pl.col("adj_close").is_null().sum()).item()
-            )
+            missing_adjusted_close_count = df["adj_close"].null_count()
             if requires_adjusted_close and missing_adjusted_close_count:
                 raise ValueError(
                     f"Raw SIP-priced backtests via {provider_name} require an "

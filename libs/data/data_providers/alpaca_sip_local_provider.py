@@ -357,6 +357,13 @@ class AlpacaSIPLocalProvider:
             self._close_duckdb_connection(conn)
         logger.debug("Closed %d Alpaca SIP DuckDB connection(s)", len(connections))
 
+    def __del__(self) -> None:
+        """Best-effort cleanup for providers that outlive their explicit owner."""
+        try:
+            self.close()
+        except Exception as exc:  # pragma: no cover - destructor safety path
+            logger.debug("Failed to close Alpaca SIP provider during finalization: %s", exc)
+
     def __enter__(self) -> AlpacaSIPLocalProvider:
         """Context manager entry."""
         return self
