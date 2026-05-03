@@ -838,7 +838,10 @@ class AlpacaCorporateActionsSyncManager:
                 try:
                     return datetime.date.fromisoformat(value)
                 except ValueError:
-                    timestamp = datetime.datetime.fromisoformat(value)
+                    try:
+                        timestamp = datetime.datetime.fromisoformat(value)
+                    except ValueError as exc:
+                        raise ValueError(f"Unsupported date value for {name}: {value!r}") from exc
                     if timestamp.tzinfo is not None:
                         timestamp = timestamp.astimezone(datetime.UTC)
                     return timestamp.date()

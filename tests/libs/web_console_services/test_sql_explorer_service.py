@@ -288,6 +288,32 @@ def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
     assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
 
 
+def test_resolve_table_paths_fail_closed_on_non_object_alpaca_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    fallback_partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    fallback_partition.parent.mkdir(parents=True)
+    fallback_partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+    assert any(
+        getattr(record, "error", None) == "Manifest JSON is not an object"
+        for record in caplog.records
+    )
+
+
 def test_alpaca_manifest_path_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
     monkeypatch.setattr(module, "_MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES", 2)

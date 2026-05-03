@@ -351,6 +351,15 @@ def _resolve_alpaca_sip_snapshot_paths(
                 _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
                 return cached.path_spec
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict):
+                logger.warning(
+                    unreadable_log_event,
+                    extra={
+                        "manifest_path": str(manifest_path),
+                        "error": "Manifest JSON is not an object",
+                    },
+                )
+                return ()
             file_paths = manifest.get("file_paths", [])
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(

@@ -369,6 +369,14 @@ def test_row_from_action_parses_iso_timestamp_dates() -> None:
     ) == datetime.date(2024, 2, 9)
 
 
+def test_row_from_action_rejects_invalid_date_text() -> None:
+    with pytest.raises(ValueError, match="Unsupported date value for process_date"):
+        AlpacaCorporateActionsSyncManager._optional_date(
+            {"process_date": "not-a-date"},
+            "process_date",
+        )
+
+
 def test_full_sync_flattens_grouped_dict_payloads(
     sync_paths: dict[str, Path],
     manifest_manager: ManifestManager,

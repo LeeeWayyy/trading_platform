@@ -120,7 +120,7 @@ class AlpacaSIPLocalProvider:
             )
 
         self._thread_local = threading.local()
-        self._connection_lock = threading.Lock()
+        self._connection_lock = threading.RLock()
         self._connections: weakref.WeakSet[duckdb.DuckDBPyConnection] = weakref.WeakSet()
         self._connection_generation = 0
 
@@ -261,8 +261,9 @@ class AlpacaSIPLocalProvider:
             ORDER BY "date", "symbol"
         """
 
-        conn = self._connection_for_current_thread()
-        return conn.execute(query, params).pl()
+        with self._connection_lock:
+            conn = self._connection_for_current_thread()
+            return conn.execute(query, params).pl()
 
     @staticmethod
     def _quote_identifier(identifier: str) -> str:
@@ -272,17 +273,17 @@ class AlpacaSIPLocalProvider:
 
     def _connection_for_current_thread(self) -> duckdb.DuckDBPyConnection:
         """Get or create a cached DuckDB connection scoped to the current thread."""
-        cached_conn = cast(
-            duckdb.DuckDBPyConnection | None,
-            getattr(self._thread_local, "connection", None),
-        )
-        cached_generation = getattr(self._thread_local, "connection_generation", None)
-        if cached_conn is not None and cached_generation == self._connection_generation:
-            return cached_conn
-        if cached_conn is not None:
-            self._drop_thread_local_connection(cached_conn)
-
         with self._connection_lock:
+            cached_conn = cast(
+                duckdb.DuckDBPyConnection | None,
+                getattr(self._thread_local, "connection", None),
+            )
+            cached_generation = getattr(self._thread_local, "connection_generation", None)
+            if cached_conn is not None and cached_generation == self._connection_generation:
+                return cached_conn
+            if cached_conn is not None:
+                self._drop_thread_local_connection(cached_conn)
+
             generation = self._connection_generation
             conn = self._new_connection()
             self._connections.add(conn)
@@ -356,12 +357,12 @@ class AlpacaSIPLocalProvider:
             self._connection_generation += 1
             connections = list(self._connections)
             self._connections.clear()
-        if hasattr(self._thread_local, "connection"):
-            del self._thread_local.connection
-        if hasattr(self._thread_local, "connection_generation"):
-            del self._thread_local.connection_generation
-        for conn in connections:
-            self._close_duckdb_connection(conn)
+            if hasattr(self._thread_local, "connection"):
+                del self._thread_local.connection
+            if hasattr(self._thread_local, "connection_generation"):
+                del self._thread_local.connection_generation
+            for conn in connections:
+                self._close_duckdb_connection(conn)
         logger.debug("Closed %d Alpaca SIP DuckDB connection(s)", len(connections))
 
     def __del__(self) -> None:
