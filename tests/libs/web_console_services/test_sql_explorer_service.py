@@ -210,6 +210,58 @@ def test_resolve_table_paths_uses_alpaca_manifest_paths(
     assert paths["alpaca_sip_corp_actions"] == (str(corp_partition),)
 
 
+def test_resolve_table_paths_uses_nested_relative_manifest_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text(
+        json.dumps({"file_paths": ["snapshots/sync-1/2024.parquet"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    paths = module._resolve_table_paths()
+
+    assert paths["alpaca_sip_daily"] == (str(partition),)
+
+
+def test_resolve_table_paths_rejects_missing_alpaca_manifest_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "alpaca_sip_daily.json").write_text(
+        json.dumps(
+            {
+                "file_paths": [
+                    "snapshots/sync-1/2024.parquet",
+                    "snapshots/sync-1/missing.parquet",
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+
+    with pytest.raises(FileNotFoundError, match="missing.parquet"):
+        module._resolve_table_paths()
+
+
 def test_create_query_connection_handles_manifest_path_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

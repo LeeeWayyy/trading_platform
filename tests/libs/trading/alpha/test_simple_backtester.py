@@ -361,6 +361,48 @@ class TestDataPreparation:
                 symbols=["AAPL"],
             )
 
+    def test_prepare_data_allows_hybrid_without_adjusted_close_when_ret_present(
+        self,
+        mock_fetcher,
+    ):
+        """Hybrid CRSP/SIP routes may rely on provider returns without adjusted close."""
+        mock_fetcher.get_active_provider.return_value = "hybrid_crsp_universe_sip_prices"
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "adj_close": None,
+                    "ret": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 25.0,
+                    "high": 25.0,
+                    "low": 25.0,
+                    "close": 25.0,
+                    "adj_close": None,
+                    "ret": 0.01,
+                    "volume": 4000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
+        result = backtester._prepare_data(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 2),
+            symbols=["AAPL"],
+        )
+
+        assert result["ret"].to_list() == [None, 0.01]
+
     def test_prepare_data_rejects_sip_partially_adjusted_close(self, mock_fetcher):
         """Test SIP cannot fall back to raw close for partially adjusted rows."""
         mock_fetcher.get_active_provider.return_value = "alpaca_sip"

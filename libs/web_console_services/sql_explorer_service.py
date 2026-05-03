@@ -306,7 +306,7 @@ def _resolve_alpaca_sip_snapshot_paths(
     manifest_name: str,
     unreadable_log_event: str,
 ) -> _TablePathSpec:
-    """Return manifest-pinned SIP snapshot partitions, with snapshot glob as fallback."""
+    """Return manifest-pinned SIP snapshot partitions, with glob fallback only without manifest."""
     data_root_path = _Path(data_root)
     storage_root = (data_root_path / "alpaca" / "sip" / storage_leaf).resolve()
     manifest_path = data_root_path / "manifests" / manifest_name
@@ -323,23 +323,37 @@ def _resolve_alpaca_sip_snapshot_paths(
         else:
             resolved_paths: list[str] = []
             if isinstance(file_paths, list):
+                invalid_paths: list[str] = []
                 for raw_path in file_paths:
                     if not isinstance(raw_path, str):
+                        invalid_paths.append(repr(raw_path))
                         continue
                     resolved = _resolve_alpaca_sip_manifest_path(
                         _Path(raw_path),
                         data_root=data_root_path,
                         storage_root=storage_root,
                     )
-                    if (
-                        resolved.is_relative_to(storage_root)
-                        and resolved.suffix == ".parquet"
-                        and resolved.exists()
-                    ):
-                        resolved_paths.append(str(resolved))
+                    if not resolved.is_relative_to(storage_root) or resolved.suffix != ".parquet":
+                        invalid_paths.append(raw_path)
+                        continue
+                    if not resolved.exists():
+                        invalid_paths.append(raw_path)
+                        continue
+                    resolved_paths.append(str(resolved))
 
-            if resolved_paths:
+                if invalid_paths:
+                    raise FileNotFoundError(
+                        f"{manifest_path.name} references missing or invalid SIP partitions: "
+                        f"{', '.join(invalid_paths)}"
+                    )
+
                 return tuple(sorted(resolved_paths))
+
+            logger.warning(
+                "sql_explorer_alpaca_sip_manifest_invalid_file_paths",
+                extra={"manifest_path": str(manifest_path)},
+            )
+            return ()
 
     return f"{storage_root}/snapshots/*/*.parquet"
 
@@ -377,7 +391,9 @@ def _resolve_alpaca_sip_manifest_path(
         return (storage_root / path).resolve()
     if path.parts[0] == data_root.name:
         return (data_root.parent / path).resolve()
-    return (data_root / path).resolve()
+    if path.parts[0] == "alpaca":
+        return (data_root / path).resolve()
+    return (storage_root / path).resolve()
 
 
 def _duckdb_read_parquet_arg(path_spec: _TablePathSpec) -> str:

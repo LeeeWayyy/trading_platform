@@ -64,6 +64,9 @@ def _requires_complete_adjusted_close(provider_name: str) -> bool:
     except ValueError:
         return False
 
+    if provider_type == ProviderType.HYBRID_CRSP_UNIVERSE_SIP_PRICES:
+        return False
+
     spec = get_provider_spec(provider_type)
     return bool(spec.capabilities.production_feed_parity and spec.default_adjustment_mode == "raw")
 
