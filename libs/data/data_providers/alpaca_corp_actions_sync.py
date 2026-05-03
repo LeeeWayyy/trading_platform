@@ -22,6 +22,7 @@ import httpx
 import polars as pl
 from pydantic import BaseModel
 
+from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
 from libs.data.data_providers.registry import (
     ProviderType,
     compute_symbol_set_hash,
@@ -925,15 +926,11 @@ class AlpacaCorporateActionsSyncManager:
         return paths, errors
 
     def _resolve_manifest_path(self, path: Path) -> Path:
-        if path.is_absolute():
-            return path.resolve()
-        if len(path.parts) == 1:
-            return (self.storage_path / path).resolve()
-        if path.parts[0] == self.data_root.name:
-            return (self.data_root.parent / path).resolve()
-        if path.parts[0] == "alpaca":
-            return (self.data_root / path).resolve()
-        return (self.storage_path / path).resolve()
+        return resolve_alpaca_sip_manifest_path(
+            path,
+            data_root=self.data_root,
+            storage_root=self.storage_path,
+        )
 
     def _create_manifest(
         self,

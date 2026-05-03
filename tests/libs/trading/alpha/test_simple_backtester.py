@@ -361,11 +361,11 @@ class TestDataPreparation:
                 symbols=["AAPL"],
             )
 
-    def test_prepare_data_allows_hybrid_without_adjusted_close_when_ret_present(
+    def test_prepare_data_rejects_hybrid_without_adjusted_close_even_when_ret_present(
         self,
         mock_fetcher,
     ):
-        """Hybrid CRSP/SIP routes may rely on provider returns without adjusted close."""
+        """Hybrid CRSP/SIP still fails closed when SIP adjusted close is absent."""
         mock_fetcher.get_active_provider.return_value = "hybrid_crsp_universe_sip_prices"
         mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
             [
@@ -395,19 +395,21 @@ class TestDataPreparation:
         )
         backtester = SimpleBacktester(mock_fetcher)
 
-        result = backtester._prepare_data(
-            start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 2),
-            symbols=["AAPL"],
-        )
+        with pytest.raises(
+            ValueError,
+            match="Raw SIP-priced backtests via hybrid_crsp_universe_sip_prices",
+        ):
+            backtester._prepare_data(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 2),
+                symbols=["AAPL"],
+            )
 
-        assert result["ret"].to_list() == [None, 0.01]
-
-    def test_prepare_data_hybrid_falls_back_to_close_when_returns_missing(
+    def test_prepare_data_rejects_hybrid_close_fallback_when_returns_missing(
         self,
         mock_fetcher,
     ):
-        """Hybrid CRSP/SIP uses close returns when current SIP snapshots are raw."""
+        """Hybrid CRSP/SIP cannot compute split-unsafe returns from raw close."""
         mock_fetcher.get_active_provider.return_value = "hybrid_crsp_universe_sip_prices"
         mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
             [
@@ -448,16 +450,56 @@ class TestDataPreparation:
         )
         backtester = SimpleBacktester(mock_fetcher)
 
+        with pytest.raises(
+            ValueError,
+            match="Raw SIP-priced backtests via hybrid_crsp_universe_sip_prices",
+        ):
+            backtester._prepare_data(
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 3),
+                symbols=["AAPL"],
+            )
+
+    def test_prepare_data_hybrid_uses_complete_adjusted_close(self, mock_fetcher):
+        """Hybrid CRSP/SIP can backtest once an adjustment layer supplies adj_close."""
+        mock_fetcher.get_active_provider.return_value = "hybrid_crsp_universe_sip_prices"
+        mock_fetcher.get_daily_prices.return_value = pl.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 1),
+                    "symbol": "AAPL",
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "adj_close": 100.0,
+                    "ret": None,
+                    "volume": 1000000,
+                },
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": "AAPL",
+                    "open": 25.0,
+                    "high": 25.0,
+                    "low": 25.0,
+                    "close": 25.0,
+                    "adj_close": 101.0,
+                    "ret": None,
+                    "volume": 4000000,
+                },
+            ]
+        )
+        backtester = SimpleBacktester(mock_fetcher)
+
         result = backtester._prepare_data(
             start_date=date(2024, 1, 1),
-            end_date=date(2024, 1, 3),
+            end_date=date(2024, 1, 2),
             symbols=["AAPL"],
         ).sort("date")
 
         returns = result["ret"].to_list()
         assert returns[0] is None
-        assert returns[1] == pytest.approx(0.1)
-        assert returns[2] == pytest.approx(0.1)
+        assert returns[1] == pytest.approx(0.01)
 
     def test_prepare_data_rejects_sip_partially_adjusted_close(self, mock_fetcher):
         """Test SIP cannot fall back to raw close for partially adjusted rows."""

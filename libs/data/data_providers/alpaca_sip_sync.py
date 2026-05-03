@@ -25,6 +25,7 @@ from libs.data.data_providers.alpaca_sip_local_provider import (
     ALPACA_SIP_COLUMNS,
     ALPACA_SIP_SCHEMA,
 )
+from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
 from libs.data.data_providers.registry import (
     ProviderType,
     compute_symbol_set_hash,
@@ -742,19 +743,11 @@ class AlpacaSIPSyncManager:
 
     def _resolve_manifest_path(self, path: Path) -> Path:
         """Resolve manifest paths without depending on process working directory."""
-        if path.is_absolute():
-            return path.resolve()
-
-        if len(path.parts) == 1:
-            return (self.storage_path / path).resolve()
-
-        if path.parts[0] == self.data_root.name:
-            return (self.data_root.parent / path).resolve()
-
-        if path.parts[0] == "alpaca":
-            return (self.data_root / path).resolve()
-
-        return (self.storage_path / path).resolve()
+        return resolve_alpaca_sip_manifest_path(
+            path,
+            data_root=self.data_root,
+            storage_root=self.storage_path,
+        )
 
     def _create_manifest(
         self,

@@ -292,10 +292,15 @@ class AlpacaSIPLocalProvider:
 
     def _new_connection(self) -> duckdb.DuckDBPyConnection:
         """Create a DuckDB connection for thread-local caching."""
-        conn = duckdb.connect(":memory:", read_only=False)
+        conn = duckdb.connect(
+            ":memory:",
+            read_only=False,
+            config={
+                "memory_limit": self._duckdb_memory_limit,
+                "threads": str(self._duckdb_threads),
+            },
+        )
         conn.execute("PRAGMA disable_object_cache")
-        conn.execute(f"PRAGMA memory_limit='{self._duckdb_memory_limit}'")
-        conn.execute(f"PRAGMA threads={self._duckdb_threads}")
         return conn
 
     def _drop_thread_local_connection(self, conn: duckdb.DuckDBPyConnection) -> None:
