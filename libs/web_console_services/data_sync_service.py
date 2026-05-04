@@ -5,6 +5,7 @@ Enforces RBAC, dataset-level access, and rate limiting at server-side.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -66,10 +67,7 @@ class DataSyncService:
         self._require_permission(user, Permission.VIEW_DATA_SYNC)
 
         now = datetime.now(UTC)
-        mock = [
-            self._mock_or_manifest_status(name, now)
-            for name in _SUPPORTED_DATASETS
-        ]
+        mock = await asyncio.to_thread(self._build_sync_statuses, now)
         return [item for item in mock if has_dataset_permission(user, item.dataset)]
 
     async def get_sync_logs(
@@ -229,6 +227,9 @@ class DataSyncService:
             )
 
         return self._data_manifest_service.get_alpaca_sip_summary().to_sync_status()
+
+    def _build_sync_statuses(self, now: datetime) -> list[SyncStatusDTO]:
+        return [self._mock_or_manifest_status(name, now) for name in _SUPPORTED_DATASETS]
 
 
 __all__ = ["DataSyncService", "RateLimitExceeded"]

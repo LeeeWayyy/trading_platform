@@ -13,12 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services import data_sync_service as data_sync_module
 from libs.web_console_services.data_sync_service import DataSyncService, RateLimitExceeded
 from libs.web_console_services.schemas.data_management import SyncScheduleUpdateDTO
 
@@ -66,6 +68,27 @@ async def test_get_sync_status_filters_by_dataset_permission(
 
     datasets = {item.dataset for item in results}
     assert datasets == {"crsp", "compustat", "fama_french", "taq", "alpaca_sip"}
+
+
+@pytest.mark.asyncio()
+async def test_get_sync_status_offloads_manifest_reads(
+    service: DataSyncService,
+    operator_user: DummyUser,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        nonlocal called
+        called = True
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(data_sync_module.asyncio, "to_thread", fake_to_thread)
+
+    results = await service.get_sync_status(operator_user)
+
+    assert called is True
+    assert results
 
 
 @pytest.mark.asyncio()

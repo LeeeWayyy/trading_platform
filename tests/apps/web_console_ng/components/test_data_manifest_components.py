@@ -29,15 +29,23 @@ def _manifest(
     validation_status: str = "passed",
     end: date = date(2026, 4, 30),
     symbol_hash: str | None = "symbols-v1",
+    read_time_adjustment_mode: str | None = None,
 ) -> ManifestSummaryDTO:
     is_daily = dataset == ALPACA_SIP_DAILY_DATASET
+    adjustment_read_mode = (
+        read_time_adjustment_mode
+        if read_time_adjustment_mode is not None
+        else "unavailable"
+        if is_daily
+        else None
+    )
     signature = ProviderSignatureDTO(
         provider_id="alpaca_sip",
         provider_version="2026.04",
         source_feed="sip",
         adjustment_mode="raw" if is_daily else None,
         canonical_storage_mode="raw" if is_daily else None,
-        read_time_adjustment_mode="unavailable" if is_daily else None,
+        read_time_adjustment_mode=adjustment_read_mode,
         symbol_set_hash=symbol_hash,
         query_params_hash=f"{dataset}-query",
         manifest_id=f"{dataset}@v1:checksum",
@@ -70,7 +78,7 @@ def _manifest(
         source_feed="sip",
         adjustment_mode="raw" if is_daily else None,
         canonical_storage_mode="raw" if is_daily else None,
-        read_time_adjustment_mode="unavailable" if is_daily else None,
+        read_time_adjustment_mode=adjustment_read_mode,
         symbol_set_hash=symbol_hash,
         query_params_hash=f"{dataset}-query",
         provider_signature=signature,
@@ -135,9 +143,7 @@ def test_grid_and_detail_expose_present_raw_manifest_provenance() -> None:
 
     rows = build_manifest_grid_rows(summary)
     daily = next(row for row in rows if row["dataset"] == ALPACA_SIP_DAILY_DATASET)
-    corp_actions = next(
-        row for row in rows if row["dataset"] == ALPACA_SIP_CORP_ACTIONS_DATASET
-    )
+    corp_actions = next(row for row in rows if row["dataset"] == ALPACA_SIP_CORP_ACTIONS_DATASET)
     detail = build_manifest_detail_fields(summary, ALPACA_SIP_DAILY_DATASET)
     detail_map = {item["field"]: item["value"] for item in detail}
 
@@ -168,8 +174,7 @@ def test_invalid_manifest_is_untrusted_and_blocked() -> None:
     detail = build_manifest_detail_fields(summary, ALPACA_SIP_DAILY_DATASET)
     detail_map = {item["field"]: item["value"] for item in detail}
     metrics = {
-        metric["label"]: metric["value"]
-        for metric in build_manifest_context_metrics(summary)
+        metric["label"]: metric["value"] for metric in build_manifest_context_metrics(summary)
     }
 
     assert daily["trusted_manifest_backed"] is False
@@ -203,8 +208,7 @@ def test_context_metrics_count_missing_and_pairing_warnings() -> None:
     )
 
     metrics = {
-        metric["label"]: metric["value"]
-        for metric in build_manifest_context_metrics(summary)
+        metric["label"]: metric["value"] for metric in build_manifest_context_metrics(summary)
     }
     rows = build_manifest_grid_rows(summary)
 
@@ -215,6 +219,21 @@ def test_context_metrics_count_missing_and_pairing_warnings() -> None:
     assert all(row["issues"] >= 1 for row in rows)
 
 
+def test_context_metrics_clear_backtest_blockers_when_inputs_ready() -> None:
+    summary = _summary(
+        [
+            _manifest(ALPACA_SIP_DAILY_DATASET, read_time_adjustment_mode="available"),
+            _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+        ]
+    )
+
+    metrics = {
+        metric["label"]: metric["value"] for metric in build_manifest_context_metrics(summary)
+    }
+
+    assert metrics["Backtest Blocked"] == 0
+
+
 def test_missing_companion_warning_stays_on_missing_row() -> None:
     summary = _summary(
         [_manifest(ALPACA_SIP_DAILY_DATASET)],
@@ -223,10 +242,12 @@ def test_missing_companion_warning_stays_on_missing_row() -> None:
     )
 
     rows = build_manifest_grid_rows(summary)
+    metrics = {
+        metric["label"]: metric["value"] for metric in build_manifest_context_metrics(summary)
+    }
     daily = next(row for row in rows if row["dataset"] == ALPACA_SIP_DAILY_DATASET)
-    corp_actions = next(
-        row for row in rows if row["dataset"] == ALPACA_SIP_CORP_ACTIONS_DATASET
-    )
+    corp_actions = next(row for row in rows if row["dataset"] == ALPACA_SIP_CORP_ACTIONS_DATASET)
 
+    assert metrics["Backtest Blocked"] == 2
     assert "alpaca_sip_untrusted_without_manifest" not in daily["issue_codes"]
     assert "alpaca_sip_untrusted_without_manifest" in corp_actions["issue_codes"]

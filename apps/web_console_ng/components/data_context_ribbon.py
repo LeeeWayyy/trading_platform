@@ -8,8 +8,10 @@ from nicegui import ui
 
 from apps.web_console_ng.components.data_management_common import format_datetime
 from libs.web_console_services.data_manifest_service import (
-    ALPACA_SIP_CORP_ACTIONS_DATASET,
+    ALPACA_SIP_DAILY_DATASET,
+    ALPACA_SIP_MANIFEST_DATASETS,
     AlpacaSipManifestSummaryDTO,
+    ManifestSummaryDTO,
 )
 
 
@@ -20,12 +22,7 @@ def build_manifest_context_metrics(
     healthy = sum(1 for manifest in summary.manifests if manifest.validation_status == "passed")
     failed = sum(1 for manifest in summary.manifests if manifest.validation_status != "passed")
     issue_count = len(summary.warnings) + failed
-    corp_actions_ok = any(
-        manifest.dataset == ALPACA_SIP_CORP_ACTIONS_DATASET
-        and manifest.validation_status == "passed"
-        for manifest in summary.manifests
-    )
-    blocked_for_backtest = 2 - (1 if corp_actions_ok else 0)
+    blocked_for_backtest = _count_backtest_blocked_rows(summary)
     latest_sync = summary.latest_sync
     oldest_sync = min(
         (manifest.sync_timestamp for manifest in summary.manifests),
@@ -69,6 +66,25 @@ def _tone_class(tone: str) -> str:
         "warning": "border-amber-300",
     }
     return tone_map.get(tone, "border-gray-200")
+
+
+def _count_backtest_blocked_rows(summary: AlpacaSipManifestSummaryDTO) -> int:
+    manifests_by_dataset = {manifest.dataset: manifest for manifest in summary.manifests}
+    return sum(
+        int(_dataset_blocks_backtest(dataset, manifests_by_dataset.get(dataset)))
+        for dataset in ALPACA_SIP_MANIFEST_DATASETS
+    )
+
+
+def _dataset_blocks_backtest(
+    dataset: str,
+    manifest: ManifestSummaryDTO | None,
+) -> bool:
+    if manifest is None or manifest.validation_status != "passed":
+        return True
+    if dataset == ALPACA_SIP_DAILY_DATASET:
+        return manifest.read_time_adjustment_mode != "available"
+    return False
 
 
 __all__ = ["build_manifest_context_metrics", "render_manifest_context_ribbon"]
