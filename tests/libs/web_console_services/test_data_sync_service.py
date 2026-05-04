@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -135,6 +135,23 @@ async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
     assert sip.last_sync == sync_timestamp
     assert sip.row_count == 10
     assert sip.validation_status == "missing: alpaca_sip_corp_actions"
+
+
+def test_non_alpaca_placeholder_status_does_not_call_manifest_service(
+    rate_limiter: AsyncMock,
+) -> None:
+    manifest_service = MagicMock()
+    service = DataSyncService(
+        rate_limiter=rate_limiter,
+        data_manifest_service=manifest_service,
+    )
+    now = datetime(2026, 4, 30, 12, tzinfo=UTC)
+
+    status = service._mock_or_manifest_status("crsp", now)  # noqa: SLF001
+
+    assert status.dataset == "crsp"
+    assert status.last_sync == now
+    manifest_service.get_alpaca_sip_summary.assert_not_called()
 
 
 @pytest.mark.asyncio()

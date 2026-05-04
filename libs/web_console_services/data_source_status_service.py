@@ -8,22 +8,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
 import redis.asyncio as redis_asyncio
 import redis.exceptions
 
-from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 from libs.platform.web_console_auth.permissions import (
     Permission,
     has_dataset_permission,
     has_permission,
 )
+from libs.web_console_services.data_manifest_service import DataManifestService
 
 from .schemas.data_management import DataSourceStatusDTO
 
@@ -33,7 +31,6 @@ _REFRESH_LOCK_TTL_SECONDS = 60
 _REFRESH_TIMEOUT_SECONDS = 45
 _REFRESH_LOCK_KEY_PREFIX = "data_source_status:refresh"
 _VALID_DATA_MODES: tuple[Literal["mock", "real"], ...] = ("mock", "real")
-_ALPACA_SIP_MANIFEST_DATASETS = ("alpaca_sip_daily", "alpaca_sip_corp_actions")
 
 _DATA_SOURCES: tuple[dict[str, Any], ...] = (
     {
@@ -130,11 +127,13 @@ class DataSourceStatusService:
         self,
         redis_client_factory: Callable[[], Awaitable[redis_asyncio.Redis]] | None = None,
         data_mode: Literal["mock", "real"] = "mock",
+        data_manifest_service: DataManifestService | None = None,
     ) -> None:
         if data_mode not in _VALID_DATA_MODES:
             raise ValueError(f"Invalid data_mode: {data_mode}")
         self._redis_client_factory = redis_client_factory
         self._data_mode: Literal["mock", "real"] = data_mode
+        self._data_manifest_service = data_manifest_service or DataManifestService()
         self._last_refresh_results: dict[str, DataSourceStatusDTO] = {}
 
     async def get_all_sources(self, user: Any) -> list[DataSourceStatusDTO]:
@@ -339,49 +338,8 @@ class DataSourceStatusService:
         return sources
 
     def _alpaca_sip_spec_from_manifests(self, spec: dict[str, Any]) -> dict[str, Any]:
-        manifests = self._load_alpaca_sip_manifests()
-        if not manifests:
-            return spec
-
-        present_datasets = {manifest.dataset for manifest in manifests}
-        missing_datasets = sorted(set(_ALPACA_SIP_MANIFEST_DATASETS) - present_datasets)
-        latest = max(manifest.sync_timestamp for manifest in manifests)
-        now = datetime.now(UTC)
-        age_seconds = max(0.0, (now - latest).total_seconds())
-        validation_statuses = {manifest.validation_status for manifest in manifests}
-        if missing_datasets:
-            status = "error"
-            error_message = f"Missing SIP manifests: {', '.join(missing_datasets)}"
-        elif validation_statuses == {"passed"}:
-            status = "ok"
-            error_message = None
-        else:
-            status = "error"
-            error_message = (
-                f"SIP manifest validation statuses: {', '.join(sorted(validation_statuses))}"
-            )
-
-        updated = dict(spec)
-        updated["status"] = status
-        updated["minutes_ago"] = max(0, int(age_seconds // 60))
-        updated["row_count"] = sum(manifest.row_count for manifest in manifests)
-        updated["error_rate_pct"] = 0.0 if status == "ok" else 100.0
-        updated["error_message"] = error_message
-        return updated
-
-    def _load_alpaca_sip_manifests(self) -> list[SyncManifest]:
-        data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
-        manager = ManifestManager(
-            storage_path=data_root / "manifests",
-            lock_dir=data_root / "locks",
-            data_root=data_root,
-        )
-        manifests: list[SyncManifest] = []
-        for dataset in _ALPACA_SIP_MANIFEST_DATASETS:
-            manifest = manager.load_manifest(dataset)
-            if manifest is not None:
-                manifests.append(manifest)
-        return manifests
+        summary = self._data_manifest_service.get_alpaca_sip_summary()
+        return summary.apply_to_source_spec(spec)
 
 
 def _validate_source_name(name: str) -> None:

@@ -13,8 +13,8 @@ Services:
     - DataExplorerService: Dataset browsing, SQL queries, export
     - DataQualityService: Validation, anomaly alerts, trends, quarantine
 
-TODO: This module has grown large. Refactor Sync, Explorer, and Quality tabs
-into independent component modules under apps/web_console_ng/components/.
+TODO: Continue extracting Explorer and Quality tabs into independent component
+modules under apps/web_console_ng/components/.
 """
 
 from __future__ import annotations
@@ -30,6 +30,17 @@ import plotly.graph_objects as go
 from nicegui import ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
+from apps.web_console_ng.components import data_manifest_panel as _data_manifest_panel
+from apps.web_console_ng.components import data_sync_section as _data_sync_section
+from apps.web_console_ng.components.data_management_common import (
+    TREND_DATASETS as _TREND_DATASETS,
+)
+from apps.web_console_ng.components.data_management_common import (
+    format_datetime as _format_datetime,
+)
+from apps.web_console_ng.components.data_management_common import (
+    get_user_id_safe as _get_user_id_safe,
+)
 from apps.web_console_ng.core.client_lifecycle import ClientLifecycleManager
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
@@ -50,12 +61,9 @@ from libs.web_console_services.data_explorer_service import DataExplorerService
 from libs.web_console_services.data_explorer_service import (
     RateLimitExceeded as ExplorerRateLimitExceeded,
 )
+from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_quality_service import DataQualityService
 from libs.web_console_services.data_sync_service import DataSyncService
-from libs.web_console_services.data_sync_service import (
-    RateLimitExceeded as SyncRateLimitExceeded,
-)
-from libs.web_console_services.schemas.data_management import SyncScheduleUpdateDTO
 
 logger = logging.getLogger(__name__)
 
@@ -90,31 +98,12 @@ _SEVERITY_COLORS: dict[str, str] = {
 # Acknowledged filter mapping: UI label -> service parameter
 _ACK_MAP: dict[str, bool | None] = {"all": None, "unacked": False, "acked": True}
 
-# Datasets available for quality trends (mirrors service-side _SUPPORTED_DATASETS)
-_TREND_DATASETS: tuple[str, ...] = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
-
 # Quality trend chart threshold lines
 GOOD_QUALITY_THRESHOLD = 90.0
 CRITICAL_QUALITY_THRESHOLD = 70.0
 
 # Timer cleanup owner key (page-scoped, replaces only this page's callback)
 _CLEANUP_OWNER_KEY = "data_management_timers"
-
-
-def _format_datetime(dt: Any) -> str:
-    """Format a datetime for display, handling None and non-datetime values."""
-    if dt is not None and hasattr(dt, "isoformat"):
-        return str(dt.isoformat())
-    return "-"
-
-
-def _get_user_id_safe(user: Any) -> str | None:
-    """Extract user_id from user dict or object safely."""
-    if isinstance(user, dict):
-        val = user.get("id")
-        return str(val) if val is not None else None
-    val = getattr(user, "id", None)
-    return str(val) if val is not None else None
 
 
 @ui.page("/data")
@@ -128,6 +117,7 @@ async def data_management_page() -> None:
     sync_service = DataSyncService()
     explorer_service = DataExplorerService()
     quality_service = DataQualityService()
+    manifest_service = DataManifestService()
 
     # Page title
     ui.label("Data Management").classes("text-2xl font-bold mb-4")
@@ -167,6 +157,8 @@ async def data_management_page() -> None:
             "text-gray-500"
         )
         return
+
+    await _render_manifest_transparency(user, manifest_service)
 
     # Overlap guard flags (per-client scope — each page load creates a new function scope)
     _sync_refreshing = False
@@ -284,42 +276,49 @@ async def data_management_page() -> None:
         )
 
 
+async def _render_manifest_transparency(
+    user: dict[str, Any],
+    manifest_service: DataManifestService,
+) -> None:
+    """Render Phase 1 manifest transparency for authorized Alpaca SIP users."""
+    if not has_permission(user, Permission.VIEW_DATA_SYNC):
+        return
+    if not has_dataset_permission(user, "alpaca_sip"):
+        return
+
+    try:
+        summary = await asyncio.to_thread(manifest_service.get_alpaca_sip_summary)
+    except Exception:
+        logger.exception(
+            "service_call_failed",
+            extra={
+                "method": "get_alpaca_sip_summary",
+                "service": "DataManifestService",
+                "user_id": _get_user_id_safe(user),
+            },
+        )
+        ui.notify("Manifest status temporarily unavailable", type="warning")
+        return
+
+    _data_manifest_panel.render_manifest_transparency_panel(summary)
+
+
 # =============================================================================
 # Data Sync Section
 # =============================================================================
+
+
+def _bind_data_sync_component() -> None:
+    """Bind patchable page globals into the extracted Data Sync component."""
+    _data_sync_section.bind_page_globals(ui_module=ui, logger_obj=logger)
 
 
 async def _render_data_sync_section(
     user: dict[str, Any],
     sync_service: DataSyncService,
 ) -> ui.column | None:
-    """Render Data Sync dashboard section. Returns the status container for refresh."""
-    ui.label("Data Sync Dashboard").classes("text-xl font-bold mb-2")
-
-    has_view = has_permission(user, Permission.VIEW_DATA_SYNC)
-    has_trigger = has_permission(user, Permission.TRIGGER_DATA_SYNC)
-    has_manage = has_permission(user, Permission.MANAGE_SYNC_SCHEDULE)
-
-    with ui.tabs().classes("w-full") as sync_tabs:
-        tab_status = ui.tab("Sync Status")
-        tab_logs = ui.tab("Sync Logs")
-        tab_schedule = ui.tab("Schedule Config")
-
-    sync_status_container: ui.column | None = None
-
-    with ui.tab_panels(sync_tabs, value=tab_status).classes("w-full"):
-        with ui.tab_panel(tab_status):
-            sync_status_container = await _render_sync_status(
-                user, sync_service, has_view, has_trigger
-            )
-
-        with ui.tab_panel(tab_logs):
-            await _render_sync_logs(user, sync_service, has_view)
-
-        with ui.tab_panel(tab_schedule):
-            await _render_sync_schedule(user, sync_service, has_view, has_manage)
-
-    return sync_status_container
+    _bind_data_sync_component()
+    return await _data_sync_section.render_data_sync_section(user, sync_service)
 
 
 async def _render_sync_status(
@@ -328,127 +327,15 @@ async def _render_sync_status(
     has_view: bool,
     has_trigger: bool,
 ) -> ui.column | None:
-    """Render sync status table and manual trigger. Returns container for refresh."""
-    # Status table (requires VIEW_DATA_SYNC)
-    status_container: ui.column | None = None
-    dataset_names: list[str] = []
-
-    if has_view:
-        ui.label("Dataset Sync Status").classes("font-bold mb-2")
-        status_container = ui.column().classes("w-full")
-        try:
-            statuses = await sync_service.get_sync_status(user)
-            dataset_names = [s.dataset for s in statuses]
-            with status_container:
-                _build_sync_status_table(statuses)
-        except PermissionError as e:
-            ui.notify(str(e), type="negative")
-        except Exception:
-            logger.exception(
-                "service_call_failed",
-                extra={
-                    "method": "get_sync_status",
-                    "service": "DataSyncService",
-                    "user_id": _get_user_id_safe(user),
-                },
-            )
-            ui.notify("Service temporarily unavailable", type="warning")
-    else:
-        ui.label("Sync status requires data-sync view permission").classes(
-            "text-gray-500"
-        )
-
-    # Manual sync section (requires TRIGGER_DATA_SYNC)
-    if has_trigger:
-        ui.separator().classes("my-4")
-        ui.label("Manual Sync").classes("font-bold mb-2")
-
-        with ui.row().classes("gap-4 items-end"):
-            dataset_input: Any  # ui.select or ui.input depending on permissions
-            if dataset_names:
-                dataset_input = ui.select(
-                    label="Dataset",
-                    options=dataset_names,
-                    value=dataset_names[0],
-                ).classes("w-48")
-            else:
-                # Fallback: text input when user lacks VIEW_DATA_SYNC
-                dataset_input = ui.input(
-                    label="Dataset Name",
-                    placeholder="Enter dataset name",
-                ).classes("w-48")
-
-            reason_input = ui.input(
-                label="Reason",
-                placeholder="Why run this sync now?",
-            ).classes("w-64")
-
-            async def trigger_sync() -> None:
-                dataset_val = dataset_input.value
-                if not dataset_val:
-                    ui.notify("Please select a dataset", type="warning")
-                    return
-                if not reason_input.value:
-                    ui.notify(
-                        "Please provide a reason for audit logging", type="warning"
-                    )
-                    return
-                try:
-                    job = await sync_service.trigger_sync(
-                        user, str(dataset_val), str(reason_input.value)
-                    )
-                    ui.notify(
-                        f"Sync job {job.id} queued for {job.dataset}", type="positive"
-                    )
-                    reason_input.value = ""
-                except SyncRateLimitExceeded:
-                    ui.notify("Rate limit: 1 sync per minute", type="warning")
-                except PermissionError as e:
-                    ui.notify(str(e), type="negative")
-                except Exception:
-                    logger.exception(
-                        "service_call_failed",
-                        extra={
-                            "method": "trigger_sync",
-                            "service": "DataSyncService",
-                            "dataset": str(dataset_val),
-                            "user_id": _get_user_id_safe(user),
-                        },
-                    )
-                    ui.notify("Service temporarily unavailable", type="warning")
-
-            ui.button("Trigger Sync", on_click=trigger_sync, color="primary")
-
-    return status_container
+    _bind_data_sync_component()
+    return await _data_sync_section.render_sync_status(
+        user, sync_service, has_view, has_trigger
+    )
 
 
 def _build_sync_status_table(statuses: list[Any]) -> None:
-    """Build the sync status table from SyncStatusDTO list."""
-    columns: list[dict[str, Any]] = [
-        {"name": "dataset", "label": "Dataset", "field": "dataset", "sortable": True},
-        {
-            "name": "last_sync",
-            "label": "Last Sync",
-            "field": "last_sync",
-            "sortable": True,
-        },
-        {"name": "row_count", "label": "Row Count", "field": "row_count", "sortable": True},
-        {
-            "name": "validation_status",
-            "label": "Validation",
-            "field": "validation_status",
-        },
-    ]
-    rows: list[dict[str, Any]] = [
-        {
-            "dataset": s.dataset,
-            "last_sync": _format_datetime(s.last_sync),
-            "row_count": s.row_count or 0,
-            "validation_status": s.validation_status or "-",
-        }
-        for s in statuses
-    ]
-    ui.table(columns=columns, rows=rows).classes("w-full")
+    _bind_data_sync_component()
+    _data_sync_section.build_sync_status_table(statuses)
 
 
 async def _render_sync_logs(
@@ -456,79 +343,13 @@ async def _render_sync_logs(
     sync_service: DataSyncService,
     has_view: bool,
 ) -> None:
-    """Render sync logs viewer with filters."""
-    if not has_view:
-        ui.label("Sync logs require data-sync view permission").classes("text-gray-500")
-        return
-
-    ui.label("Recent Sync Logs").classes("font-bold mb-2")
-
-    # Filter controls
-    with ui.row().classes("gap-4 mb-4"):
-        dataset_filter = ui.select(
-            label="Dataset",
-            options=["all", *_TREND_DATASETS],
-            value="all",
-        ).classes("w-40")
-        level_filter = ui.select(
-            label="Level",
-            options=["all", "info", "warn", "error"],
-            value="all",
-        ).classes("w-32")
-
-    log_container = ui.column().classes("w-full")
-
-    async def load_logs() -> None:
-        ds = None if dataset_filter.value == "all" else str(dataset_filter.value)
-        lvl = None if level_filter.value == "all" else str(level_filter.value)
-        try:
-            logs = await sync_service.get_sync_logs(user, dataset=ds, level=lvl)
-            log_container.clear()
-            with log_container:
-                _build_sync_logs_table(logs)
-        except PermissionError as e:
-            ui.notify(str(e), type="negative")
-        except Exception:
-            logger.exception(
-                "service_call_failed",
-                extra={
-                    "method": "get_sync_logs",
-                    "service": "DataSyncService",
-                    "user_id": _get_user_id_safe(user),
-                },
-            )
-            ui.notify("Service temporarily unavailable", type="warning")
-
-    dataset_filter.on_value_change(lambda _: load_logs())
-    level_filter.on_value_change(lambda _: load_logs())
-
-    # Initial load
-    await load_logs()
+    _bind_data_sync_component()
+    await _data_sync_section.render_sync_logs(user, sync_service, has_view)
 
 
 def _build_sync_logs_table(logs: list[Any]) -> None:
-    """Build sync logs table from SyncLogEntry list."""
-    columns: list[dict[str, Any]] = [
-        {
-            "name": "created_at",
-            "label": "Timestamp",
-            "field": "created_at",
-            "sortable": True,
-        },
-        {"name": "dataset", "label": "Dataset", "field": "dataset"},
-        {"name": "level", "label": "Level", "field": "level"},
-        {"name": "message", "label": "Message", "field": "message"},
-    ]
-    rows: list[dict[str, Any]] = [
-        {
-            "created_at": _format_datetime(log.created_at),
-            "dataset": log.dataset,
-            "level": log.level,
-            "message": log.message,
-        }
-        for log in logs
-    ]
-    ui.table(columns=columns, rows=rows).classes("w-full")
+    _bind_data_sync_component()
+    _data_sync_section.build_sync_logs_table(logs)
 
 
 async def _render_sync_schedule(
@@ -537,103 +358,8 @@ async def _render_sync_schedule(
     has_view: bool,
     has_manage: bool,
 ) -> None:
-    """Render sync schedule configuration with optional inline editing."""
-    ui.label("Sync Schedule").classes("font-bold mb-2")
-
-    if not has_view:
-        ui.label("Schedule viewing requires data-sync view permission").classes(
-            "text-gray-500"
-        )
-        return
-
-    try:
-        schedules = await sync_service.get_sync_schedule(user)
-    except PermissionError as e:
-        ui.notify(str(e), type="negative")
-        return
-    except Exception:
-        logger.exception(
-            "service_call_failed",
-            extra={
-                "method": "get_sync_schedule",
-                "service": "DataSyncService",
-                "user_id": _get_user_id_safe(user),
-            },
-        )
-        ui.notify("Service temporarily unavailable", type="warning")
-        return
-
-    if not has_manage:
-        ui.label("Schedule editing requires MANAGE_SYNC_SCHEDULE permission").classes(
-            "text-gray-500 mb-2"
-        )
-
-    for sched in schedules:
-        with ui.card().classes("w-full p-4 mb-2"):
-            with ui.row().classes("items-center gap-4"):
-                ui.label(sched.dataset).classes("font-bold w-32")
-                ui.label(f"Cron: {sched.cron_expression}").classes("text-gray-600")
-                status_label = "Enabled" if sched.enabled else "Disabled"
-                status_color = "text-green-600" if sched.enabled else "text-red-600"
-                ui.label(status_label).classes(status_color)
-
-                if sched.last_scheduled_run:
-                    ui.label(
-                        f"Last: {_format_datetime(sched.last_scheduled_run)}"
-                    ).classes("text-sm text-gray-500")
-                if sched.next_scheduled_run:
-                    ui.label(
-                        f"Next: {_format_datetime(sched.next_scheduled_run)}"
-                    ).classes("text-sm text-gray-500")
-
-            # Inline edit (requires MANAGE_SYNC_SCHEDULE)
-            if has_manage:
-                with ui.row().classes("items-center gap-4 mt-2"):
-                    cron_input = ui.input(
-                        label="Cron Expression",
-                        value=sched.cron_expression,
-                    ).classes("w-48")
-                    enabled_switch = ui.switch(
-                        "Enabled",
-                        value=sched.enabled,
-                    )
-
-                    _ds = sched.dataset
-
-                    async def save_schedule(
-                        ds: str = _ds,
-                        cron_el: ui.input = cron_input,
-                        enabled_el: ui.switch = enabled_switch,
-                    ) -> None:
-                        try:
-                            update = SyncScheduleUpdateDTO(
-                                cron_expression=str(cron_el.value),
-                                enabled=bool(enabled_el.value),
-                            )
-                            result = await sync_service.update_sync_schedule(
-                                user, ds, update
-                            )
-                            ui.notify(
-                                f"Schedule updated for {result.dataset}",
-                                type="positive",
-                            )
-                        except PermissionError as e:
-                            ui.notify(str(e), type="negative")
-                        except Exception:
-                            logger.exception(
-                                "service_call_failed",
-                                extra={
-                                    "method": "update_sync_schedule",
-                                    "service": "DataSyncService",
-                                    "dataset": ds,
-                                    "user_id": _get_user_id_safe(user),
-                                },
-                            )
-                            ui.notify(
-                                "Service temporarily unavailable", type="warning"
-                            )
-
-                    ui.button("Save", on_click=save_schedule).props("flat dense")
+    _bind_data_sync_component()
+    await _data_sync_section.render_sync_schedule(user, sync_service, has_view, has_manage)
 
 
 # =============================================================================
