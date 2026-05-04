@@ -114,6 +114,18 @@ def _run_full_sync(args: argparse.Namespace) -> int:
     )
     print(f"Manifest version: {manifest.manifest_version}")
     print(f"Checksum: {manifest.checksum[:16]}...")
+    print(
+        "MANIFEST_JSON:"
+        + json.dumps(
+            {
+                "dataset": manifest.dataset,
+                "manifest_id": manifest.manifest_id,
+                "manifest_version": manifest.manifest_version,
+                "checksum": manifest.checksum,
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

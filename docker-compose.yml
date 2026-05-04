@@ -376,6 +376,9 @@ services:
     build:
       context: .
       dockerfile: apps/web_console_ng/Dockerfile
+      args:
+        APP_UID: ${WEB_CONSOLE_UID:-1000}
+        APP_GID: ${WEB_CONSOLE_GID:-1000}
     container_name: trading_platform_web_console
     # SECURITY: Create .env file with credentials (see .env.example)
     # Required: WEB_CONSOLE_USER, WEB_CONSOLE_PASSWORD
@@ -434,6 +437,7 @@ services:
       - default
       - trading_platform
     volumes:
+      - ./data:/app/data  # Data acquisition output and symbol-source files; align WEB_CONSOLE_UID/GID with host ownership when needed.
       - backtest_data:/app/data/backtest_results:ro
     profiles:
       - manual  # Prevent auto-start, require explicit profile selection
