@@ -13,12 +13,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services import data_sync_service as data_sync_module
+from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_sync_service import DataSyncService, RateLimitExceeded
 from libs.web_console_services.schemas.data_management import SyncScheduleUpdateDTO
 
@@ -69,11 +72,30 @@ async def test_get_sync_status_filters_by_dataset_permission(
 
 
 @pytest.mark.asyncio()
-async def test_get_sync_status_uses_alpaca_sip_manifests(
+async def test_get_sync_status_offloads_manifest_reads(
     service: DataSyncService,
     operator_user: DummyUser,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        nonlocal called
+        called = True
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(data_sync_module.asyncio, "to_thread", fake_to_thread)
+
+    results = await service.get_sync_status(operator_user)
+
+    assert called is True
+    assert results
+
+
+@pytest.mark.asyncio()
+async def test_get_sync_status_uses_alpaca_sip_manifests(
+    operator_user: DummyUser,
+    tmp_path: Path,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
@@ -93,7 +115,7 @@ async def test_get_sync_status_uses_alpaca_sip_manifests(
             validation_status="passed",
         )
         (manifest_dir / f"{dataset}.json").write_text(manifest.model_dump_json())
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
+    service = DataSyncService(data_manifest_service=DataManifestService(data_root=data_root))
 
     results = await service.get_sync_status(operator_user)
 
@@ -105,10 +127,8 @@ async def test_get_sync_status_uses_alpaca_sip_manifests(
 
 @pytest.mark.asyncio()
 async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
-    service: DataSyncService,
     operator_user: DummyUser,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
@@ -127,7 +147,7 @@ async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
         validation_status="passed",
     )
     (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
+    service = DataSyncService(data_manifest_service=DataManifestService(data_root=data_root))
 
     results = await service.get_sync_status(operator_user)
 
@@ -135,6 +155,23 @@ async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
     assert sip.last_sync == sync_timestamp
     assert sip.row_count == 10
     assert sip.validation_status == "missing: alpaca_sip_corp_actions"
+
+
+def test_non_alpaca_placeholder_status_does_not_call_manifest_service(
+    rate_limiter: AsyncMock,
+) -> None:
+    manifest_service = MagicMock()
+    service = DataSyncService(
+        rate_limiter=rate_limiter,
+        data_manifest_service=manifest_service,
+    )
+    now = datetime(2026, 4, 30, 12, tzinfo=UTC)
+
+    status = service._mock_or_manifest_status("crsp", now)  # noqa: SLF001
+
+    assert status.dataset == "crsp"
+    assert status.last_sync == now
+    manifest_service.get_alpaca_sip_summary.assert_not_called()
 
 
 @pytest.mark.asyncio()

@@ -25,6 +25,7 @@ from libs.web_console_services.config import (
     EXECUTION_GATEWAY_URL,
 )
 from libs.web_console_services.data_explorer_service import DataExplorerService
+from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_quality_service import DataQualityService
 from libs.web_console_services.data_sync_service import DataSyncService
 from libs.web_console_services.exposure_service import ExposureService
@@ -42,6 +43,7 @@ __all__ = [
     "CircuitBreakerService",
     "ComparisonService",
     "DataExplorerService",
+    "DataManifestService",
     "DataQualityService",
     "ExposureService",
     "DataSyncService",

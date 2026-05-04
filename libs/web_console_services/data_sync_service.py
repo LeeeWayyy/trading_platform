@@ -5,13 +5,11 @@ Enforces RBAC, dataset-level access, and rate limiting at server-side.
 
 from __future__ import annotations
 
-import os
+import asyncio
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import (
     Permission,
@@ -19,6 +17,7 @@ from libs.platform.web_console_auth.permissions import (
     has_permission,
 )
 from libs.platform.web_console_auth.rate_limiter import RateLimiter, get_rate_limiter
+from libs.web_console_services.data_manifest_service import DataManifestService
 
 from .schemas.data_management import (
     SyncJobDTO,
@@ -29,7 +28,6 @@ from .schemas.data_management import (
 )
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
-_ALPACA_SIP_MANIFEST_DATASETS = ("alpaca_sip_daily", "alpaca_sip_corp_actions")
 
 
 class RateLimitExceeded(RuntimeError):
@@ -51,8 +49,13 @@ class DataSyncService:
     - Integration with actual data pipeline sync infrastructure
     """
 
-    def __init__(self, rate_limiter: RateLimiter | None = None) -> None:
+    def __init__(
+        self,
+        rate_limiter: RateLimiter | None = None,
+        data_manifest_service: DataManifestService | None = None,
+    ) -> None:
         self._rate_limiter = rate_limiter or get_rate_limiter()
+        self._data_manifest_service = data_manifest_service or DataManifestService()
 
     async def get_sync_status(self, user: Any) -> list[SyncStatusDTO]:
         """Get sync status for datasets user has access to.
@@ -64,10 +67,7 @@ class DataSyncService:
         self._require_permission(user, Permission.VIEW_DATA_SYNC)
 
         now = datetime.now(UTC)
-        mock = [
-            self._mock_or_manifest_status(name, now)
-            for name in _SUPPORTED_DATASETS
-        ]
+        mock = await asyncio.to_thread(self._build_sync_statuses, now)
         return [item for item in mock if has_dataset_permission(user, item.dataset)]
 
     async def get_sync_logs(
@@ -226,48 +226,10 @@ class DataSyncService:
                 schema_version="v1",
             )
 
-        manifests = self._load_alpaca_sip_manifests()
-        if not manifests:
-            return SyncStatusDTO(
-                dataset=dataset,
-                last_sync=None,
-                row_count=0,
-                validation_status="missing",
-                schema_version=None,
-            )
+        return self._data_manifest_service.get_alpaca_sip_summary().to_sync_status()
 
-        latest = max(manifest.sync_timestamp for manifest in manifests)
-        statuses = {manifest.validation_status for manifest in manifests}
-        present_datasets = {manifest.dataset for manifest in manifests}
-        missing_datasets = sorted(set(_ALPACA_SIP_MANIFEST_DATASETS) - present_datasets)
-        if missing_datasets:
-            validation_status = f"missing: {', '.join(missing_datasets)}"
-        elif statuses == {"passed"}:
-            validation_status = "ok"
-        else:
-            validation_status = ",".join(sorted(statuses))
-        schema_versions = sorted({manifest.schema_version for manifest in manifests})
-        return SyncStatusDTO(
-            dataset=dataset,
-            last_sync=latest,
-            row_count=sum(manifest.row_count for manifest in manifests),
-            validation_status=validation_status,
-            schema_version=",".join(schema_versions),
-        )
-
-    def _load_alpaca_sip_manifests(self) -> list[SyncManifest]:
-        data_root = Path(os.getenv("DATA_ROOT", "data")).resolve()
-        manager = ManifestManager(
-            storage_path=data_root / "manifests",
-            lock_dir=data_root / "locks",
-            data_root=data_root,
-        )
-        manifests: list[SyncManifest] = []
-        for dataset in _ALPACA_SIP_MANIFEST_DATASETS:
-            manifest = manager.load_manifest(dataset)
-            if manifest is not None:
-                manifests.append(manifest)
-        return manifests
+    def _build_sync_statuses(self, now: datetime) -> list[SyncStatusDTO]:
+        return [self._mock_or_manifest_status(name, now) for name in _SUPPORTED_DATASETS]
 
 
 __all__ = ["DataSyncService", "RateLimitExceeded"]

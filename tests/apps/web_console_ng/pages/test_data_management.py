@@ -31,6 +31,83 @@ async def test_data_sync_no_view_shows_placeholder(
 
 
 @pytest.mark.asyncio()
+@patch("apps.web_console_ng.pages.data_management.has_permission", return_value=False)
+@patch("apps.web_console_ng.pages.data_management.has_dataset_permission")
+async def test_manifest_transparency_requires_sync_view_permission(
+    mock_dataset_permission: MagicMock,
+    mock_permission: MagicMock,
+) -> None:
+    manifest_service = MagicMock()
+
+    await dm_module._render_manifest_transparency({"role": "viewer"}, manifest_service)
+
+    manifest_service.get_alpaca_sip_summary.assert_not_called()
+    mock_dataset_permission.assert_not_called()
+    mock_permission.assert_called_once()
+
+
+@pytest.mark.asyncio()
+@patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True)
+@patch("apps.web_console_ng.pages.data_management.has_dataset_permission", return_value=False)
+async def test_manifest_transparency_requires_alpaca_sip_dataset_permission(
+    mock_dataset_permission: MagicMock,
+    mock_permission: MagicMock,
+) -> None:
+    manifest_service = MagicMock()
+
+    await dm_module._render_manifest_transparency({"role": "viewer"}, manifest_service)
+
+    manifest_service.get_alpaca_sip_summary.assert_not_called()
+    mock_permission.assert_called_once()
+    mock_dataset_permission.assert_called_once()
+
+
+@pytest.mark.asyncio()
+@patch("apps.web_console_ng.pages.data_management.ui")
+@patch("apps.web_console_ng.pages.data_management._data_manifest_panel")
+@patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True)
+@patch("apps.web_console_ng.pages.data_management.has_dataset_permission", return_value=True)
+async def test_manifest_transparency_renders_authorized_summary(
+    mock_dataset_permission: MagicMock,
+    mock_permission: MagicMock,
+    mock_panel: MagicMock,
+    mock_ui: MagicMock,
+) -> None:
+    summary = MagicMock()
+    manifest_service = MagicMock()
+    manifest_service.get_alpaca_sip_summary.return_value = summary
+
+    await dm_module._render_manifest_transparency({"role": "operator"}, manifest_service)
+
+    manifest_service.get_alpaca_sip_summary.assert_called_once_with()
+    mock_panel.render_manifest_transparency_panel.assert_called_once_with(summary)
+    mock_permission.assert_called_once()
+    mock_dataset_permission.assert_called_once()
+    mock_ui.notify.assert_not_called()
+
+
+@pytest.mark.asyncio()
+@patch("apps.web_console_ng.pages.data_management.ui")
+@patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True)
+@patch("apps.web_console_ng.pages.data_management.has_dataset_permission", return_value=True)
+async def test_manifest_transparency_warns_when_service_unavailable(
+    mock_dataset_permission: MagicMock,
+    mock_permission: MagicMock,
+    mock_ui: MagicMock,
+) -> None:
+    manifest_service = MagicMock()
+    manifest_service.get_alpaca_sip_summary.side_effect = RuntimeError("boom")
+
+    await dm_module._render_manifest_transparency({"role": "operator"}, manifest_service)
+
+    mock_ui.notify.assert_called_once_with(
+        "Manifest status temporarily unavailable", type="warning"
+    )
+    mock_permission.assert_called_once()
+    mock_dataset_permission.assert_called_once()
+
+
+@pytest.mark.asyncio()
 @patch("apps.web_console_ng.pages.data_management.ui")
 async def test_data_quality_section_creates_tabs(
     mock_ui: MagicMock,
