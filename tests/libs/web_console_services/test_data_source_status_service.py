@@ -14,6 +14,7 @@ import redis.exceptions
 from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
 from libs.web_console_services import data_source_status_service as module
+from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_source_status_service import (
     _REFRESH_TIMEOUT_SECONDS,
     DataSourceStatusService,
@@ -159,7 +160,6 @@ async def test_refresh_alpaca_sip_source(operator_user: DummyUser) -> None:
 async def test_alpaca_sip_source_uses_manifest_status(
     admin_user: DummyUser,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
@@ -190,12 +190,11 @@ async def test_alpaca_sip_source_uses_manifest_status(
         validation_status="passed",
     )
     (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
-    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
-        corp_manifest.model_dump_json()
-    )
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
+    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(corp_manifest.model_dump_json())
 
-    service = DataSourceStatusService()
+    service = DataSourceStatusService(
+        data_manifest_service=DataManifestService(data_root=data_root)
+    )
     sources = await service.get_all_sources(admin_user)
 
     sip = next(source for source in sources if source.name == "alpaca_sip")
@@ -208,7 +207,6 @@ async def test_alpaca_sip_source_uses_manifest_status(
 async def test_alpaca_sip_source_requires_all_expected_manifests(
     admin_user: DummyUser,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
@@ -226,9 +224,10 @@ async def test_alpaca_sip_source_requires_all_expected_manifests(
         validation_status="passed",
     )
     (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
 
-    service = DataSourceStatusService()
+    service = DataSourceStatusService(
+        data_manifest_service=DataManifestService(data_root=data_root)
+    )
     sources = await service.get_all_sources(admin_user)
 
     sip = next(source for source in sources if source.name == "alpaca_sip")
@@ -241,13 +240,14 @@ async def test_alpaca_sip_source_requires_all_expected_manifests(
 async def test_refresh_alpaca_sip_rechecks_manifests_after_cached_unknown(
     operator_user: DummyUser,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
     manifest_dir.mkdir(parents=True)
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
-    service = DataSourceStatusService(redis_client_factory=None)
+    service = DataSourceStatusService(
+        redis_client_factory=None,
+        data_manifest_service=DataManifestService(data_root=data_root),
+    )
 
     first_refresh = await service.refresh_source(operator_user, "alpaca_sip")
     assert first_refresh.status == "unknown"
@@ -277,9 +277,7 @@ async def test_refresh_alpaca_sip_rechecks_manifests_after_cached_unknown(
         validation_status="passed",
     )
     (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
-    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
-        corp_manifest.model_dump_json()
-    )
+    (manifest_dir / "alpaca_sip_corp_actions.json").write_text(corp_manifest.model_dump_json())
 
     listed = await service.get_all_sources(operator_user)
     listed_sip = next(source for source in listed if source.name == "alpaca_sip")

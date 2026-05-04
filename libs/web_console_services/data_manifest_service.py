@@ -25,6 +25,7 @@ ALPACA_SIP_MANIFEST_DATASETS: tuple[str, ...] = (
 )
 
 _ALPACA_SIP_COMPANION_MAX_END_DATE_DRIFT_DAYS = 1
+_DEFAULT_DATA_ROOT = Path(os.getenv("DATA_ROOT", "data")).resolve()
 
 
 class ManifestSummaryDTO(BaseModel):
@@ -110,8 +111,8 @@ class AlpacaSipManifestSummaryDTO(BaseModel):
 class DataManifestService:
     """Read-only manifest summary service.
 
-    The default constructor resolves ``DATA_ROOT`` at call time so tests and
-    operators can change the environment before each request.
+    The default constructor uses the process-level ``DATA_ROOT`` captured at
+    import time. Tests and alternate roots should pass ``data_root`` explicitly.
     """
 
     def __init__(
@@ -120,7 +121,7 @@ class DataManifestService:
         data_root: Path | None = None,
         manifest_manager: ManifestManager | None = None,
     ) -> None:
-        self._data_root = data_root
+        self._data_root = data_root.resolve() if data_root is not None else _DEFAULT_DATA_ROOT
         self._manifest_manager = manifest_manager
 
     def get_alpaca_sip_summary(self) -> AlpacaSipManifestSummaryDTO:
@@ -168,9 +169,7 @@ class DataManifestService:
         if self._manifest_manager is not None:
             return self._manifest_manager
 
-        data_root = (
-            self._data_root if self._data_root is not None else Path(os.getenv("DATA_ROOT", "data"))
-        ).resolve()
+        data_root = self._data_root
         return ManifestManager(
             storage_path=data_root / "manifests",
             lock_dir=data_root / "locks",

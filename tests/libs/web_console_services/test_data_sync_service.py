@@ -21,6 +21,7 @@ import pytest
 from libs.data.data_quality.manifest import SyncManifest
 from libs.platform.web_console_auth.permissions import Role
 from libs.web_console_services import data_sync_service as data_sync_module
+from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_sync_service import DataSyncService, RateLimitExceeded
 from libs.web_console_services.schemas.data_management import SyncScheduleUpdateDTO
 
@@ -93,10 +94,8 @@ async def test_get_sync_status_offloads_manifest_reads(
 
 @pytest.mark.asyncio()
 async def test_get_sync_status_uses_alpaca_sip_manifests(
-    service: DataSyncService,
     operator_user: DummyUser,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
@@ -116,7 +115,7 @@ async def test_get_sync_status_uses_alpaca_sip_manifests(
             validation_status="passed",
         )
         (manifest_dir / f"{dataset}.json").write_text(manifest.model_dump_json())
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
+    service = DataSyncService(data_manifest_service=DataManifestService(data_root=data_root))
 
     results = await service.get_sync_status(operator_user)
 
@@ -128,10 +127,8 @@ async def test_get_sync_status_uses_alpaca_sip_manifests(
 
 @pytest.mark.asyncio()
 async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
-    service: DataSyncService,
     operator_user: DummyUser,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
     manifest_dir = data_root / "manifests"
@@ -150,7 +147,7 @@ async def test_get_sync_status_marks_partial_alpaca_sip_manifests_missing(
         validation_status="passed",
     )
     (manifest_dir / "alpaca_sip_daily.json").write_text(manifest.model_dump_json())
-    monkeypatch.setenv("DATA_ROOT", str(data_root))
+    service = DataSyncService(data_manifest_service=DataManifestService(data_root=data_root))
 
     results = await service.get_sync_status(operator_user)
 
