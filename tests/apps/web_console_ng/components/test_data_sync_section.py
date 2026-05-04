@@ -29,19 +29,15 @@ async def test_render_sync_status_without_view_permission_skips_service(
     sync_service.get_sync_status.assert_not_awaited()
 
 
-def test_bind_page_globals_updates_patchable_dependencies() -> None:
-    original_ui = data_sync_section.ui
-    original_logger = data_sync_section.logger
+def test_build_sync_status_table_accepts_explicit_ui_module() -> None:
     ui_module = MagicMock()
-    logger_obj = MagicMock()
+    status = MagicMock(
+        dataset="alpaca_sip",
+        last_sync=None,
+        row_count=10,
+        validation_status="ok",
+    )
 
-    try:
-        data_sync_section.bind_page_globals(ui_module=ui_module, logger_obj=logger_obj)
+    data_sync_section.build_sync_status_table([status], ui_module=ui_module)
 
-        assert data_sync_section.ui is ui_module
-        assert data_sync_section.logger is logger_obj
-    finally:
-        data_sync_section.bind_page_globals(
-            ui_module=original_ui,
-            logger_obj=original_logger,
-        )
+    ui_module.table.assert_called_once()

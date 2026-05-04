@@ -173,9 +173,7 @@ async def data_management_page() -> None:
     with ui.tab_panels(tabs, value=default_tab).classes("w-full"):
         if show_sync_tab:
             with ui.tab_panel(tab_sync):
-                sync_status_container = await _render_data_sync_section(
-                    user, sync_service
-                )
+                sync_status_container = await _render_data_sync_section(user, sync_service)
 
         if show_explorer_tab:
             with ui.tab_panel(tab_explorer):
@@ -183,9 +181,11 @@ async def data_management_page() -> None:
 
         if has_quality:
             with ui.tab_panel(tab_quality):
-                alerts_container, scores_container, _load_alerts_fn = (
-                    await _render_data_quality_section(user, quality_service)
-                )
+                (
+                    alerts_container,
+                    scores_container,
+                    _load_alerts_fn,
+                ) = await _render_data_quality_section(user, quality_service)
 
     # === Auto-refresh Timers ===
     async def refresh_sync_status() -> None:
@@ -308,17 +308,13 @@ async def _render_manifest_transparency(
 # =============================================================================
 
 
-def _bind_data_sync_component() -> None:
-    """Bind patchable page globals into the extracted Data Sync component."""
-    _data_sync_section.bind_page_globals(ui_module=ui, logger_obj=logger)
-
-
 async def _render_data_sync_section(
     user: dict[str, Any],
     sync_service: DataSyncService,
 ) -> ui.column | None:
-    _bind_data_sync_component()
-    return await _data_sync_section.render_data_sync_section(user, sync_service)
+    return await _data_sync_section.render_data_sync_section(
+        user, sync_service, ui_module=ui, logger_obj=logger
+    )
 
 
 async def _render_sync_status(
@@ -327,15 +323,18 @@ async def _render_sync_status(
     has_view: bool,
     has_trigger: bool,
 ) -> ui.column | None:
-    _bind_data_sync_component()
     return await _data_sync_section.render_sync_status(
-        user, sync_service, has_view, has_trigger
+        user,
+        sync_service,
+        has_view,
+        has_trigger,
+        ui_module=ui,
+        logger_obj=logger,
     )
 
 
 def _build_sync_status_table(statuses: list[Any]) -> None:
-    _bind_data_sync_component()
-    _data_sync_section.build_sync_status_table(statuses)
+    _data_sync_section.build_sync_status_table(statuses, ui_module=ui)
 
 
 async def _render_sync_logs(
@@ -343,13 +342,13 @@ async def _render_sync_logs(
     sync_service: DataSyncService,
     has_view: bool,
 ) -> None:
-    _bind_data_sync_component()
-    await _data_sync_section.render_sync_logs(user, sync_service, has_view)
+    await _data_sync_section.render_sync_logs(
+        user, sync_service, has_view, ui_module=ui, logger_obj=logger
+    )
 
 
 def _build_sync_logs_table(logs: list[Any]) -> None:
-    _bind_data_sync_component()
-    _data_sync_section.build_sync_logs_table(logs)
+    _data_sync_section.build_sync_logs_table(logs, ui_module=ui)
 
 
 async def _render_sync_schedule(
@@ -358,8 +357,14 @@ async def _render_sync_schedule(
     has_view: bool,
     has_manage: bool,
 ) -> None:
-    _bind_data_sync_component()
-    await _data_sync_section.render_sync_schedule(user, sync_service, has_view, has_manage)
+    await _data_sync_section.render_sync_schedule(
+        user,
+        sync_service,
+        has_view,
+        has_manage,
+        ui_module=ui,
+        logger_obj=logger,
+    )
 
 
 # =============================================================================
@@ -431,13 +436,9 @@ async def _render_data_explorer_section(
                     with metadata_container:
                         ui.label("Dataset Info").classes("font-bold mb-1")
                         if info.description:
-                            ui.label(info.description).classes(
-                                "text-sm text-gray-600"
-                            )
+                            ui.label(info.description).classes("text-sm text-gray-600")
                         if info.row_count is not None:
-                            ui.label(f"Rows: {info.row_count:,}").classes(
-                                "text-sm text-gray-600"
-                            )
+                            ui.label(f"Rows: {info.row_count:,}").classes("text-sm text-gray-600")
                         if info.symbol_count is not None:
                             ui.label(f"Symbols: {info.symbol_count:,}").classes(
                                 "text-sm text-gray-600"
@@ -445,9 +446,7 @@ async def _render_data_explorer_section(
                         if info.date_range:
                             start = info.date_range.get("start", "?")
                             end = info.date_range.get("end", "?")
-                            ui.label(f"Range: {start} to {end}").classes(
-                                "text-sm text-gray-600"
-                            )
+                            ui.label(f"Range: {start} to {end}").classes("text-sm text-gray-600")
 
                 async def _load_schema(ds_name: str | None) -> None:
                     """Load schema preview for dataset (requires QUERY_DATA)."""
@@ -460,15 +459,11 @@ async def _render_data_explorer_section(
                                 )
                         return
                     try:
-                        preview = await explorer_service.get_dataset_preview(
-                            user, ds_name, limit=5
-                        )
+                        preview = await explorer_service.get_dataset_preview(user, ds_name, limit=5)
                         with schema_container:
                             ui.label("Schema Preview").classes("font-bold mb-1")
                             for col in preview.columns:
-                                ui.label(f"  {col}").classes(
-                                    "text-sm text-gray-600 font-mono"
-                                )
+                                ui.label(f"  {col}").classes("text-sm text-gray-600 font-mono")
                     except PermissionError:
                         with schema_container:
                             ui.label("Schema requires query permission").classes(
@@ -528,9 +523,7 @@ async def _render_data_explorer_section(
                                 ui.notify("Please enter a query", type="warning")
                                 return
                             try:
-                                result = await explorer_service.execute_query(
-                                    user, ds, query_val
-                                )
+                                result = await explorer_service.execute_query(user, ds, query_val)
                                 results_container.clear()
                                 with results_container:
                                     _build_query_results(result)
@@ -553,30 +546,22 @@ async def _render_data_explorer_section(
                                         "user_id": _get_user_id_safe(user),
                                     },
                                 )
-                                ui.notify(
-                                    "Service temporarily unavailable", type="warning"
-                                )
+                                ui.notify("Service temporarily unavailable", type="warning")
 
-                        ui.button(
-                            "Run Query", on_click=run_query, color="primary"
-                        )
+                        ui.button("Run Query", on_click=run_query, color="primary")
 
                         if has_export:
                             export_format: dict[str, str] = {"value": "csv"}
                             ui.radio(
                                 ["csv", "parquet"],
                                 value="csv",
-                                on_change=lambda e: export_format.update(
-                                    {"value": str(e.value)}
-                                ),
+                                on_change=lambda e: export_format.update({"value": str(e.value)}),
                             ).props("inline")
 
                             async def export_data() -> None:
                                 ds = selected_dataset["value"]
                                 if not ds:
-                                    ui.notify(
-                                        "Please select a dataset", type="warning"
-                                    )
+                                    ui.notify("Please select a dataset", type="warning")
                                     return
                                 query_val = str(query_textarea.value).strip()
                                 if not query_val:
@@ -619,9 +604,7 @@ async def _render_data_explorer_section(
                                         type="warning",
                                     )
 
-                            ui.button(
-                                "Export Results", on_click=export_data
-                            ).props("flat")
+                            ui.button("Export Results", on_click=export_data).props("flat")
                 else:
                     ui.label("Query execution requires QUERY_DATA permission").classes(
                         "text-gray-400"
@@ -635,17 +618,14 @@ def _build_query_results(result: Any) -> None:
         return
 
     columns: list[dict[str, Any]] = [
-        {"name": col, "label": col, "field": col, "sortable": True}
-        for col in result.columns
+        {"name": col, "label": col, "field": col, "sortable": True} for col in result.columns
     ]
     ui.table(columns=columns, rows=result.rows).classes("w-full")
 
     with ui.row().classes("gap-4 mt-2"):
         ui.label(f"Total: {result.total_count} rows").classes("text-sm text-gray-600")
         if result.has_more:
-            ui.label("(more results available)").classes(
-                "text-sm text-amber-600"
-            )
+            ui.label("(more results available)").classes("text-sm text-amber-600")
 
 
 # =============================================================================
@@ -684,9 +664,7 @@ async def _render_data_quality_section(
             await _render_validation_results(user, quality_service)
 
         with ui.tab_panel(tab_anomalies):
-            alerts_container, load_alerts_fn = await _render_anomaly_alerts(
-                user, quality_service
-            )
+            alerts_container, load_alerts_fn = await _render_anomaly_alerts(user, quality_service)
 
         with ui.tab_panel(tab_trends):
             await _render_quality_trends(user, quality_service)
@@ -703,12 +681,8 @@ async def _build_quality_score_cards(
 ) -> None:
     """Build quality score cards per dataset using compute_quality_scores()."""
     try:
-        validations = await quality_service.get_validation_results(
-            user, dataset=None
-        )
-        alerts = await quality_service.get_anomaly_alerts(
-            user, severity=None, acknowledged=None
-        )
+        validations = await quality_service.get_validation_results(user, dataset=None)
+        alerts = await quality_service.get_anomaly_alerts(user, severity=None, acknowledged=None)
         quarantine = await quality_service.get_quarantine_status(user)
     except PermissionError as exc:
         ui.notify(str(exc), type="negative")
@@ -756,12 +730,8 @@ async def _build_quality_score_cards(
                         if score.validation_pass_rate is not None
                         else "N/A"
                     )
-                    ui.label(f"Pass Rate: {rate_text}").classes(
-                        "text-sm text-gray-600"
-                    )
-                    ui.label(f"Anomalies: {score.anomaly_count}").classes(
-                        "text-sm text-gray-600"
-                    )
+                    ui.label(f"Pass Rate: {rate_text}").classes("text-sm text-gray-600")
+                    ui.label(f"Anomalies: {score.anomaly_count}").classes("text-sm text-gray-600")
                     ui.label(f"Quarantine: {score.quarantine_count}").classes(
                         "text-sm text-gray-600"
                     )
@@ -919,9 +889,7 @@ def _normalize_and_filter_alerts(
     result: list[Any] = []
     severity_lookup: dict[str, str] = {}
     for alert in raw_alerts:
-        normalized = _SEVERITY_MAP.get(
-            alert.severity.lower(), alert.severity.lower()
-        )
+        normalized = _SEVERITY_MAP.get(alert.severity.lower(), alert.severity.lower())
         severity_lookup[alert.id] = normalized
         if severity_filter == "all" or normalized == severity_filter:
             result.append(alert)
@@ -943,20 +911,14 @@ def _build_anomaly_alert_cards(
 
     for alert in alerts:
         sev = severity_lookup.get(alert.id, alert.severity)
-        color_class = _SEVERITY_COLORS.get(
-            sev, "bg-gray-100 border-gray-300 text-gray-700"
-        )
+        color_class = _SEVERITY_COLORS.get(sev, "bg-gray-100 border-gray-300 text-gray-700")
         with ui.card().classes(f"w-full p-4 mb-2 border-l-4 {color_class}"):
             with ui.row().classes("items-center gap-2"):
                 ui.label(sev.upper()).classes("font-bold")
                 ui.label(alert.metric).classes("text-sm")
-                ui.label(_format_datetime(alert.created_at)).classes(
-                    "text-sm text-gray-500"
-                )
+                ui.label(_format_datetime(alert.created_at)).classes("text-sm text-gray-500")
                 if alert.acknowledged:
-                    ui.label("ACK").classes(
-                        "text-xs bg-green-200 px-2 py-0.5 rounded"
-                    )
+                    ui.label("ACK").classes("text-xs bg-green-200 px-2 py-0.5 rounded")
             ui.label(alert.message).classes("mt-1")
 
             if alert.deviation_pct is not None:
@@ -989,13 +951,9 @@ def _build_anomaly_alert_cards(
                                 "user_id": _get_user_id_safe(user),
                             },
                         )
-                        ui.notify(
-                            "Service temporarily unavailable", type="warning"
-                        )
+                        ui.notify("Service temporarily unavailable", type="warning")
 
-                ui.button(
-                    "Acknowledge", on_click=ack_alert
-                ).props("flat dense").classes("mt-1")
+                ui.button("Acknowledge", on_click=ack_alert).props("flat dense").classes("mt-1")
 
 
 async def _render_quality_trends(
@@ -1007,9 +965,7 @@ async def _render_quality_trends(
 
     accessible = [ds for ds in _TREND_DATASETS if has_dataset_permission(user, ds)]
     if not accessible:
-        ui.label("No accessible datasets for trend analysis.").classes(
-            "text-gray-500"
-        )
+        ui.label("No accessible datasets for trend analysis.").classes("text-gray-500")
         return
 
     dataset_select = ui.select(
@@ -1049,9 +1005,9 @@ def _build_quality_trend_chart(trend: Any) -> None:
     """Build Plotly trend chart with threshold lines and trend summary cards."""
     if not trend.data_points:
         with ui.card().classes("w-full p-4"):
-            ui.label(
-                f"Quality Trends - {trend.dataset} ({trend.period_days}d)"
-            ).classes("text-lg mb-4")
+            ui.label(f"Quality Trends - {trend.dataset} ({trend.period_days}d)").classes(
+                "text-lg mb-4"
+            )
             ui.label("No trend data available yet").classes("text-gray-500")
         return
 
@@ -1071,12 +1027,16 @@ def _build_quality_trend_chart(trend: Any) -> None:
         )
 
     fig.add_hline(
-        y=GOOD_QUALITY_THRESHOLD, line_dash="dash", line_color="green",
+        y=GOOD_QUALITY_THRESHOLD,
+        line_dash="dash",
+        line_color="green",
         annotation_text=f"Good ({GOOD_QUALITY_THRESHOLD:.0f})",
         annotation_position="top right",
     )
     fig.add_hline(
-        y=CRITICAL_QUALITY_THRESHOLD, line_dash="dash", line_color="red",
+        y=CRITICAL_QUALITY_THRESHOLD,
+        line_dash="dash",
+        line_color="red",
         annotation_text=f"Critical ({CRITICAL_QUALITY_THRESHOLD:.0f})",
         annotation_position="bottom right",
     )
@@ -1109,28 +1069,18 @@ def _build_quality_trend_chart(trend: Any) -> None:
             with ui.card().classes("flex-1 p-4 text-center"):
                 ui.label("Current Score").classes("text-sm text-gray-500")
                 current_text = (
-                    f"{summary.current_score:.1f}%"
-                    if summary.current_score is not None
-                    else "N/A"
+                    f"{summary.current_score:.1f}%" if summary.current_score is not None else "N/A"
                 )
                 ui.label(current_text).classes("text-3xl font-bold text-green-600")
 
             with ui.card().classes("flex-1 p-4 text-center"):
                 ui.label("7-Day Average").classes("text-sm text-gray-500")
-                avg7_text = (
-                    f"{summary.avg_7d:.1f}%"
-                    if summary.avg_7d is not None
-                    else "N/A"
-                )
+                avg7_text = f"{summary.avg_7d:.1f}%" if summary.avg_7d is not None else "N/A"
                 ui.label(avg7_text).classes("text-3xl font-bold text-green-600")
 
             with ui.card().classes("flex-1 p-4 text-center"):
                 ui.label("30-Day Average").classes("text-sm text-gray-500")
-                avg30_text = (
-                    f"{summary.avg_30d:.1f}%"
-                    if summary.avg_30d is not None
-                    else "N/A"
-                )
+                avg30_text = f"{summary.avg_30d:.1f}%" if summary.avg_30d is not None else "N/A"
                 ui.label(avg30_text).classes("text-3xl font-bold text-green-600")
 
             with ui.card().classes("flex-1 p-4 text-center"):
@@ -1141,9 +1091,7 @@ def _build_quality_trend_chart(trend: Any) -> None:
 
         # Degradation alert
         if summary.degradation_alert:
-            with ui.card().classes(
-                "w-full p-4 mt-2 bg-amber-100 border-l-4 border-amber-500"
-            ):
+            with ui.card().classes("w-full p-4 mt-2 bg-amber-100 border-l-4 border-amber-500"):
                 ui.label(
                     f"Quality degradation detected: 7-day average is significantly "
                     f"below 30-day average for {trend.dataset}"
@@ -1187,16 +1135,12 @@ async def _render_quarantine_inspector(
 
     for ds_name in sorted(by_dataset):
         ds_entries = by_dataset[ds_name]
-        with ui.expansion(f"{ds_name} ({len(ds_entries)} entries)").classes(
-            "w-full mb-2"
-        ):
+        with ui.expansion(f"{ds_name} ({len(ds_entries)} entries)").classes("w-full mb-2"):
             for entry in ds_entries:
                 with ui.card().classes("w-full p-3 mb-2 border-l-4 border-amber-400"):
                     with ui.row().classes("items-center gap-4"):
                         ui.label(entry.reason).classes("font-bold")
-                        ui.label(entry.quarantine_path).classes(
-                            "text-sm text-gray-500 font-mono"
-                        )
+                        ui.label(entry.quarantine_path).classes("text-sm text-gray-500 font-mono")
                         ui.label(_format_datetime(entry.created_at)).classes(
                             "text-sm text-gray-400"
                         )
@@ -1211,9 +1155,7 @@ async def _render_quarantine_inspector(
                         with preview_container:
                             await _load_quarantine_preview(qe)
 
-                    ui.button(
-                        "Inspect", on_click=inspect_entry
-                    ).props("flat dense").classes("mt-1")
+                    ui.button("Inspect", on_click=inspect_entry).props("flat dense").classes("mt-1")
 
 
 async def _load_quarantine_preview(entry: Any) -> None:
@@ -1264,9 +1206,7 @@ async def _load_quarantine_preview(entry: Any) -> None:
         status, result = await asyncio.to_thread(_validate_and_query)
 
         if status == "path_escape":
-            ui.label("Path validation failed at access time").classes(
-                "text-red-600"
-            )
+            ui.label("Path validation failed at access time").classes("text-red-600")
             return
         if status == "no_dir":
             ui.label(
@@ -1288,12 +1228,11 @@ async def _load_quarantine_preview(entry: Any) -> None:
             ui.label("No matching data for this entry").classes("text-gray-500")
             return
 
-        ui.label(
-            f"Quarantine Preview: {entry.dataset} — {len(result)} rows"
-        ).classes("font-bold mb-2")
+        ui.label(f"Quarantine Preview: {entry.dataset} — {len(result)} rows").classes(
+            "font-bold mb-2"
+        )
         columns: list[dict[str, Any]] = [
-            {"name": col, "label": col, "field": col, "sortable": True}
-            for col in result.columns
+            {"name": col, "label": col, "field": col, "sortable": True} for col in result.columns
         ]
         rows = result.to_dicts()
         ui.table(columns=columns, rows=rows).classes("w-full")
@@ -1306,9 +1245,7 @@ async def _load_quarantine_preview(entry: Any) -> None:
                 "quarantine_path": entry.quarantine_path,
             },
         )
-        ui.label(
-            "Preview unavailable — error loading quarantine data."
-        ).classes("text-red-600")
+        ui.label("Preview unavailable — error loading quarantine data.").classes("text-red-600")
 
 
 __all__ = ["data_management_page"]

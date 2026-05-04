@@ -7,29 +7,25 @@ from typing import Any
 from nicegui import ui
 
 from apps.web_console_ng.components.data_management_common import format_datetime
-from apps.web_console_ng.components.data_operations_grid import build_manifest_grid_rows
-from libs.web_console_services.data_manifest_service import AlpacaSipManifestSummaryDTO
+from libs.web_console_services.data_manifest_service import (
+    ALPACA_SIP_CORP_ACTIONS_DATASET,
+    AlpacaSipManifestSummaryDTO,
+)
 
 
 def build_manifest_context_metrics(
     summary: AlpacaSipManifestSummaryDTO,
 ) -> list[dict[str, Any]]:
     """Build compact context metrics for the manifest transparency ribbon."""
-    healthy = sum(
-        1
-        for manifest in summary.manifests
-        if manifest.validation_status == "passed"
-    )
-    failed = sum(
-        1
-        for manifest in summary.manifests
-        if manifest.validation_status != "passed"
-    )
+    healthy = sum(1 for manifest in summary.manifests if manifest.validation_status == "passed")
+    failed = sum(1 for manifest in summary.manifests if manifest.validation_status != "passed")
     issue_count = len(summary.warnings) + failed
-    rows = build_manifest_grid_rows(summary)
-    blocked_for_backtest = sum(
-        1 for row in rows if str(row["readiness"]).startswith("blocked:")
+    corp_actions_ok = any(
+        manifest.dataset == ALPACA_SIP_CORP_ACTIONS_DATASET
+        and manifest.validation_status == "passed"
+        for manifest in summary.manifests
     )
+    blocked_for_backtest = 2 - (1 if corp_actions_ok else 0)
     latest_sync = summary.latest_sync
     oldest_sync = min(
         (manifest.sync_timestamp for manifest in summary.manifests),
@@ -44,7 +40,11 @@ def build_manifest_context_metrics(
             "tone": "warning",
         },
         {"label": "Backtest Blocked", "value": blocked_for_backtest, "tone": "warning"},
-        {"label": "Issues", "value": issue_count, "tone": "negative" if issue_count else "positive"},
+        {
+            "label": "Issues",
+            "value": issue_count,
+            "tone": "negative" if issue_count else "positive",
+        },
         {"label": "Rows", "value": f"{summary.row_count:,}", "tone": "neutral"},
         {"label": "Latest Manifest", "value": format_datetime(latest_sync), "tone": "neutral"},
         {"label": "Oldest Manifest", "value": format_datetime(oldest_sync), "tone": "neutral"},
@@ -63,13 +63,12 @@ def render_manifest_context_ribbon(summary: AlpacaSipManifestSummaryDTO) -> None
 
 
 def _tone_class(tone: str) -> str:
-    if tone == "positive":
-        return "border-green-300"
-    if tone == "negative":
-        return "border-red-300"
-    if tone == "warning":
-        return "border-amber-300"
-    return "border-gray-200"
+    tone_map = {
+        "positive": "border-green-300",
+        "negative": "border-red-300",
+        "warning": "border-amber-300",
+    }
+    return tone_map.get(tone, "border-gray-200")
 
 
 __all__ = ["build_manifest_context_metrics", "render_manifest_context_ribbon"]

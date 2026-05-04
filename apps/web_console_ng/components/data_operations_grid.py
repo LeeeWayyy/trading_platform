@@ -64,9 +64,7 @@ def _row_from_manifest_or_missing(
     is_daily = dataset == ALPACA_SIP_DAILY_DATASET
     raw_state = "Raw OHLC" if is_daily else "-"
     adjustment_state = (
-        "adj_close: not available; ret: not available"
-        if is_daily
-        else "not price bars"
+        "adj_close: not available; ret: not available" if is_daily else "not price bars"
     )
     if manifest is None:
         readiness = "blocked: alpaca_sip_untrusted_without_manifest"
@@ -80,7 +78,7 @@ def _row_from_manifest_or_missing(
             "manifest_status": "missing",
             "last_sync": "-",
             "readiness": readiness,
-            "issues": max(1, len(warnings)),
+            "issues": len(warnings),
             "issue_codes": warnings,
             "row_count": 0,
             "date_range": "-",
@@ -143,10 +141,10 @@ def _warnings_for_dataset(
     for warning in summary.warnings:
         if warning == f"alpaca_sip_missing_manifest:{dataset}":
             warnings.append("alpaca_sip_untrusted_without_manifest")
-        elif (
-            not warning.startswith("alpaca_sip_missing_manifest:")
-            and dataset in {ALPACA_SIP_DAILY_DATASET, ALPACA_SIP_CORP_ACTIONS_DATASET}
-        ):
+        elif not warning.startswith("alpaca_sip_missing_manifest:") and dataset in {
+            ALPACA_SIP_DAILY_DATASET,
+            ALPACA_SIP_CORP_ACTIONS_DATASET,
+        }:
             warnings.append(warning)
     if dataset == ALPACA_SIP_DAILY_DATASET:
         warnings.append("raw_sip_returns_unavailable")

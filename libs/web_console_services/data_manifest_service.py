@@ -95,9 +95,7 @@ class AlpacaSipManifestSummaryDTO(BaseModel):
         now = datetime.now(UTC)
         latest_sync = self.latest_sync
         age_seconds = (
-            max(0.0, (now - latest_sync).total_seconds())
-            if latest_sync is not None
-            else 0.0
+            max(0.0, (now - latest_sync).total_seconds()) if latest_sync is not None else 0.0
         )
 
         updated = dict(spec)
@@ -138,12 +136,8 @@ class DataManifestService:
         schema_versions = sorted({summary.schema_version for summary in summaries})
         latest_sync = max((summary.sync_timestamp for summary in summaries), default=None)
 
-        sync_validation_status = self._build_sync_validation_status(
-            missing, validation_statuses
-        )
-        source_status, error_message = self._build_source_status(
-            missing, validation_statuses
-        )
+        sync_validation_status = self._build_sync_validation_status(missing, validation_statuses)
+        source_status, error_message = self._build_source_status(missing, validation_statuses)
         warnings = self._build_alpaca_sip_warnings(summaries, missing)
 
         return AlpacaSipManifestSummaryDTO(
@@ -175,9 +169,7 @@ class DataManifestService:
             return self._manifest_manager
 
         data_root = (
-            self._data_root
-            if self._data_root is not None
-            else Path(os.getenv("DATA_ROOT", "data"))
+            self._data_root if self._data_root is not None else Path(os.getenv("DATA_ROOT", "data"))
         ).resolve()
         return ManifestManager(
             storage_path=data_root / "manifests",
@@ -249,10 +241,7 @@ class DataManifestService:
         summaries: list[ManifestSummaryDTO],
         missing: list[str],
     ) -> list[str]:
-        warnings = [
-            f"alpaca_sip_missing_manifest:{dataset}"
-            for dataset in missing
-        ]
+        warnings = [f"alpaca_sip_missing_manifest:{dataset}" for dataset in missing]
         by_dataset = {summary.dataset: summary for summary in summaries}
         daily = by_dataset.get(ALPACA_SIP_DAILY_DATASET)
         corp_actions = by_dataset.get(ALPACA_SIP_CORP_ACTIONS_DATASET)
@@ -306,11 +295,11 @@ class DataManifestService:
 
 
 def _data_roles_for_dataset(dataset: str) -> dict[str, str] | None:
-    if dataset == ALPACA_SIP_DAILY_DATASET:
-        return {"prices": dataset}
-    if dataset == ALPACA_SIP_CORP_ACTIONS_DATASET:
-        return {"corp_actions": dataset}
-    return None
+    role_map = {
+        ALPACA_SIP_DAILY_DATASET: {"prices": dataset},
+        ALPACA_SIP_CORP_ACTIONS_DATASET: {"corp_actions": dataset},
+    }
+    return role_map.get(dataset)
 
 
 __all__ = [

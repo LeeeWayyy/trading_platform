@@ -15,6 +15,16 @@ from libs.web_console_services.data_manifest_service import (
     ManifestSummaryDTO,
 )
 
+_CANONICAL_STORAGE_MODES = {
+    ALPACA_SIP_DAILY_DATASET: "raw",
+    ALPACA_SIP_CORP_ACTIONS_DATASET: "not price bars",
+}
+
+_READ_TIME_ADJUSTMENT_MODES = {
+    ALPACA_SIP_DAILY_DATASET: "unavailable",
+    ALPACA_SIP_CORP_ACTIONS_DATASET: "not applicable",
+}
+
 
 def build_manifest_detail_fields(
     summary: AlpacaSipManifestSummaryDTO,
@@ -123,19 +133,11 @@ def _present_detail_fields(
 
 
 def _canonical_storage_mode(dataset: str) -> str:
-    if dataset == ALPACA_SIP_DAILY_DATASET:
-        return "raw"
-    if dataset == ALPACA_SIP_CORP_ACTIONS_DATASET:
-        return "not price bars"
-    return "-"
+    return _CANONICAL_STORAGE_MODES.get(dataset, "-")
 
 
 def _read_time_adjustment_mode(dataset: str) -> str:
-    if dataset == ALPACA_SIP_DAILY_DATASET:
-        return "unavailable"
-    if dataset == ALPACA_SIP_CORP_ACTIONS_DATASET:
-        return "not applicable"
-    return "-"
+    return _READ_TIME_ADJUSTMENT_MODES.get(dataset, "-")
 
 
 def _value(value: Any) -> str:
