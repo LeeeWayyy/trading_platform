@@ -29,6 +29,10 @@ def _resolve_dependencies(
     return ui if ui_module is None else ui_module, logger if logger_obj is None else logger_obj
 
 
+def _normalize_sync_reason(value: Any) -> str:
+    return str(value or "").strip()
+
+
 async def render_data_sync_section(
     user: dict[str, Any],
     sync_service: DataSyncService,
@@ -142,16 +146,15 @@ async def render_sync_status(
 
             async def trigger_sync() -> None:
                 dataset_val = dataset_input.value
+                reason_value = _normalize_sync_reason(reason_input.value)
                 if not dataset_val:
                     ui_ctx.notify("Please select a dataset", type="warning")
                     return
-                if not reason_input.value:
+                if not reason_value:
                     ui_ctx.notify("Please provide a reason for audit logging", type="warning")
                     return
                 try:
-                    job = await sync_service.trigger_sync(
-                        user, str(dataset_val), str(reason_input.value)
-                    )
+                    job = await sync_service.trigger_sync(user, str(dataset_val), reason_value)
                     ui_ctx.notify(f"Sync job {job.id} queued for {job.dataset}", type="positive")
                     reason_input.value = ""
                 except SyncRateLimitExceeded:

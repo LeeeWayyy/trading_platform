@@ -80,9 +80,7 @@ def test_alpaca_sip_summary_marks_partial_companion_missing(tmp_path: Path) -> N
     updated = summary.apply_to_source_spec({"status": "unknown"})
     assert updated["status"] == "error"
     assert updated["row_count"] == 42
-    assert updated["error_message"] == (
-        f"Missing SIP manifests: {ALPACA_SIP_CORP_ACTIONS_DATASET}"
-    )
+    assert updated["error_message"] == (f"Missing SIP manifests: {ALPACA_SIP_CORP_ACTIONS_DATASET}")
 
 
 def test_alpaca_sip_summary_exposes_raw_daily_provenance(tmp_path: Path) -> None:
@@ -137,6 +135,7 @@ def test_provider_signature_sanitizer_drops_unknown_sensitive_fields() -> None:
             "manifest_reference": "https://example.test/file?X-Amz-Signature=secret",
             "provider_version": "Bearer abc.def.ghi",
             "schema_version": "password=hunter2",
+            "query_params_hash": "https://user:password@example.test/path",
             "auth_header": "Bearer secret",
             "submit_token": "secret-token",
             "raw_request_body": "x" * 4096,

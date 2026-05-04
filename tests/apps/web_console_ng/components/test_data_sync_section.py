@@ -41,3 +41,8 @@ def test_build_sync_status_table_accepts_explicit_ui_module() -> None:
     data_sync_section.build_sync_status_table([status], ui_module=ui_module)
 
     ui_module.table.assert_called_once()
+
+
+def test_normalize_sync_reason_strips_whitespace() -> None:
+    assert data_sync_section._normalize_sync_reason("  backfill gap  ") == "backfill gap"
+    assert data_sync_section._normalize_sync_reason("   ") == ""

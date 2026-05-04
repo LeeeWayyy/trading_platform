@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, BaseModel
 
@@ -109,12 +110,7 @@ def _sanitize_string_mapping(value: Any) -> dict[str, str]:
             break
         key = str(raw_key)
         mapped = str(raw_value)
-        if (
-            key
-            and mapped
-            and _is_safe_string_value(key)
-            and _is_safe_string_value(mapped)
-        ):
+        if key and mapped and _is_safe_string_value(key) and _is_safe_string_value(mapped):
             result[key] = mapped
     return result
 
@@ -138,8 +134,19 @@ def _is_safe_string_value(value: str) -> bool:
     lowered = value.lower()
     return not (
         any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS)
+        or _contains_uri_userinfo(value)
         or _looks_like_jwt(value)
     )
+
+
+def _contains_uri_userinfo(value: str) -> bool:
+    if "@" not in value:
+        return False
+    try:
+        parsed = urlsplit(value.strip())
+    except ValueError:
+        return "://" in value or value.startswith("//")
+    return bool(parsed.netloc and (parsed.username is not None or parsed.password is not None))
 
 
 def _looks_like_jwt(value: str) -> bool:
