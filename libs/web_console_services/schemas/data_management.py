@@ -6,7 +6,8 @@ Covers data sync, dataset exploration, and data quality reporting.
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import date
+from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel
 
@@ -120,6 +121,75 @@ class SyncJobDTO(BaseModel):
     completed_at: AwareDatetime | None = None
     row_count: int | None = None
     error: str | None = None
+
+
+class DataAcquisitionRequestDTO(BaseModel):
+    """Preflight request for UI-triggered data acquisition."""
+
+    dataset: str
+    start_date: date
+    end_date: date
+    symbol_source: str
+    mode: Literal["backfill"] = "backfill"
+    adjustment_mode: Literal["raw"] | None = None
+    reason: str
+    dry_run: bool = True
+
+
+class DataAcquisitionPreflightDTO(BaseModel):
+    """Preflight result with a one-use submit token."""
+
+    dataset: str
+    start_date: date
+    end_date: date
+    requested_start_date: date | None = None
+    requested_end_date: date | None = None
+    symbol_source: str
+    mode: str
+    dry_run: bool
+    provider_id: str
+    source_feed: str
+    canonical_storage_mode: str
+    read_time_adjustment_mode: str | None = None
+    adjustment_mode: str | None = None
+    idempotency_key: str
+    submit_token: str
+    submit_token_expires_at: AwareDatetime
+    submit_token_status: Literal["active", "expired", "consumed"] = "active"
+    supported_semantics: list[str]
+    warnings: list[str]
+    logs: list[str]
+
+
+class DataAcquisitionSubmitDTO(BaseModel):
+    """Submit payload bound to a prior acquisition preflight."""
+
+    idempotency_key: str
+    submit_token: str
+
+
+class DataAcquisitionJobDTO(BaseModel):
+    """Acquisition job state safe for UI/log display."""
+
+    id: str
+    dataset: str
+    status: Literal["queued", "running", "completed", "failed"]
+    idempotency_key: str
+    mode: str
+    dry_run: bool
+    provider_id: str
+    source_feed: str
+    canonical_storage_mode: str
+    read_time_adjustment_mode: str | None = None
+    adjustment_mode: str | None = None
+    started_at: AwareDatetime | None = None
+    heartbeat_at: AwareDatetime | None = None
+    completed_at: AwareDatetime | None = None
+    submit_token_status: Literal["consumed", "expired"]
+    adapter: str
+    produced_manifest_ids: list[str]
+    validation_output: list[str]
+    logs: list[str]
 
 
 class DatasetInfoDTO(BaseModel):
