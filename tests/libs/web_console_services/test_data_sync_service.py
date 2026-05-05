@@ -271,34 +271,42 @@ class _CancellableProcess:
         self.terminated = False
         self.killed = False
         self.wait_calls = 0
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
         self._release = asyncio.Event()
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        await self._release.wait()
-        return b"", b""
 
     def terminate(self) -> None:
         self.terminated = True
+        self.stdout.feed_eof()
+        self.stderr.feed_eof()
         self._release.set()
 
     def kill(self) -> None:
         self.killed = True
+        self.stdout.feed_eof()
+        self.stderr.feed_eof()
         self._release.set()
 
     async def wait(self) -> int:
         self.wait_calls += 1
+        await self._release.wait()
         return self.returncode
 
 
 class _CompletedProcess:
-    returncode = 0
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return (
+    def __init__(self) -> None:
+        self.returncode = 0
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stdout.feed_data(
             b'MANIFEST_JSON:{"dataset": "alpaca_sip_daily", '
-            b'"manifest_id": "alpaca_sip_daily@v2:test"}\n',
-            b"",
+            b'"manifest_id": "alpaca_sip_daily@v2:test"}\n'
         )
+        self.stdout.feed_eof()
+        self.stderr.feed_eof()
+
+    async def wait(self) -> int:
+        return self.returncode
 
 
 @pytest.fixture()

@@ -401,7 +401,7 @@ return 1
 
     @classmethod
     def from_env(cls) -> _RedisAcquisitionStore:
-        from redis import Redis
+        from redis.asyncio import Redis
 
         redis_url = os.getenv("DATA_ACQUISITION_REDIS_URL")
         if redis_url:
@@ -635,6 +635,12 @@ class _AcquisitionExecutor(Protocol):
         """Execute an acquisition and return manifests, validation output, and logs."""
 
 
+@dataclass(frozen=True)
+class _ProcessStreamCapture:
+    log_lines: list[str]
+    manifest_ids: list[str]
+
+
 class _ScriptBackedAcquisitionExecutor:
     def __init__(self, data_manifest_service: DataManifestService) -> None:
         self._data_manifest_service = data_manifest_service
@@ -657,9 +663,25 @@ class _ScriptBackedAcquisitionExecutor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        stdout_task = asyncio.create_task(
+            self._capture_process_stream(
+                proc.stdout,
+                prefix="stdout",
+                dataset=preflight.dataset,
+            )
+        )
+        stderr_task = asyncio.create_task(
+            self._capture_process_stream(proc.stderr, prefix="stderr")
+        )
         try:
-            stdout, stderr = await proc.communicate()
+            stdout_capture, stderr_capture = await asyncio.gather(
+                stdout_task,
+                stderr_task,
+            )
+            returncode = await proc.wait()
         except asyncio.CancelledError:
+            stdout_task.cancel()
+            stderr_task.cancel()
             with suppress(ProcessLookupError):
                 proc.terminate()
             try:
@@ -668,19 +690,21 @@ class _ScriptBackedAcquisitionExecutor:
                 with suppress(ProcessLookupError):
                     proc.kill()
                 await proc.wait()
+            with suppress(asyncio.CancelledError):
+                await asyncio.gather(stdout_task, stderr_task)
             raise
         logs = [
             f"command={' '.join(_truncate_command_for_log(command))}",
-            *_decode_process_lines(stdout, prefix="stdout"),
-            *_decode_process_lines(stderr, prefix="stderr"),
+            *stdout_capture.log_lines,
+            *stderr_capture.log_lines,
         ]
-        if proc.returncode != 0:
+        if returncode != 0:
             raise _AcquisitionExecutionError(
-                f"Acquisition adapter failed with exit code {proc.returncode}",
+                f"Acquisition adapter failed with exit code {returncode}",
                 logs,
             )
 
-        manifest_ids = self._manifest_ids_from_stdout(preflight.dataset, stdout)
+        manifest_ids = stdout_capture.manifest_ids
         return (
             manifest_ids or self._produced_manifest_ids(preflight.dataset),
             ["preflight_passed", "adapter_completed", "manifest_validation_pending"],
@@ -688,26 +712,63 @@ class _ScriptBackedAcquisitionExecutor:
         )
 
     @staticmethod
+    async def _capture_process_stream(
+        stream: asyncio.StreamReader | None,
+        *,
+        prefix: str,
+        dataset: str | None = None,
+    ) -> _ProcessStreamCapture:
+        if stream is None:
+            return _ProcessStreamCapture(log_lines=[], manifest_ids=[])
+
+        log_lines: list[str] = []
+        manifest_ids: list[str] = []
+        while line := await stream.readline():
+            decoded_line = line.decode(errors="replace").rstrip("\r\n")
+            if dataset is not None and not manifest_ids:
+                manifest_ids = _ScriptBackedAcquisitionExecutor._manifest_ids_from_stdout_line(
+                    dataset,
+                    decoded_line,
+                )
+            if not decoded_line:
+                continue
+            log_lines.append(f"{prefix}:{_sanitize_log_message(decoded_line)[:500]}")
+            if len(log_lines) > 20:
+                del log_lines[: len(log_lines) - 20]
+
+        return _ProcessStreamCapture(log_lines=log_lines, manifest_ids=manifest_ids)
+
+    @staticmethod
     def _manifest_ids_from_stdout(dataset: str, stdout: bytes) -> list[str]:
         for line in stdout.decode(errors="replace").splitlines():
-            if not line.startswith(_MANIFEST_OUTPUT_PREFIX):
-                continue
-            try:
-                payload = json.loads(line.removeprefix(_MANIFEST_OUTPUT_PREFIX))
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict) or str(payload.get("dataset", "")) != dataset:
-                continue
-            manifest_id = str(payload.get("manifest_id") or "").strip()
-            if manifest_id:
-                return [manifest_id]
-            try:
-                version = int(payload["manifest_version"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            checksum = str(payload.get("checksum") or "").strip()
-            if checksum:
-                return [f"{dataset}@v{version}:{checksum}"]
+            manifest_ids = _ScriptBackedAcquisitionExecutor._manifest_ids_from_stdout_line(
+                dataset,
+                line,
+            )
+            if manifest_ids:
+                return manifest_ids
+        return []
+
+    @staticmethod
+    def _manifest_ids_from_stdout_line(dataset: str, line: str) -> list[str]:
+        if not line.startswith(_MANIFEST_OUTPUT_PREFIX):
+            return []
+        try:
+            payload = json.loads(line.removeprefix(_MANIFEST_OUTPUT_PREFIX))
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(payload, dict) or str(payload.get("dataset", "")) != dataset:
+            return []
+        manifest_id = str(payload.get("manifest_id") or "").strip()
+        if manifest_id:
+            return [manifest_id]
+        try:
+            version = int(payload["manifest_version"])
+        except (KeyError, TypeError, ValueError):
+            return []
+        checksum = str(payload.get("checksum") or "").strip()
+        if checksum:
+            return [f"{dataset}@v{version}:{checksum}"]
         return []
 
     def _produced_manifest_ids(self, dataset: str) -> list[str]:
@@ -925,13 +986,6 @@ def _format_exception_for_log(exc: BaseException) -> str:
     message = _sanitize_log_message(str(exc))
     detail = f"{type(exc).__name__}:{message}" if message else type(exc).__name__
     return detail if len(detail) <= 320 else f"{detail[:317]}..."
-
-
-def _decode_process_lines(payload: bytes, *, prefix: str) -> list[str]:
-    text = payload.decode(errors="replace").strip()
-    if not text:
-        return []
-    return [f"{prefix}:{_sanitize_log_message(line)[:500]}" for line in text.splitlines()[-20:]]
 
 
 class DataSyncService:
