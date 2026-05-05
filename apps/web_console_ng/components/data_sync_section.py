@@ -256,6 +256,16 @@ async def render_sync_status(
                 if preflight is None:
                     ui_ctx.notify("Run preflight before submitting", type="warning")
                     return
+
+                def clear_preflight_after_submit_error(
+                    message: str,
+                    *,
+                    msg_type: str = "warning",
+                ) -> None:
+                    preflight_state["value"] = None
+                    preflight_container.clear()
+                    ui_ctx.notify(message, type=msg_type)
+
                 try:
                     job = await sync_service.submit_acquisition(
                         user,
@@ -277,20 +287,12 @@ async def render_sync_status(
                     )
                     ui_ctx.notify(notification, type="positive")
                 except SyncPreflightRequired as e:
-                    preflight_state["value"] = None
-                    preflight_container.clear()
-                    ui_ctx.notify(str(e), type="warning")
+                    clear_preflight_after_submit_error(str(e))
                 except SyncRateLimitExceeded:
-                    preflight_state["value"] = None
-                    preflight_container.clear()
-                    ui_ctx.notify("Rate limit reached; wait before retrying", type="warning")
+                    clear_preflight_after_submit_error("Rate limit reached; wait before retrying")
                 except PermissionError as e:
-                    preflight_state["value"] = None
-                    preflight_container.clear()
-                    ui_ctx.notify(str(e), type="negative")
+                    clear_preflight_after_submit_error(str(e), msg_type="negative")
                 except Exception:
-                    preflight_state["value"] = None
-                    preflight_container.clear()
                     logger_ctx.exception(
                         "service_call_failed",
                         extra={
@@ -300,7 +302,7 @@ async def render_sync_status(
                             "user_id": get_user_id_safe(user),
                         },
                     )
-                    ui_ctx.notify("Service temporarily unavailable", type="warning")
+                    clear_preflight_after_submit_error("Service temporarily unavailable")
 
             ui_ctx.button("Preflight", on_click=run_preflight, color="primary")
             ui_ctx.button("Submit Job", on_click=submit_preflight).props("outline")

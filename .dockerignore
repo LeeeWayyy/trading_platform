@@ -72,9 +72,7 @@ docker-compose*.yml
 .dockerignore
 
 # Scripts (only web-console data acquisition adapters are needed in containers)
-scripts/*
-!scripts/data/
-scripts/data/*
+scripts/**
 !scripts/data/__init__.py
 !scripts/data/alpaca_sip_sync.py
 !scripts/data/alpaca_corp_actions_sync.py

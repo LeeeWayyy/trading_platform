@@ -15,6 +15,7 @@ import re
 import secrets
 import sys
 import weakref
+from collections import deque
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -738,7 +739,7 @@ class _ScriptBackedAcquisitionExecutor:
         if stream is None:
             return _ProcessStreamCapture(log_lines=[], manifest_ids=[])
 
-        log_lines: list[str] = []
+        log_lines: deque[str] = deque(maxlen=20)
         manifest_ids: list[str] = []
         while line := await stream.readline():
             decoded_line = line.decode(errors="replace").rstrip("\r\n")
@@ -750,10 +751,8 @@ class _ScriptBackedAcquisitionExecutor:
             if not decoded_line:
                 continue
             log_lines.append(f"{prefix}:{_sanitize_log_message(decoded_line)[:500]}")
-            if len(log_lines) > 20:
-                del log_lines[: len(log_lines) - 20]
 
-        return _ProcessStreamCapture(log_lines=log_lines, manifest_ids=manifest_ids)
+        return _ProcessStreamCapture(log_lines=list(log_lines), manifest_ids=manifest_ids)
 
     @staticmethod
     def _manifest_ids_from_stdout(dataset: str, stdout: bytes) -> list[str]:
