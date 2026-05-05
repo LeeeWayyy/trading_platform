@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -245,8 +246,6 @@ class _AsyncFakeRedisPipeline:
 
 
 class _AsyncFakeRedis:
-    __module__ = "redis.asyncio.client"
-
     def __init__(self) -> None:
         self._sync = _FakeRedis()
 
@@ -289,6 +288,17 @@ class _CancellableProcess:
     async def wait(self) -> int:
         self.wait_calls += 1
         return self.returncode
+
+
+class _CompletedProcess:
+    returncode = 0
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        return (
+            b'MANIFEST_JSON:{"dataset": "alpaca_sip_daily", '
+            b'"manifest_id": "alpaca_sip_daily@v2:test"}\n',
+            b"",
+        )
 
 
 @pytest.fixture()
@@ -779,7 +789,9 @@ async def test_background_acquisition_observes_store_update_failure(
     assert job.status == "running"
     assert not service._background_acquisition_tasks  # noqa: SLF001
     failure_records = [
-        record for record in caplog.records if record.message == "background_acquisition_task_failed"
+        record
+        for record in caplog.records
+        if record.message == "background_acquisition_task_failed"
     ]
     assert failure_records
     assert failure_records[-1].__dict__["job_id"] == job.id
@@ -790,12 +802,59 @@ async def test_background_acquisition_observes_store_update_failure(
 
 
 @pytest.mark.asyncio()
+async def test_script_executor_builds_command_off_event_loop_thread(
+    monkeypatch: pytest.MonkeyPatch,
+    rate_limiter: AsyncMock,
+    operator_user: DummyUser,
+) -> None:
+    loop_thread_id = threading.get_ident()
+    build_thread_id: int | None = None
+
+    def fake_build_acquisition_command(
+        _preflight: DataAcquisitionPreflightDTO,
+    ) -> list[str]:
+        nonlocal build_thread_id
+        build_thread_id = threading.get_ident()
+        return ["python", "-c", "pass"]
+
+    async def fake_create_subprocess_exec(*_args: Any, **_kwargs: Any) -> _CompletedProcess:
+        return _CompletedProcess()
+
+    monkeypatch.setattr(
+        data_sync_module,
+        "_build_acquisition_command",
+        fake_build_acquisition_command,
+    )
+    monkeypatch.setattr(
+        asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    service = DataSyncService(rate_limiter=rate_limiter)
+    preflight = await service.preflight_acquisition(
+        operator_user,
+        _daily_acquisition_request(dry_run=False),
+    )
+    executor = data_sync_module._ScriptBackedAcquisitionExecutor(DataManifestService())  # noqa: SLF001
+
+    manifest_ids, validation_output, logs = await executor.run(preflight)
+
+    assert build_thread_id is not None
+    assert build_thread_id != loop_thread_id
+    assert manifest_ids == ["alpaca_sip_daily@v2:test"]
+    assert "adapter_completed" in validation_output
+    assert "command=python -c pass" in logs
+
+
+@pytest.mark.asyncio()
 async def test_script_executor_terminates_subprocess_on_cancellation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     proc = _CancellableProcess()
+    proc_created = asyncio.Event()
 
     async def fake_create_subprocess_exec(*_args: Any, **_kwargs: Any) -> _CancellableProcess:
+        proc_created.set()
         return proc
 
     monkeypatch.setattr(
@@ -825,7 +884,7 @@ async def test_script_executor_terminates_subprocess_on_cancellation(
     )
 
     task = asyncio.create_task(executor.run(preflight))
-    await asyncio.sleep(0)
+    await asyncio.wait_for(proc_created.wait(), timeout=1)
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
@@ -1525,6 +1584,7 @@ async def test_redis_acquisition_store_reuses_only_active_or_successful_jobs() -
     assert stored_retry is not None
     assert stored_retry.id == "job-retry"
 
+
 @pytest.mark.asyncio()
 async def test_in_memory_acquisition_store_reuses_fresh_heartbeat_job() -> None:
     state = _fresh_acquisition_state()
@@ -1551,9 +1611,7 @@ async def test_in_memory_acquisition_store_reuses_fresh_heartbeat_job() -> None:
     assert duplicate is not None
     assert duplicate.id == "job-long-running"
 
-    mismatched_completion = retry.model_copy(
-        update={"status": "completed", "completed_at": now}
-    )
+    mismatched_completion = retry.model_copy(update={"status": "completed", "completed_at": now})
     await store.update_job(mismatched_completion, now)
 
     stored = state.acquisition_jobs[idempotency_key]
@@ -1582,9 +1640,7 @@ async def test_in_memory_acquisition_store_rejects_late_heartbeat_after_terminal
         }
     )
     await store.update_job(completed, now)
-    late_heartbeat = running.model_copy(
-        update={"heartbeat_at": now + timedelta(seconds=1)}
-    )
+    late_heartbeat = running.model_copy(update={"heartbeat_at": now + timedelta(seconds=1)})
     await store.update_job(late_heartbeat, now + timedelta(seconds=1))
 
     stored = state.acquisition_jobs[idempotency_key]
@@ -1618,9 +1674,7 @@ async def test_redis_acquisition_store_reuses_fresh_heartbeat_job() -> None:
     assert duplicate is not None
     assert duplicate.id == "job-long-running"
 
-    mismatched_completion = retry.model_copy(
-        update={"status": "completed", "completed_at": now}
-    )
+    mismatched_completion = retry.model_copy(update={"status": "completed", "completed_at": now})
     await store.update_job(mismatched_completion, now)
     stored_after_mismatched_update = await store.get_reusable_job(idempotency_key, now)
     assert stored_after_mismatched_update is not None
@@ -1647,9 +1701,7 @@ async def test_redis_acquisition_store_rejects_late_heartbeat_after_terminal() -
         }
     )
     await store.update_job(completed, now)
-    late_heartbeat = running.model_copy(
-        update={"heartbeat_at": now + timedelta(seconds=1)}
-    )
+    late_heartbeat = running.model_copy(update={"heartbeat_at": now + timedelta(seconds=1)})
     await store.update_job(late_heartbeat, now + timedelta(seconds=1))
 
     stored = await store.get_reusable_job(idempotency_key, now + timedelta(seconds=1))
@@ -1745,6 +1797,44 @@ async def test_acquisition_state_cleanup_removes_expired_tokens_and_bounds_jobs(
     assert token_key not in service._preflight_tokens  # noqa: SLF001
     assert stale_key not in service._acquisition_jobs  # noqa: SLF001
     assert len(service._acquisition_jobs) == data_sync_module._ACQUISITION_MAX_JOBS  # noqa: SLF001
+
+
+@pytest.mark.asyncio()
+async def test_background_acquisition_times_out_hung_executor(
+    monkeypatch: pytest.MonkeyPatch,
+    rate_limiter: AsyncMock,
+    operator_user: DummyUser,
+) -> None:
+    monkeypatch.setattr(data_sync_module, "_ACQUISITION_EXECUTION_TIMEOUT_SECONDS", 0.01)
+    executor = _BlockingAcquisitionExecutor()
+    service = DataSyncService(
+        rate_limiter=rate_limiter,
+        acquisition_state=_fresh_acquisition_state(),
+        acquisition_executor=executor,
+    )
+    preflight = await service.preflight_acquisition(
+        operator_user,
+        _daily_acquisition_request(dry_run=False),
+    )
+    job = await service.submit_acquisition(
+        operator_user,
+        DataAcquisitionSubmitDTO(
+            idempotency_key=preflight.idempotency_key,
+            submit_token=preflight.submit_token,
+        ),
+    )
+    await executor.started.wait()
+
+    await asyncio.gather(
+        *list(service._background_acquisition_tasks),  # noqa: SLF001
+        return_exceptions=True,
+    )
+
+    stored = service._acquisition_jobs[preflight.idempotency_key]  # noqa: SLF001
+    assert stored.id == job.id
+    assert stored.status == "failed"
+    assert "TimeoutError" in stored.validation_output
+    assert not service._background_acquisition_tasks  # noqa: SLF001
 
 
 @pytest.mark.asyncio()

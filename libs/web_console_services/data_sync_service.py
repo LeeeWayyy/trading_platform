@@ -20,7 +20,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
-from inspect import isawaitable
+from inspect import isawaitable, iscoroutinefunction
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 from uuid import uuid4
@@ -71,6 +71,10 @@ _ACQUISITION_BACKGROUND_CONCURRENCY = max(
 _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS = max(
     1,
     int(os.getenv("DATA_ACQUISITION_HEARTBEAT_INTERVAL_SECONDS", "30")),
+)
+_ACQUISITION_EXECUTION_TIMEOUT_SECONDS = max(
+    _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS,
+    int(os.getenv("DATA_ACQUISITION_EXECUTION_TIMEOUT_SECONDS", "21600")),
 )
 _ACQUISITION_ACTIVE_JOB_STALE_SECONDS = max(
     _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS * 3,
@@ -318,6 +322,19 @@ class _InMemoryAcquisitionStore:
             del self.acquisition_jobs[key]
 
 
+def _is_async_redis_client(redis_client: Any) -> bool:
+    with suppress(ImportError):
+        from redis.asyncio import Redis as AsyncRedis
+
+        if isinstance(redis_client, AsyncRedis):
+            return True
+
+    return any(
+        iscoroutinefunction(getattr(redis_client, method_name, None))
+        for method_name in ("eval", "get", "hget", "delete")
+    )
+
+
 class _RedisAcquisitionStore:
     _CONSUME_TOKEN_SCRIPT = """
 local token_hash = redis.call("HGET", KEYS[1], "token_hash")
@@ -380,7 +397,7 @@ return 1
 
     def __init__(self, redis_client: Any) -> None:
         self._redis = redis_client
-        self._redis_is_async = type(redis_client).__module__.startswith("redis.asyncio")
+        self._redis_is_async = _is_async_redis_client(redis_client)
 
     @classmethod
     def from_env(cls) -> _RedisAcquisitionStore:
@@ -471,9 +488,7 @@ return 1
             payload,
             str(_ACQUISITION_JOB_RETENTION_SECONDS),
             str(
-                _datetime_epoch_us(
-                    _now - timedelta(seconds=_ACQUISITION_ACTIVE_JOB_STALE_SECONDS)
-                )
+                _datetime_epoch_us(_now - timedelta(seconds=_ACQUISITION_ACTIVE_JOB_STALE_SECONDS))
             ),
         )
         if existing is None:
@@ -635,7 +650,7 @@ class _ScriptBackedAcquisitionExecutor:
                 ["dry_run_completed", f"adapter={_adapter_for_dataset(preflight.dataset)}"],
             )
 
-        command = _build_acquisition_command(preflight)
+        command = await asyncio.to_thread(_build_acquisition_command, preflight)
         proc = await asyncio.create_subprocess_exec(
             *command,
             cwd=_REPO_ROOT,
@@ -1510,7 +1525,10 @@ class DataSyncService:
         try:
             heartbeat_task = asyncio.create_task(self._heartbeat_acquisition_job(job))
             async with _background_acquisition_semaphore():
-                updated_job = await self._run_acquisition_job(job, preflight)
+                updated_job = await asyncio.wait_for(
+                    self._run_acquisition_job(job, preflight),
+                    timeout=_ACQUISITION_EXECUTION_TIMEOUT_SECONDS,
+                )
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -1564,16 +1582,22 @@ class DataSyncService:
             raise
 
     async def _heartbeat_acquisition_job(self, job: DataAcquisitionJobDTO) -> None:
+        loop = asyncio.get_running_loop()
+        next_heartbeat_at = loop.time() + _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS
         while True:
-            await asyncio.sleep(_ACQUISITION_HEARTBEAT_INTERVAL_SECONDS)
-            heartbeat_job = job.model_copy(update={"heartbeat_at": datetime.now(UTC)})
+            await asyncio.sleep(max(0.0, next_heartbeat_at - loop.time()))
+            heartbeat_started_at = datetime.now(UTC)
+            heartbeat_job = job.model_copy(update={"heartbeat_at": heartbeat_started_at})
             try:
-                await self._acquisition_store.update_job(heartbeat_job, datetime.now(UTC))
+                await self._acquisition_store.update_job(heartbeat_job, heartbeat_started_at)
             except Exception:
                 logger.exception(
                     "background_acquisition_heartbeat_failed",
                     extra={"job_id": job.id, "dataset": job.dataset},
                 )
+            next_heartbeat_at += _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS
+            if next_heartbeat_at <= loop.time():
+                next_heartbeat_at = loop.time() + _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS
 
     async def _run_acquisition_job(
         self,
