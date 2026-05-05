@@ -62,7 +62,6 @@ _ACQUISITION_JOB_RETENTION_SECONDS = 86_400
 _ACQUISITION_MAX_PREFLIGHT_TOKENS = 512
 _ACQUISITION_MAX_JOBS = 256
 _ACQUISITION_MAX_DATE_RANGE_DAYS = 5_500
-_ACQUISITION_REUSABLE_JOB_STATUSES = frozenset({"queued", "running", "completed"})
 _ACQUISITION_TERMINAL_JOB_STATUSES = frozenset({"completed", "failed"})
 _ACQUISITION_BACKGROUND_CONCURRENCY = max(
     1,
@@ -79,6 +78,15 @@ _ACQUISITION_EXECUTION_TIMEOUT_SECONDS = max(
 _ACQUISITION_ACTIVE_JOB_STALE_SECONDS = max(
     _ACQUISITION_HEARTBEAT_INTERVAL_SECONDS * 3,
     int(os.getenv("DATA_ACQUISITION_ACTIVE_JOB_STALE_SECONDS", "300")),
+)
+_ACQUISITION_QUEUED_JOB_STALE_SECONDS = max(
+    _ACQUISITION_ACTIVE_JOB_STALE_SECONDS,
+    int(
+        os.getenv(
+            "DATA_ACQUISITION_QUEUED_JOB_STALE_SECONDS",
+            str(_ACQUISITION_EXECUTION_TIMEOUT_SECONDS),
+        )
+    ),
 )
 _ACQUISITION_MAX_SYMBOLS_FROM_FILE = 5_000
 _SYMBOL_FILE_PREFIX = "data/symbols/"
@@ -365,7 +373,13 @@ local status = decoded["status"]
 if status == "completed" then
   return existing
 end
-if status == "queued" or status == "running" then
+if status == "queued" then
+  local queued_epoch_us = tonumber(decoded["started_at_epoch_us"] or "0")
+  if queued_epoch_us >= tonumber(ARGV[4]) then
+    return existing
+  end
+end
+if status == "running" then
   local active_epoch_us = tonumber(decoded["heartbeat_at_epoch_us"] or decoded["started_at_epoch_us"] or "0")
   if active_epoch_us >= tonumber(ARGV[3]) then
     return existing
@@ -489,6 +503,9 @@ return 1
             str(_ACQUISITION_JOB_RETENTION_SECONDS),
             str(
                 _datetime_epoch_us(_now - timedelta(seconds=_ACQUISITION_ACTIVE_JOB_STALE_SECONDS))
+            ),
+            str(
+                _datetime_epoch_us(_now - timedelta(seconds=_ACQUISITION_QUEUED_JOB_STALE_SECONDS))
             ),
         )
         if existing is None:
@@ -919,7 +936,14 @@ def _hash_symbol_list(symbols: Sequence[str]) -> str:
 def _is_reusable_acquisition_job(job: DataAcquisitionJobDTO, _now: datetime) -> bool:
     if job.status == "completed":
         return True
-    if job.status not in _ACQUISITION_REUSABLE_JOB_STATUSES:
+    if job.status == "queued":
+        queued_at = job.started_at
+        if queued_at is None:
+            return False
+        return (_now - queued_at.astimezone(UTC)) <= timedelta(
+            seconds=_ACQUISITION_QUEUED_JOB_STALE_SECONDS
+        )
+    if job.status != "running":
         return False
     active_at = job.heartbeat_at or job.started_at
     if active_at is None:
@@ -1523,24 +1547,15 @@ class DataSyncService:
         job: DataAcquisitionJobDTO,
         preflight: DataAcquisitionPreflightDTO,
     ) -> DataAcquisitionJobDTO:
-        now = datetime.now(UTC)
         if preflight.dry_run:
             completed_job = await self._run_acquisition_job(job, preflight)
             await self._acquisition_store.update_job(completed_job, datetime.now(UTC))
             return completed_job
 
-        running_job = job.model_copy(
-            update={
-                "status": "running",
-                "heartbeat_at": now,
-                "logs": [*job.logs, "job_started"],
-            }
-        )
-        await self._acquisition_store.update_job(running_job, now)
-        task = asyncio.create_task(self._run_and_store_acquisition_job(running_job, preflight))
+        task = asyncio.create_task(self._run_and_store_acquisition_job(job, preflight))
         self._background_acquisition_tasks.add(task)
-        task.add_done_callback(partial(self._observe_background_acquisition_task, job=running_job))
-        return running_job
+        task.add_done_callback(partial(self._observe_background_acquisition_task, job=job))
+        return job
 
     def _observe_background_acquisition_task(
         self,
@@ -1571,11 +1586,22 @@ class DataSyncService:
         preflight: DataAcquisitionPreflightDTO,
     ) -> None:
         heartbeat_task: asyncio.Task[None] | None = None
+        active_job = job
         try:
-            heartbeat_task = asyncio.create_task(self._heartbeat_acquisition_job(job))
             async with _background_acquisition_semaphore():
+                now = datetime.now(UTC)
+                active_job = job.model_copy(
+                    update={
+                        "status": "running",
+                        "started_at": now,
+                        "heartbeat_at": now,
+                        "logs": [*job.logs, "job_started"],
+                    }
+                )
+                await self._acquisition_store.update_job(active_job, now)
+                heartbeat_task = asyncio.create_task(self._heartbeat_acquisition_job(active_job))
                 updated_job = await asyncio.wait_for(
-                    self._run_acquisition_job(job, preflight),
+                    self._run_acquisition_job(active_job, preflight),
                     timeout=_ACQUISITION_EXECUTION_TIMEOUT_SECONDS,
                 )
             if heartbeat_task is not None:
@@ -1588,12 +1614,12 @@ class DataSyncService:
                 heartbeat_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await heartbeat_task
-            cancelled_job = job.model_copy(
+            cancelled_job = active_job.model_copy(
                 update={
                     "status": "failed",
                     "completed_at": datetime.now(UTC),
-                    "validation_output": [*job.validation_output, "acquisition_cancelled"],
-                    "logs": [*job.logs, "job_cancelled_during_shutdown"],
+                    "validation_output": [*active_job.validation_output, "acquisition_cancelled"],
+                    "logs": [*active_job.logs, "job_cancelled_during_shutdown"],
                 }
             )
             try:
@@ -1609,16 +1635,16 @@ class DataSyncService:
                 heartbeat_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await heartbeat_task
-            failed_job = job.model_copy(
+            failed_job = active_job.model_copy(
                 update={
                     "status": "failed",
                     "completed_at": datetime.now(UTC),
                     "validation_output": [
-                        *job.validation_output,
+                        *active_job.validation_output,
                         "background_acquisition_failed",
                         type(exc).__name__,
                     ],
-                    "logs": [*job.logs, f"error={_format_exception_for_log(exc)}"],
+                    "logs": [*active_job.logs, f"error={_format_exception_for_log(exc)}"],
                 }
             )
             try:

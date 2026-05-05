@@ -173,7 +173,15 @@ class _FakeRedis:
             existing_job = DataAcquisitionJobDTO.model_validate_json(existing)
             if existing_job.status == "completed":
                 return existing
-            if existing_job.status in {"queued", "running"}:
+            if existing_job.status == "queued":
+                queued_epoch_us = (
+                    int(data_sync_module._datetime_epoch_us(existing_job.started_at))  # noqa: SLF001
+                    if existing_job.started_at is not None
+                    else 0
+                )
+                if queued_epoch_us >= int(args[3]):
+                    return existing
+            if existing_job.status == "running":
                 active_epoch_us = max(
                     int(data_sync_module._datetime_epoch_us(existing_job.started_at))  # noqa: SLF001
                     if existing_job.started_at is not None
@@ -766,7 +774,7 @@ async def test_submit_acquisition_runs_non_dry_job_and_updates_state(
         await asyncio.gather(*service._background_acquisition_tasks)  # noqa: SLF001
 
     stored = service._acquisition_jobs[preflight.idempotency_key]  # noqa: SLF001
-    assert job.status == "running"
+    assert job.status == "queued"
     assert stored.status == "completed"
     assert stored.produced_manifest_ids == ["alpaca_sip_daily@v2:checksum"]
     assert "executor_completed" in stored.logs
@@ -805,7 +813,7 @@ async def test_background_acquisition_observes_store_update_failure(
             break
         await asyncio.sleep(0)
 
-    assert job.status == "running"
+    assert job.status == "queued"
     assert not service._background_acquisition_tasks  # noqa: SLF001
     failure_records = [
         record
@@ -1639,6 +1647,33 @@ async def test_in_memory_acquisition_store_reuses_fresh_heartbeat_job() -> None:
 
 
 @pytest.mark.asyncio()
+async def test_in_memory_acquisition_store_keeps_queued_job_reusable_beyond_active_stale() -> None:
+    state = _fresh_acquisition_state()
+    store = data_sync_module._InMemoryAcquisitionStore(state)  # noqa: SLF001
+    now = datetime.now(UTC)
+    idempotency_key = "acq_in_memory_queued"
+    queued_at = now - timedelta(
+        seconds=data_sync_module._ACQUISITION_ACTIVE_JOB_STALE_SECONDS + 1  # noqa: SLF001
+    )
+    queued = _daily_acquisition_job(
+        job_id="job-queued",
+        idempotency_key=idempotency_key,
+        status="queued",
+    ).model_copy(update={"started_at": queued_at, "heartbeat_at": queued_at})
+
+    assert await store.reserve_job(queued, queued_at) is None
+    retry = _daily_acquisition_job(
+        job_id="job-retry",
+        idempotency_key=idempotency_key,
+        status="queued",
+    ).model_copy(update={"started_at": now, "heartbeat_at": now, "completed_at": None})
+    duplicate = await store.reserve_job(retry, now)
+
+    assert duplicate is not None
+    assert duplicate.id == "job-queued"
+
+
+@pytest.mark.asyncio()
 async def test_in_memory_acquisition_store_rejects_late_heartbeat_after_terminal() -> None:
     state = _fresh_acquisition_state()
     store = data_sync_module._InMemoryAcquisitionStore(state)  # noqa: SLF001
@@ -1698,6 +1733,32 @@ async def test_redis_acquisition_store_reuses_fresh_heartbeat_job() -> None:
     stored_after_mismatched_update = await store.get_reusable_job(idempotency_key, now)
     assert stored_after_mismatched_update is not None
     assert stored_after_mismatched_update.id == "job-long-running"
+
+
+@pytest.mark.asyncio()
+async def test_redis_acquisition_store_keeps_queued_job_reusable_beyond_active_stale() -> None:
+    store = data_sync_module._RedisAcquisitionStore(_FakeRedis())  # noqa: SLF001
+    now = datetime.now(UTC)
+    idempotency_key = "acq_redis_queued"
+    queued_at = now - timedelta(
+        seconds=data_sync_module._ACQUISITION_ACTIVE_JOB_STALE_SECONDS + 1  # noqa: SLF001
+    )
+    queued = _daily_acquisition_job(
+        job_id="job-queued",
+        idempotency_key=idempotency_key,
+        status="queued",
+    ).model_copy(update={"started_at": queued_at, "heartbeat_at": queued_at})
+
+    assert await store.reserve_job(queued, queued_at) is None
+    retry = _daily_acquisition_job(
+        job_id="job-retry",
+        idempotency_key=idempotency_key,
+        status="queued",
+    ).model_copy(update={"started_at": now, "heartbeat_at": now, "completed_at": None})
+    duplicate = await store.reserve_job(retry, now)
+
+    assert duplicate is not None
+    assert duplicate.id == "job-queued"
 
 
 @pytest.mark.asyncio()
@@ -1924,7 +1985,7 @@ async def test_background_acquisition_concurrency_is_shared_across_services(
             ),
         )
         await first_executor.started.wait()
-        await second_service.submit_acquisition(
+        second_job = await second_service.submit_acquisition(
             operator_user,
             DataAcquisitionSubmitDTO(
                 idempotency_key=second_preflight.idempotency_key,
@@ -1933,11 +1994,22 @@ async def test_background_acquisition_concurrency_is_shared_across_services(
         )
         await asyncio.sleep(0.05)
 
+        queued_second = second_service._acquisition_jobs[  # noqa: SLF001
+            second_preflight.idempotency_key
+        ]
+        assert second_job.status == "queued"
+        assert queued_second.status == "queued"
+        assert "job_started" not in queued_second.logs
         assert not second_executor.started.is_set()
 
         first_executor.release.set()
         await first_service.close()
         await asyncio.wait_for(second_executor.started.wait(), timeout=1)
+        running_second = second_service._acquisition_jobs[  # noqa: SLF001
+            second_preflight.idempotency_key
+        ]
+        assert running_second.status == "running"
+        assert "job_started" in running_second.logs
     finally:
         first_executor.release.set()
         second_executor.release.set()
