@@ -1016,24 +1016,19 @@ class DataSyncService:
         selected_store: _AcquisitionStore
         if acquisition_store is not None:
             selected_store = acquisition_store
-            self._acquisition_store = selected_store
-            self._acquisition_lock = asyncio.Lock()
-            self._preflight_tokens: dict[tuple[str, str], _SubmitTokenRecord] = {}
-            self._acquisition_jobs: dict[str, DataAcquisitionJobDTO] = {}
+        elif acquisition_state is not None:
+            selected_store = _InMemoryAcquisitionStore(acquisition_state)
         else:
-            if acquisition_state is not None:
-                selected_store = _InMemoryAcquisitionStore(acquisition_state)
-            else:
-                selected_store = _RedisAcquisitionStore.from_env()
-            self._acquisition_store = selected_store
-            if isinstance(selected_store, _InMemoryAcquisitionStore):
-                self._acquisition_lock = selected_store.lock
-                self._preflight_tokens = selected_store.preflight_tokens
-                self._acquisition_jobs = selected_store.acquisition_jobs
-            else:
-                self._acquisition_lock = asyncio.Lock()
-                self._preflight_tokens = {}
-                self._acquisition_jobs = {}
+            selected_store = _RedisAcquisitionStore.from_env()
+        self._acquisition_store = selected_store
+        self._preflight_tokens: dict[tuple[str, str], _SubmitTokenRecord]
+        self._acquisition_jobs: dict[str, DataAcquisitionJobDTO]
+        if isinstance(selected_store, _InMemoryAcquisitionStore):
+            self._preflight_tokens = selected_store.preflight_tokens
+            self._acquisition_jobs = selected_store.acquisition_jobs
+        else:
+            self._preflight_tokens = {}
+            self._acquisition_jobs = {}
         logger.info(
             "data_acquisition_store_selected",
             extra={"backend": _acquisition_store_backend_name(self._acquisition_store)},

@@ -365,6 +365,17 @@ def test_data_sync_service_logs_acquisition_backend(
     assert backend_records[-1].__dict__["backend"] == "in_memory"
 
 
+def test_data_sync_service_binds_direct_in_memory_store_state(
+    rate_limiter: AsyncMock,
+) -> None:
+    state = _fresh_acquisition_state()
+    store = data_sync_module._InMemoryAcquisitionStore(state)  # noqa: SLF001
+    service = DataSyncService(rate_limiter=rate_limiter, acquisition_store=store)
+
+    assert service._preflight_tokens is state.preflight_tokens  # noqa: SLF001
+    assert service._acquisition_jobs is state.acquisition_jobs  # noqa: SLF001
+
+
 @pytest.mark.asyncio()
 async def test_redis_acquisition_store_supports_async_redis_clients(
     rate_limiter: AsyncMock,
