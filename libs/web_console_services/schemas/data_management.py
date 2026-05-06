@@ -9,7 +9,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
+
+from libs.web_console_services.provider_signature import ProviderSignatureDTO
 
 
 class SyncStatusDTO(BaseModel):
@@ -192,6 +194,14 @@ class DataAcquisitionJobDTO(BaseModel):
     logs: list[str]
 
 
+class QueryTemplateDTO(BaseModel):
+    """Curated query template for one dataset/table."""
+
+    label: str
+    table: str
+    sql: str
+
+
 class DatasetInfoDTO(BaseModel):
     """High-level metadata for a dataset in the explorer."""
 
@@ -201,6 +211,13 @@ class DatasetInfoDTO(BaseModel):
     date_range: dict[str, str] | None = None
     symbol_count: int | None = None
     last_sync: AwareDatetime | None = None
+    tables: list[str] = Field(default_factory=list)
+    queryable_state: str = "unknown"
+    trusted_manifest_backed: bool = False
+    manifest_required: bool = False
+    availability_reason: str | None = None
+    sql_handoff_url: str | None = None
+    query_templates: list[QueryTemplateDTO] = Field(default_factory=list)
 
 
 class DataPreviewDTO(BaseModel):
@@ -208,7 +225,27 @@ class DataPreviewDTO(BaseModel):
 
     columns: list[str]
     rows: list[dict[str, Any]]
-    total_count: int
+    total_count: int = Field(
+        description="Fetched row count, including at most one sentinel row when has_more is true.",
+    )
+    has_more: bool = False
+    table: str | None = None
+    queryable_state: str = "unknown"
+    trusted_manifest_backed: bool = False
+    sql_handoff_url: str | None = None
+    manifest_id: str | None = None
+    manifest_reference: str | None = None
+    manifest_checksum: str | None = None
+    manifest_version: str | None = None
+    provider_id: str | None = None
+    provider_version: str | None = None
+    source_feed: str | None = None
+    adjustment_mode: str | None = None
+    canonical_storage_mode: str | None = None
+    read_time_adjustment_mode: str | None = None
+    provider_signature: ProviderSignatureDTO | None = None
+    null_column_reasons: dict[str, str] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class QueryResultDTO(BaseModel):
@@ -216,9 +253,13 @@ class QueryResultDTO(BaseModel):
 
     columns: list[str]
     rows: list[dict[str, Any]]
-    total_count: int
+    total_count: int = Field(
+        description="Fetched row count, including at most one sentinel row when has_more is true.",
+    )
     has_more: bool
     cursor: str | None = None
+    execution_ms: int | None = None
+    fingerprint: str | None = None
 
 
 class ExportJobDTO(BaseModel):

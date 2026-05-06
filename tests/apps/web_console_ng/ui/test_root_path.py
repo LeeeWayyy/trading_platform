@@ -59,6 +59,24 @@ def test_resolve_rooted_path_from_ui_uses_request_root_path() -> None:
     assert resolve_rooted_path_from_ui("/login", ui_module=ui_module) == "/console/login"
 
 
+def test_resolve_rooted_path_from_ui_preserves_query_string() -> None:
+    ui_module = SimpleNamespace(
+        context=SimpleNamespace(
+            client=SimpleNamespace(
+                request=SimpleNamespace(scope={"root_path": "/console"}),
+            ),
+        ),
+    )
+
+    assert (
+        resolve_rooted_path_from_ui(
+            "/data/sql-explorer?dataset=crsp&query=SELECT+1",
+            ui_module=ui_module,
+        )
+        == "/console/data/sql-explorer?dataset=crsp&query=SELECT+1"
+    )
+
+
 def test_resolve_rooted_path_from_ui_handles_missing_context() -> None:
     ui_module = SimpleNamespace()
 

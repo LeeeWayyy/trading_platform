@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 from nicegui import ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.core.redis_ha import get_redis_store
+from apps.web_console_ng.core.request_query import get_request_query_param
 from apps.web_console_ng.ui.layout import main_layout
 from apps.web_console_ng.ui.root_path import render_client_redirect, resolve_rooted_path_from_ui
 from apps.web_console_ng.ui.trading_layout import apply_compact_grid_options
@@ -24,21 +25,22 @@ from libs.web_console_services.sql_explorer_service import (
     RateLimitExceededError,
     SqlExplorerService,
     can_query_dataset,
+    validate_sql_table_paths,
 )
 from libs.web_console_services.sql_validator import DATASET_TABLES
 
 logger = logging.getLogger(__name__)
 
+_NotifyType = Literal["positive", "negative", "warning", "info", "ongoing"]
 _PATH_CACHE_TTL = 120
 _LARGE_RESULT_THRESHOLD = 200_000
+_MAX_PREFILL_QUERY_CHARS = 8_192
 _path_cache: tuple[dict[str, set[str]], list[str]] | None = None
 _path_cache_ts: float = 0.0
 _path_cache_lock = asyncio.Lock()
 
 
 async def _get_validated_paths() -> tuple[dict[str, set[str]], list[str]]:
-    from libs.web_console_services.sql_explorer_service import _validate_table_paths
-
     global _path_cache, _path_cache_ts
     now = time.monotonic()
     if _path_cache is not None and (now - _path_cache_ts) < _PATH_CACHE_TTL:
@@ -48,10 +50,66 @@ async def _get_validated_paths() -> tuple[dict[str, set[str]], list[str]]:
         now = time.monotonic()
         if _path_cache is not None and (now - _path_cache_ts) < _PATH_CACHE_TTL:
             return _path_cache
-        result = await asyncio.to_thread(_validate_table_paths)
+        result = await asyncio.to_thread(validate_sql_table_paths)
         _path_cache = result
         _path_cache_ts = now
         return result
+
+
+def _get_sql_explorer_prefill_from_request() -> dict[str, str | None]:
+    """Extract optional `/data` handoff parameters from the current request."""
+    try:
+        request = ui.context.client.request
+    except (AttributeError, LookupError, RuntimeError):
+        logger.debug("sql_explorer_prefill_request_unavailable", exc_info=True)
+        return {"dataset": None, "query": None}
+    dataset = get_request_query_param(request=request, key="dataset")
+    query = get_request_query_param(request=request, key="query")
+    return {
+        "dataset": dataset.strip() if dataset else None,
+        "query": query.strip() if query else None,
+    }
+
+
+def _resolve_sql_explorer_prefill(
+    *,
+    allowed_datasets: list[str],
+    requested_dataset: str | None,
+    requested_query: str | None,
+) -> tuple[str, str, list[tuple[str, _NotifyType]]]:
+    """Resolve request handoff state without executing a linked query."""
+    initial_dataset = (
+        requested_dataset if requested_dataset in allowed_datasets else allowed_datasets[0]
+    )
+    prefill_query = ""
+    notifications: list[tuple[str, _NotifyType]] = []
+    if requested_dataset in allowed_datasets and requested_query:
+        prefill_query = requested_query[:_MAX_PREFILL_QUERY_CHARS]
+        notifications.append(("Query editor prefilled from link; review before running", "info"))
+        if len(requested_query) > _MAX_PREFILL_QUERY_CHARS:
+            notifications.append(
+                (
+                    f"Linked query was truncated to {_MAX_PREFILL_QUERY_CHARS:,} characters",
+                    "warning",
+                )
+            )
+    elif requested_query:
+        if requested_dataset:
+            notifications.append(
+                (
+                    "Requested dataset is unavailable or not authorized; "
+                    "linked query was not loaded",
+                    "warning",
+                )
+            )
+        else:
+            notifications.append(
+                ("Linked query was not loaded because no dataset was provided", "warning")
+            )
+    elif requested_dataset:
+        notifications.append(("Requested dataset is unavailable or not authorized", "warning"))
+
+    return initial_dataset, prefill_query, notifications
 
 
 @ui.page("/data/sql-explorer")
@@ -114,6 +172,17 @@ async def sql_explorer_page() -> None:
             ui.label("No queryable datasets available for your account.").classes("text-gray-400")
         return
 
+    prefill = _get_sql_explorer_prefill_from_request()
+    requested_dataset = prefill["dataset"]
+    requested_query = prefill["query"]
+    initial_dataset, prefill_query, prefill_notifications = _resolve_sql_explorer_prefill(
+        allowed_datasets=allowed_datasets,
+        requested_dataset=requested_dataset,
+        requested_query=requested_query,
+    )
+    for message, level in prefill_notifications:
+        ui.notify(message, type=level)
+
     dataset_options = {
         dataset: (
             dataset.upper()
@@ -131,7 +200,7 @@ async def sql_explorer_page() -> None:
         dataset_select = ui.select(
             label="Dataset",
             options=dataset_options,
-            value=allowed_datasets[0],
+            value=initial_dataset,
         ).classes("w-56")
         timeout_select = ui.select(
             label="Timeout",
@@ -185,6 +254,7 @@ async def sql_explorer_page() -> None:
     query_editor = ui.textarea(
         label="SQL Query",
         placeholder="SELECT * FROM crsp_daily WHERE symbol = 'AAPL' LIMIT 100",
+        value=prefill_query,
     ).classes("w-full font-mono")
 
     status_label = ui.label("Run a query to see results").classes("text-sm text-gray-400 mt-1")
@@ -235,7 +305,12 @@ async def sql_explorer_page() -> None:
                             ui.button("Use in editor", on_click=_replay_query).props("flat dense")
 
             def _add_history(
-                fingerprint: str, dataset: str, status: str, rows: int, *, original_sql: str = "",
+                fingerprint: str,
+                dataset: str,
+                status: str,
+                rows: int,
+                *,
+                original_sql: str = "",
             ) -> None:
                 history.insert(
                     0,
@@ -281,8 +356,7 @@ async def sql_explorer_page() -> None:
                 extra={"dataset": dataset, "user_id": user.get("user_id")},
             )
             ui.notify(
-                "No local parquet files found for selected dataset. "
-                "Sync data before querying.",
+                "No local parquet files found for selected dataset. Sync data before querying.",
                 type="warning",
             )
             return

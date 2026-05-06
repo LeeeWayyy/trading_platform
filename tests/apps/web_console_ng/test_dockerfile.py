@@ -6,6 +6,7 @@ def test_web_console_image_includes_data_acquisition_adapters() -> None:
     dockerfile = (repo_root / "apps/web_console_ng/Dockerfile").read_text()
     dockerignore = (repo_root / ".dockerignore").read_text()
     compose = (repo_root / "docker-compose.yml").read_text()
+    requirements = (repo_root / "apps/web_console_ng/requirements.txt").read_text()
 
     assert "scripts/data/alpaca_sip_sync.py" in dockerfile
     assert "scripts/data/alpaca_corp_actions_sync.py" in dockerfile
@@ -19,6 +20,7 @@ def test_web_console_image_includes_data_acquisition_adapters() -> None:
     assert "scripts/data/*" in dockerignore
     assert "!scripts/data/alpaca_sip_sync.py" in dockerignore
     assert "!scripts/data/alpaca_corp_actions_sync.py" in dockerignore
+    assert "duckdb==1.4.4" in requirements
 
     assert "./data:/app/data" in compose
     assert "APP_UID: ${WEB_CONSOLE_UID:-1000}" in compose
