@@ -945,6 +945,38 @@ async def test_list_datasets_filters_alpaca_summary_to_trusted_manifests(
     ]
 
 
+def test_trusted_alpaca_summary_manifests_maps_tables_to_manifest_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        data_explorer_module._ALPACA_SIP_TABLE_MANIFEST_DATASETS,
+        "alpaca_sip_daily",
+        "alpaca_sip_daily_v1",
+    )
+    trusted_manifest = SimpleNamespace(
+        dataset="alpaca_sip_daily_v1",
+        validation_status="passed",
+    )
+    stale_manifest = SimpleNamespace(
+        dataset="alpaca_sip_daily",
+        validation_status="passed",
+    )
+    failed_manifest = SimpleNamespace(
+        dataset="alpaca_sip_daily_v1",
+        validation_status="failed",
+    )
+    summary = SimpleNamespace(
+        manifests=[trusted_manifest, stale_manifest, failed_manifest],
+    )
+
+    manifests = data_explorer_module._trusted_alpaca_summary_manifests(
+        summary,
+        ["alpaca_sip_daily"],
+    )
+
+    assert manifests == [trusted_manifest]
+
+
 @pytest.mark.asyncio()
 async def test_list_datasets_isolates_alpaca_manifest_summary_failure(
     rate_limiter: AsyncMock,

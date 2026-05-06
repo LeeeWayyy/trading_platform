@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -700,14 +701,29 @@ def test_execution_allowed_requires_attestation_in_production(
         module.ensure_sql_explorer_execution_allowed()
 
 
-def test_service_init_requires_attestation_in_production(
+def test_service_init_defers_attestation_probe_in_production(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(module, "_APP_ENV", "production")
     monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false")
+    monkeypatch.setattr(
+        module,
+        "_verify_sandbox",
+        lambda: pytest.fail("constructor should not run sandbox probe"),
+    )
 
+    svc = SqlExplorerService(rate_limiter=_DummyRateLimiter())
+
+    assert svc is not None
+
+
+def test_create_scoped_query_connection_requires_attestation_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(module, "_APP_ENV", "production")
+    monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false")
     with pytest.raises(RuntimeError, match="deploy-attested"):
-        SqlExplorerService(rate_limiter=_DummyRateLimiter())
+        module.create_scoped_query_connection("crsp", available_tables=set())
 
 
 def test_service_init_rate_limiter_guards(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -767,9 +783,32 @@ async def test_execute_query_timeout_interrupts_connection(
             "SELECT * FROM crsp_daily",
             timeout_seconds=0,
             available_tables={"crsp_daily"},
-        )
+    )
 
     assert conn.interrupt_called is True
+    assert conn.closed is True
+
+
+@pytest.mark.asyncio()
+async def test_execute_scoped_query_timeout_waits_for_worker_cleanup() -> None:
+    class SlowConn(_DummyConn):
+        def __init__(self) -> None:
+            super().__init__()
+            self.finished = threading.Event()
+
+        def execute(self, sql: str) -> _DummyConn:
+            del sql
+            time.sleep(0.05)
+            self.finished.set()
+            return self
+
+    conn = SlowConn()
+
+    with pytest.raises(TimeoutError):
+        await module.execute_scoped_query_with_timeout(conn, "SELECT 1", timeout_seconds=0.01)
+
+    assert conn.interrupt_called is True
+    assert conn.finished.is_set()
 
 
 @pytest.mark.asyncio()
@@ -835,23 +874,44 @@ async def test_execute_query_audit_statuses(
     with pytest.raises(RateLimitExceededError):
         await service_rl.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
+    original_execute_frame = module.execute_scoped_query_frame_with_timeout
+
     # concurrency_limit
-    async def raise_concurrency(conn: Any, sql: str, timeout_seconds: int) -> pl.DataFrame:
-        del conn, sql, timeout_seconds
+    async def raise_concurrency(
+        dataset: str,
+        sql: str,
+        timeout_seconds: int,
+        *,
+        available_tables: set[str],
+        table_paths: dict[str, module.TablePathSpec] | None = None,
+    ) -> pl.DataFrame:
+        del dataset, sql, timeout_seconds, available_tables, table_paths
         raise ConcurrencyLimitError("busy")
 
-    monkeypatch.setattr(module, "_execute_query_with_timeout", raise_concurrency)
+    monkeypatch.setattr(module, "execute_scoped_query_frame_with_timeout", raise_concurrency)
     with pytest.raises(ConcurrencyLimitError):
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
     # timeout
-    async def raise_timeout(conn: Any, sql: str, timeout_seconds: int) -> pl.DataFrame:
-        del conn, sql, timeout_seconds
+    async def raise_timeout(
+        dataset: str,
+        sql: str,
+        timeout_seconds: int,
+        *,
+        available_tables: set[str],
+        table_paths: dict[str, module.TablePathSpec] | None = None,
+    ) -> pl.DataFrame:
+        del dataset, sql, timeout_seconds, available_tables, table_paths
         raise TimeoutError
 
-    monkeypatch.setattr(module, "_execute_query_with_timeout", raise_timeout)
+    monkeypatch.setattr(module, "execute_scoped_query_frame_with_timeout", raise_timeout)
     with pytest.raises(TimeoutError):
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
+    monkeypatch.setattr(
+        module,
+        "execute_scoped_query_frame_with_timeout",
+        original_execute_frame,
+    )
 
     # error
     monkeypatch.setattr(

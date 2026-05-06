@@ -40,9 +40,8 @@ from .sql_explorer_service import (
     SqlTableResolution,
     TablePathSpec,
     check_sensitive_tables,
-    create_scoped_query_connection,
     ensure_sql_explorer_execution_allowed,
-    execute_scoped_query_with_timeout,
+    execute_scoped_query_frame_with_timeout,
     fingerprint_sql_query,
     log_sql_query_audit,
     resolve_sql_table_availability,
@@ -939,16 +938,13 @@ class DataExplorerService:
         timeout_seconds: int,
     ) -> Any:
         await asyncio.to_thread(ensure_sql_explorer_execution_allowed)
-        conn = await asyncio.to_thread(
-            create_scoped_query_connection,
+        return await execute_scoped_query_frame_with_timeout(
             dataset,
+            sql,
+            timeout_seconds,
             available_tables=set(table_paths),
             table_paths=table_paths,
         )
-        try:
-            return await execute_scoped_query_with_timeout(conn, sql, timeout_seconds)
-        finally:
-            await asyncio.to_thread(conn.close)
 
 
 def _trusted_table_paths_for_dataset(
@@ -998,11 +994,13 @@ def _queryable_state_for_table(resolution: SqlTableResolution) -> str:
 
 
 def _trusted_alpaca_summary_manifests(alpaca_summary: Any, trusted_tables: list[str]) -> list[Any]:
-    trusted_table_set = set(trusted_tables)
+    trusted_manifest_datasets = {
+        _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table) for table in trusted_tables
+    }
     return [
         manifest
         for manifest in alpaca_summary.manifests
-        if getattr(manifest, "dataset", None) in trusted_table_set
+        if getattr(manifest, "dataset", None) in trusted_manifest_datasets
         and str(getattr(manifest, "validation_status", "")).lower() == "passed"
     ]
 

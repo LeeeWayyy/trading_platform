@@ -12,6 +12,7 @@ import socket
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path as _Path
 from typing import Any
@@ -907,12 +908,27 @@ def can_query_dataset(user: Any, dataset: str) -> bool:
     return has_dataset_permission(user, permission)
 
 
-async def _execute_query_with_timeout(
+def _query_frame_from_connection(
     conn: duckdb.DuckDBPyConnection,
     sql: str,
-    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
 ) -> pl.DataFrame:
-    """Execute query with bounded concurrency and hard timeout."""
+    result = conn.execute(sql)
+    df = result.pl()
+    cell_count = len(df) * len(df.columns)
+    if cell_count > _MAX_CELLS:
+        raise ValueError(
+            f"Result too large: {cell_count:,} cells exceeds limit of {_MAX_CELLS:,}. "
+            "Add filters or reduce columns."
+        )
+    return df
+
+
+async def _execute_query_callable_with_timeout(
+    run_query: Callable[[], pl.DataFrame],
+    timeout_seconds: int,
+    interrupt: Callable[[], None],
+) -> pl.DataFrame:
+    """Execute query work with bounded concurrency and cooperative timeout cleanup."""
 
     global _active_queries
 
@@ -926,29 +942,108 @@ async def _execute_query_with_timeout(
     clamped_timeout = min(timeout_seconds, _MAX_TIMEOUT_SECONDS)
 
     try:
-
-        def _run() -> pl.DataFrame:
-            result = conn.execute(sql)
-            df = result.pl()
-            cell_count = len(df) * len(df.columns)
-            if cell_count > _MAX_CELLS:
-                raise ValueError(
-                    f"Result too large: {cell_count:,} cells exceeds limit of {_MAX_CELLS:,}. "
-                    "Add filters or reduce columns."
-                )
-            return df
-
-        return await asyncio.wait_for(asyncio.to_thread(_run), timeout=clamped_timeout)
-    except TimeoutError:
+        task = asyncio.create_task(asyncio.to_thread(run_query))
         try:
-            conn.interrupt()
-        except Exception:
-            logger.warning("duckdb_interrupt_failed", extra={"timeout": clamped_timeout})
-        raise
+            return await asyncio.wait_for(asyncio.shield(task), timeout=clamped_timeout)
+        except TimeoutError as exc:
+            if not task.done():
+                try:
+                    interrupt()
+                except Exception:
+                    logger.warning("duckdb_interrupt_failed", extra={"timeout": clamped_timeout})
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+            raise TimeoutError("SQL query timed out") from exc
     finally:
         if acquired_slot:
             async with _active_queries_lock:
                 _active_queries -= 1
+
+
+async def _execute_query_with_timeout(
+    conn: duckdb.DuckDBPyConnection,
+    sql: str,
+    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+) -> pl.DataFrame:
+    """Execute query with bounded concurrency and timeout-safe cleanup."""
+
+    return await _execute_query_callable_with_timeout(
+        lambda: _query_frame_from_connection(conn, sql),
+        timeout_seconds,
+        conn.interrupt,
+    )
+
+
+class _ScopedQueryRunner:
+    """Own a scoped DuckDB connection inside the worker thread that executes it."""
+
+    def __init__(
+        self,
+        *,
+        dataset: str,
+        available_tables: set[str],
+        table_paths: dict[str, TablePathSpec] | None,
+        sql: str,
+    ) -> None:
+        self._dataset = dataset
+        self._available_tables = available_tables
+        self._table_paths = table_paths
+        self._sql = sql
+        self._conn: duckdb.DuckDBPyConnection | None = None
+        self._conn_lock = threading.Lock()
+        self._interrupt_requested = threading.Event()
+
+    def run(self) -> pl.DataFrame:
+        conn = create_scoped_query_connection(
+            self._dataset,
+            available_tables=self._available_tables,
+            table_paths=self._table_paths,
+        )
+        with self._conn_lock:
+            self._conn = conn
+        try:
+            if self._interrupt_requested.is_set():
+                conn.interrupt()
+            return _query_frame_from_connection(conn, self._sql)
+        finally:
+            try:
+                conn.close()
+            finally:
+                with self._conn_lock:
+                    if self._conn is conn:
+                        self._conn = None
+
+    def interrupt(self) -> None:
+        self._interrupt_requested.set()
+        with self._conn_lock:
+            conn = self._conn
+        if conn is not None:
+            conn.interrupt()
+
+
+async def execute_scoped_query_frame_with_timeout(
+    dataset: str,
+    sql: str,
+    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+    *,
+    available_tables: set[str],
+    table_paths: dict[str, TablePathSpec] | None = None,
+) -> pl.DataFrame:
+    """Execute a scoped DuckDB query while owning close in the query worker thread."""
+
+    runner = _ScopedQueryRunner(
+        dataset=dataset,
+        available_tables=available_tables,
+        table_paths=table_paths,
+        sql=sql,
+    )
+    return await _execute_query_callable_with_timeout(
+        runner.run,
+        timeout_seconds,
+        runner.interrupt,
+    )
 
 
 async def execute_scoped_query_with_timeout(
@@ -1041,7 +1136,6 @@ class SqlExplorerService:
 
         self._rate_limiter = rate_limiter
         self._validator = SQLValidator()
-        ensure_sql_explorer_execution_allowed()
 
     async def execute_query(
         self,
@@ -1084,15 +1178,12 @@ class SqlExplorerService:
             resolved_tables = (
                 available_tables if available_tables is not None else set(DATASET_TABLES[dataset])
             )
-            conn = await asyncio.to_thread(
-                create_scoped_query_connection,
+            result = await execute_scoped_query_frame_with_timeout(
                 dataset,
+                limited_sql,
+                timeout_seconds,
                 available_tables=resolved_tables,
             )
-            try:
-                result = await execute_scoped_query_with_timeout(conn, limited_sql, timeout_seconds)
-            finally:
-                await asyncio.to_thread(conn.close)
 
             execution_ms = int((time.monotonic() - start) * 1000)
             fingerprint = _fingerprint_query(query)
@@ -1232,6 +1323,7 @@ __all__ = [
     "check_sensitive_tables",
     "create_scoped_query_connection",
     "ensure_sql_explorer_execution_allowed",
+    "execute_scoped_query_frame_with_timeout",
     "execute_scoped_query_with_timeout",
     "fingerprint_sql_query",
     "log_sql_query_audit",
