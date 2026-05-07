@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl
@@ -62,10 +63,14 @@ def service(
 
 @pytest.fixture(autouse=True)
 def no_sql_explorer_sandbox_probe() -> Generator[None, None, None]:
+    data_explorer_module._SHARED_TABLE_AVAILABILITY_CACHE = None
+    data_explorer_module._SHARED_ALPACA_SUMMARY_CACHE = None
     with patch(
         "libs.web_console_services.data_explorer_service.ensure_sql_explorer_execution_allowed"
     ):
         yield
+    data_explorer_module._SHARED_TABLE_AVAILABILITY_CACHE = None
+    data_explorer_module._SHARED_ALPACA_SUMMARY_CACHE = None
 
 
 @pytest.mark.asyncio()
@@ -977,6 +982,15 @@ def test_trusted_alpaca_summary_manifests_maps_tables_to_manifest_datasets(
     assert manifests == [trusted_manifest]
 
 
+def test_trusted_alpaca_summary_manifests_handles_missing_manifests() -> None:
+    manifests = data_explorer_module._trusted_alpaca_summary_manifests(
+        SimpleNamespace(),
+        ["alpaca_sip_daily"],
+    )
+
+    assert manifests == []
+
+
 @pytest.mark.asyncio()
 async def test_list_datasets_isolates_alpaca_manifest_summary_failure(
     rate_limiter: AsyncMock,
@@ -1005,6 +1019,72 @@ async def test_list_datasets_isolates_alpaca_manifest_summary_failure(
     assert alpaca.availability_reason == (
         "Manifest summary temporarily unavailable; row count and date range may be incomplete"
     )
+
+
+@pytest.mark.asyncio()
+async def test_default_table_availability_cache_shared_across_service_instances(
+    monkeypatch: pytest.MonkeyPatch,
+    rate_limiter: AsyncMock,
+) -> None:
+    calls = 0
+    expected = (
+        {
+            "crsp_daily": sql_module.SqlTableResolution(
+                dataset="crsp",
+                table="crsp_daily",
+                path_spec=None,
+                available=False,
+                manifest_required=False,
+                manifest_backed=False,
+                manifest_invalid=False,
+                fallback_only=False,
+                trusted_for_data_page=False,
+            )
+        },
+        ["missing"],
+    )
+
+    def resolve(table_paths: dict[str, sql_module.TablePathSpec] | None = None) -> Any:
+        nonlocal calls
+        assert table_paths is None
+        calls += 1
+        return expected
+
+    monkeypatch.setattr(data_explorer_module, "resolve_sql_table_availability", resolve)
+
+    service_one = DataExplorerService(rate_limiter=rate_limiter)
+    service_two = DataExplorerService(rate_limiter=rate_limiter)
+
+    assert await service_one._resolve_table_availability() == expected
+    assert await service_two._resolve_table_availability() == expected
+    assert calls == 1
+
+
+@pytest.mark.asyncio()
+async def test_default_alpaca_summary_cache_shared_across_service_instances(
+    monkeypatch: pytest.MonkeyPatch,
+    rate_limiter: AsyncMock,
+) -> None:
+    calls = 0
+    summary = SimpleNamespace(manifests=[])
+
+    def get_summary(_service: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return summary
+
+    monkeypatch.setattr(
+        data_explorer_module.DataManifestService,
+        "get_alpaca_sip_summary",
+        get_summary,
+    )
+
+    service_one = DataExplorerService(rate_limiter=rate_limiter)
+    service_two = DataExplorerService(rate_limiter=rate_limiter)
+
+    assert await service_one._get_alpaca_summary() == (summary, False)
+    assert await service_two._get_alpaca_summary() == (summary, False)
+    assert calls == 1
 
 
 @pytest.mark.asyncio()

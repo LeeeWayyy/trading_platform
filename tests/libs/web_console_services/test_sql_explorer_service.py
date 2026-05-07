@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,11 @@ class _DummyConn:
 
     def close(self) -> None:
         self.closed = True
+
+
+async def _wait_until(predicate: Callable[[], bool], *, interval: float = 0.01) -> None:
+    while not predicate():
+        await asyncio.sleep(interval)
 
 
 @pytest.fixture(autouse=True)
@@ -518,6 +524,14 @@ def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
     assert _raw_path_spec(cached_paths["alpaca_sip_daily"]) == ()
     assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" not in caplog.text
 
+    monkeypatch.setattr(module, "_ALPACA_SIP_MANIFEST_FAILURE_CACHE_TTL_SECONDS", 0.0)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        expired_paths = module._resolve_table_paths()
+
+    assert _raw_path_spec(expired_paths["alpaca_sip_daily"]) == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+
 
 def test_resolve_table_paths_handles_manifest_stat_race(
     tmp_path: Path,
@@ -785,12 +799,14 @@ async def test_execute_query_timeout_interrupts_connection(
             available_tables={"crsp_daily"},
     )
 
-    assert conn.interrupt_called is True
-    assert conn.closed is True
+    await asyncio.wait_for(_wait_until(lambda: conn.interrupt_called), timeout=1.0)
+    await asyncio.wait_for(_wait_until(lambda: conn.closed), timeout=1.0)
 
 
 @pytest.mark.asyncio()
-async def test_execute_scoped_query_timeout_waits_for_worker_cleanup() -> None:
+async def test_execute_query_timeout_returns_before_worker_cleanup(
+    operator_user: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     class SlowConn(_DummyConn):
         def __init__(self) -> None:
             super().__init__()
@@ -798,17 +814,30 @@ async def test_execute_scoped_query_timeout_waits_for_worker_cleanup() -> None:
 
         def execute(self, sql: str) -> _DummyConn:
             del sql
-            time.sleep(0.05)
+            time.sleep(0.2)
             self.finished.set()
             return self
 
+    service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
     conn = SlowConn()
+    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: conn)
 
+    started = time.monotonic()
     with pytest.raises(TimeoutError):
-        await module.execute_scoped_query_with_timeout(conn, "SELECT 1", timeout_seconds=0.01)
+        await service.execute_query(
+            operator_user,
+            "crsp",
+            "SELECT * FROM crsp_daily",
+            timeout_seconds=0.01,
+            available_tables={"crsp_daily"},
+        )
+    elapsed = time.monotonic() - started
 
-    assert conn.interrupt_called is True
-    assert conn.finished.is_set()
+    assert elapsed < 0.15
+    await asyncio.wait_for(_wait_until(lambda: conn.interrupt_called), timeout=1.0)
+    assert conn.finished.is_set() is False
+    assert await asyncio.to_thread(conn.finished.wait, 1.0)
+    assert conn.closed is True
 
 
 @pytest.mark.asyncio()

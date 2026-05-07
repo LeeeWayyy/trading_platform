@@ -47,6 +47,7 @@ _QUERY_RATE_LIMIT = 10
 _EXPORT_RATE_LIMIT = 5
 _MAX_CELLS = 1_000_000
 _MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES = 64
+_ALPACA_SIP_MANIFEST_FAILURE_CACHE_TTL_SECONDS = 5.0
 _DUCKDB_LOCKDOWN_MIN_VERSION = (1, 4, 0)
 _SANDBOX_PROBE_CACHE_TTL_SECONDS = 60.0
 _DUCKDB_LOADABLE_EXTENSIONS = frozenset({"core_functions", "icu", "json", "parquet"})
@@ -79,6 +80,7 @@ class _ManifestPathCacheEntry(BaseModel, frozen=True):
     mtime_ns: int
     size: int
     path_spec: _TablePathSpec
+    failure_cached_at: float | None = None
 
 
 class SqlTableResolution(BaseModel, frozen=True):
@@ -115,6 +117,8 @@ def _cache_resolved_alpaca_sip_manifest_path(
     cache_key: str,
     manifest_stat: os.stat_result,
     path_spec: _TablePathSpec,
+    *,
+    failure_cache: bool = False,
 ) -> _TablePathSpec:
     _cache_alpaca_sip_manifest_path(
         cache_key,
@@ -122,6 +126,7 @@ def _cache_resolved_alpaca_sip_manifest_path(
             mtime_ns=manifest_stat.st_mtime_ns,
             size=manifest_stat.st_size,
             path_spec=path_spec,
+            failure_cached_at=time.monotonic() if failure_cache else None,
         ),
     )
     return path_spec
@@ -423,8 +428,15 @@ def _resolve_alpaca_sip_snapshot_paths(
                     and cached.mtime_ns == manifest_stat.st_mtime_ns
                     and cached.size == manifest_stat.st_size
                 ):
-                    _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
-                    return cached.path_spec
+                    failure_expired = (
+                        cached.failure_cached_at is not None
+                        and time.monotonic() - cached.failure_cached_at
+                        >= _ALPACA_SIP_MANIFEST_FAILURE_CACHE_TTL_SECONDS
+                    )
+                    if not failure_expired:
+                        _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
+                        return cached.path_spec
+                    _ALPACA_SIP_MANIFEST_PATH_CACHE.pop(cache_key, None)
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(manifest, dict):
                 logger.warning(
@@ -479,6 +491,7 @@ def _resolve_alpaca_sip_snapshot_paths(
                 cache_key,
                 manifest_stat,
                 ResolvedTablePathSpec(path_spec=(), manifest_invalid=True),
+                failure_cache=True,
             )
         else:
             resolved_paths: list[str] = []
@@ -941,6 +954,17 @@ async def _execute_query_callable_with_timeout(
 
     clamped_timeout = min(timeout_seconds, _MAX_TIMEOUT_SECONDS)
 
+    async def _release_slot_after_cleanup(task: asyncio.Task[pl.DataFrame]) -> None:
+        global _active_queries
+
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            pass
+        finally:
+            async with _active_queries_lock:
+                _active_queries -= 1
+
     try:
         task = asyncio.create_task(asyncio.to_thread(run_query))
         try:
@@ -951,10 +975,8 @@ async def _execute_query_callable_with_timeout(
                     interrupt()
                 except Exception:
                     logger.warning("duckdb_interrupt_failed", extra={"timeout": clamped_timeout})
-            try:
-                await asyncio.shield(task)
-            except Exception:
-                pass
+                asyncio.create_task(_release_slot_after_cleanup(task))
+                acquired_slot = False
             raise TimeoutError("SQL query timed out") from exc
     finally:
         if acquired_slot:

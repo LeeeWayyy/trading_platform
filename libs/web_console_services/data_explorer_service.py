@@ -63,6 +63,12 @@ _TABLE_AVAILABILITY_CACHE_TTL_SECONDS = 30
 _MANIFEST_SUMMARY_CACHE_TTL_SECONDS = 30
 _MANIFEST_SUMMARY_FAILURE_CACHE_TTL_SECONDS = 5
 _MANIFEST_SUMMARY_TIMEOUT_SECONDS = 5.0
+_TableAvailabilityCache = tuple[float, tuple[dict[str, SqlTableResolution], list[str]]]
+_AlpacaSummaryCache = tuple[float, Any | None, bool]
+_SHARED_TABLE_AVAILABILITY_CACHE: _TableAvailabilityCache | None = None
+_SHARED_TABLE_AVAILABILITY_LOCK = asyncio.Lock()
+_SHARED_ALPACA_SUMMARY_CACHE: _AlpacaSummaryCache | None = None
+_SHARED_ALPACA_SUMMARY_LOCK = asyncio.Lock()
 
 _DATASET_DESCRIPTIONS: dict[str, str] = {
     "crsp": "CRSP stock and index history",
@@ -112,13 +118,13 @@ class DataExplorerService:
     ) -> None:
         self._rate_limiter = rate_limiter or get_rate_limiter()
         self._sql_validator = sql_validator or SQLValidator()
+        self._uses_shared_alpaca_summary_cache = manifest_service is None
         self._manifest_service = manifest_service or DataManifestService()
         self._table_paths = table_paths
-        self._table_availability_cache: (
-            tuple[float, tuple[dict[str, SqlTableResolution], list[str]]] | None
-        ) = None
+        self._uses_shared_table_availability_cache = table_paths is None
+        self._table_availability_cache: _TableAvailabilityCache | None = None
         self._table_availability_lock = asyncio.Lock()
-        self._alpaca_summary_cache: tuple[float, Any | None, bool] | None = None
+        self._alpaca_summary_cache: _AlpacaSummaryCache | None = None
         self._alpaca_summary_lock = asyncio.Lock()
 
     async def list_datasets(self, user: Any) -> list[DatasetInfoDTO]:
@@ -681,57 +687,92 @@ class DataExplorerService:
     async def _resolve_table_availability(
         self,
     ) -> tuple[dict[str, SqlTableResolution], list[str]]:
-        now = time.monotonic()
-        if (
-            self._table_availability_cache is not None
-            and now - self._table_availability_cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS
-        ):
-            return self._table_availability_cache[1]
+        global _SHARED_TABLE_AVAILABILITY_CACHE
 
-        async with self._table_availability_lock:
+        now = time.monotonic()
+        cache = (
+            _SHARED_TABLE_AVAILABILITY_CACHE
+            if self._uses_shared_table_availability_cache
+            else self._table_availability_cache
+        )
+        if (
+            cache is not None
+            and now - cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS
+        ):
+            return cache[1]
+
+        lock = (
+            _SHARED_TABLE_AVAILABILITY_LOCK
+            if self._uses_shared_table_availability_cache
+            else self._table_availability_lock
+        )
+        async with lock:
             now = time.monotonic()
+            cache = (
+                _SHARED_TABLE_AVAILABILITY_CACHE
+                if self._uses_shared_table_availability_cache
+                else self._table_availability_cache
+            )
             if (
-                self._table_availability_cache is not None
-                and now - self._table_availability_cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS
+                cache is not None
+                and now - cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS
             ):
-                return self._table_availability_cache[1]
+                return cache[1]
 
             result = await asyncio.to_thread(resolve_sql_table_availability, self._table_paths)
-            self._table_availability_cache = (now, result)
+            if self._uses_shared_table_availability_cache:
+                _SHARED_TABLE_AVAILABILITY_CACHE = (now, result)
+            else:
+                self._table_availability_cache = (now, result)
             return result
 
     async def _get_alpaca_summary(self) -> tuple[Any | None, bool]:
+        global _SHARED_ALPACA_SUMMARY_CACHE
+
         now = time.monotonic()
+        cache = (
+            _SHARED_ALPACA_SUMMARY_CACHE
+            if self._uses_shared_alpaca_summary_cache
+            else self._alpaca_summary_cache
+        )
         cache_ttl = (
             _MANIFEST_SUMMARY_FAILURE_CACHE_TTL_SECONDS
-            if self._alpaca_summary_cache is not None and self._alpaca_summary_cache[2]
+            if cache is not None and cache[2]
             else _MANIFEST_SUMMARY_CACHE_TTL_SECONDS
         )
-        if (
-            self._alpaca_summary_cache is not None
-            and now - self._alpaca_summary_cache[0] < cache_ttl
-        ):
-            return self._alpaca_summary_cache[1], self._alpaca_summary_cache[2]
+        if cache is not None and now - cache[0] < cache_ttl:
+            return cache[1], cache[2]
 
-        async with self._alpaca_summary_lock:
+        lock = (
+            _SHARED_ALPACA_SUMMARY_LOCK
+            if self._uses_shared_alpaca_summary_cache
+            else self._alpaca_summary_lock
+        )
+        async with lock:
             now = time.monotonic()
+            cache = (
+                _SHARED_ALPACA_SUMMARY_CACHE
+                if self._uses_shared_alpaca_summary_cache
+                else self._alpaca_summary_cache
+            )
             cache_ttl = (
                 _MANIFEST_SUMMARY_FAILURE_CACHE_TTL_SECONDS
-                if self._alpaca_summary_cache is not None and self._alpaca_summary_cache[2]
+                if cache is not None and cache[2]
                 else _MANIFEST_SUMMARY_CACHE_TTL_SECONDS
             )
-            if (
-                self._alpaca_summary_cache is not None
-                and now - self._alpaca_summary_cache[0] < cache_ttl
-            ):
-                return self._alpaca_summary_cache[1], self._alpaca_summary_cache[2]
+            if cache is not None and now - cache[0] < cache_ttl:
+                return cache[1], cache[2]
 
             try:
                 alpaca_summary = await asyncio.wait_for(
                     asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary),
                     timeout=_MANIFEST_SUMMARY_TIMEOUT_SECONDS,
                 )
-                self._alpaca_summary_cache = (time.monotonic(), alpaca_summary, False)
+                next_cache: _AlpacaSummaryCache = (time.monotonic(), alpaca_summary, False)
+                if self._uses_shared_alpaca_summary_cache:
+                    _SHARED_ALPACA_SUMMARY_CACHE = next_cache
+                else:
+                    self._alpaca_summary_cache = next_cache
                 return alpaca_summary, False
             except Exception as exc:
                 logger.warning(
@@ -739,7 +780,11 @@ class DataExplorerService:
                     extra={"error_type": type(exc).__name__},
                     exc_info=True,
                 )
-                self._alpaca_summary_cache = (time.monotonic(), None, True)
+                next_cache = (time.monotonic(), None, True)
+                if self._uses_shared_alpaca_summary_cache:
+                    _SHARED_ALPACA_SUMMARY_CACHE = next_cache
+                else:
+                    self._alpaca_summary_cache = next_cache
                 return None, True
 
     async def _preview_provenance_for_table(self, table_name: str) -> dict[str, Any]:
@@ -834,7 +879,6 @@ class DataExplorerService:
         trusted_table_paths = _trusted_table_paths_for_dataset(table_resolutions, dataset)
         saw_fallback_only = False
         saw_manifest_invalid = False
-        saw_available = False
         for table in candidate_tables:
             if table not in allowed_tables:
                 raise ValueError(f"Table {table} is not available for dataset {dataset}")
@@ -849,7 +893,6 @@ class DataExplorerService:
                 if requested_table is not None:
                     raise ValueError(f"No local data available for table {table}")
                 continue
-            saw_available = True
             if not resolution.trusted_for_data_page:
                 saw_fallback_only = saw_fallback_only or resolution.fallback_only
                 saw_manifest_invalid = saw_manifest_invalid or resolution.manifest_invalid
@@ -872,8 +915,6 @@ class DataExplorerService:
             raise ValueError(f"Trusted manifest is invalid for {dataset}; re-run validation")
         if saw_fallback_only:
             raise ValueError(f"Fallback parquet exists for {dataset}; trusted manifest required")
-        if saw_available:
-            raise ValueError(f"No trusted local data available for {dataset}")
         raise ValueError(f"No trusted local data available for {dataset}")
 
     async def _trusted_available_tables_for_query(
@@ -999,7 +1040,7 @@ def _trusted_alpaca_summary_manifests(alpaca_summary: Any, trusted_tables: list[
     }
     return [
         manifest
-        for manifest in alpaca_summary.manifests
+        for manifest in getattr(alpaca_summary, "manifests", [])
         if getattr(manifest, "dataset", None) in trusted_manifest_datasets
         and str(getattr(manifest, "validation_status", "")).lower() == "passed"
     ]
