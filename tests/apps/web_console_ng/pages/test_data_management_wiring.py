@@ -27,6 +27,9 @@ from libs.web_console_services.data_sync_service import (
 )
 from libs.web_console_services.schemas.data_management import (
     AnomalyAlertDTO,
+    BacktestHandoffDTO,
+    BacktestRoleProvenanceDTO,
+    DataPreviewDTO,
     DatasetInfoDTO,
     ExportJobDTO,
     QualityTrendDTO,
@@ -598,6 +601,179 @@ class TestBuildQueryResults:
 
         assert select.options == options
         assert select.value == "0"
+
+    def test_adjustment_policy_lines_expose_raw_null_reasons_and_handoff_roles(
+        self,
+    ) -> None:
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            read_time_adjustment_mode="unavailable",
+            adjustment_mode="raw",
+            null_column_reasons={
+                "adj_close": "raw_sip_returns_unavailable",
+                "ret": "raw_sip_returns_unavailable",
+            },
+            warnings=["raw_sip_returns_unavailable"],
+            backtest_handoff=BacktestHandoffDTO(
+                dataset="alpaca_sip",
+                data_roles={
+                    "prices": BacktestRoleProvenanceDTO(
+                        role="prices",
+                        dataset="alpaca_sip_daily",
+                        table="alpaca_sip_daily",
+                        available=True,
+                        manifest_ids=["alpaca_sip_daily@v1:abc"],
+                        manifest_references=["manifests://alpaca_sip_daily.json"],
+                        manifest_checksums=["abc"],
+                        provider_id="alpaca_sip",
+                        source_feed="sip",
+                        canonical_storage_mode="raw",
+                        read_time_adjustment_mode="unavailable",
+                    )
+                },
+                adjusted_preview_available=False,
+                adjusted_preview_unavailable_reason=(
+                    "read_time_adjustment_layer_not_defined"
+                ),
+                reason_codes=[
+                    "raw_sip_returns_unavailable",
+                    "read_time_adjustment_layer_not_defined",
+                ],
+            ),
+        )
+
+        lines = dm_module._adjustment_policy_lines(dataset)
+
+        assert "canonical_storage_mode: raw" in lines
+        assert "read_time_adjustment_mode: unavailable" in lines
+        assert "adj_close: raw_sip_returns_unavailable" in lines
+        assert any("backtest role prices: alpaca_sip_daily" in line for line in lines)
+        assert any("raw_sip_returns_unavailable" in line for line in lines)
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_render_adjustment_policy_summary_outputs_policy_labels(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        mock_ui.column.return_value = _FakeElement()
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            read_time_adjustment_mode="unavailable",
+            null_column_reasons={"adj_close": "raw_sip_returns_unavailable"},
+            warnings=["read_time_adjustment_layer_not_defined"],
+        )
+
+        dm_module._render_adjustment_policy_summary(dataset)
+
+        labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
+        assert "Raw/Adjusted Policy" in labels
+        assert "canonical_storage_mode: raw" in labels
+        assert "read_time_adjustment_mode: unavailable" in labels
+        assert "adj_close: raw_sip_returns_unavailable" in labels
+        assert "read_time_adjustment_layer_not_defined" in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_render_preview_adjustment_metadata_outputs_manifest_provenance(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        mock_ui.column.return_value = _FakeElement()
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        preview = DataPreviewDTO(
+            columns=["symbol"],
+            rows=[{"symbol": "AAPL"}],
+            total_count=1,
+            table="alpaca_sip_daily",
+            canonical_storage_mode="raw",
+            read_time_adjustment_mode="unavailable",
+            manifest_id="alpaca_sip_daily@v1:abc",
+            manifest_reference="manifests://alpaca_sip_daily.json",
+            manifest_checksum="abc",
+            provider_id="alpaca_sip",
+            provider_version="1.0",
+            source_feed="sip",
+        )
+
+        dm_module._render_preview_adjustment_metadata(preview)
+
+        labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
+        assert "Raw/Adjusted Policy" in labels
+        assert "Preview Provenance" in labels
+        assert "manifest_id: alpaca_sip_daily@v1:abc" in labels
+        assert "provider_id: alpaca_sip" in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_adjusted_preview_controls_are_disabled(self, mock_ui: MagicMock) -> None:
+        row = MagicMock()
+        row.__enter__ = MagicMock(return_value=row)
+        row.__exit__ = MagicMock(return_value=False)
+        mock_ui.row.return_value = row
+        select = MagicMock()
+        select.classes.return_value = select
+        select.props.return_value = select
+        button = MagicMock()
+        button.props.return_value = button
+        mock_ui.select.return_value = select
+        mock_ui.button.return_value = button
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            backtest_handoff=BacktestHandoffDTO(
+                dataset="alpaca_sip",
+                adjusted_preview_available=False,
+                adjusted_preview_unavailable_reason=(
+                    "read_time_adjustment_layer_not_defined"
+                ),
+            ),
+        )
+
+        dm_module._render_adjusted_preview_controls(dataset)
+
+        select.props.assert_called_once_with("disable")
+        button.props.assert_called_once_with("flat disable")
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_adjusted_preview_controls_tolerate_missing_handoff(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        row = MagicMock()
+        row.__enter__ = MagicMock(return_value=row)
+        row.__exit__ = MagicMock(return_value=False)
+        mock_ui.row.return_value = row
+        select = MagicMock()
+        select.classes.return_value = select
+        select.props.return_value = select
+        button = MagicMock()
+        button.props.return_value = button
+        mock_ui.select.return_value = select
+        mock_ui.button.return_value = button
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            backtest_handoff=None,
+        )
+
+        dm_module._render_adjusted_preview_controls(dataset)
+
+        labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
+        assert "read_time_adjustment_layer_not_defined" in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_adjusted_preview_controls_hidden_without_adjustment_metadata(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        dataset = DatasetInfoDTO(name="crsp")
+
+        dm_module._render_adjusted_preview_controls(dataset)
+
+        mock_ui.row.assert_not_called()
 
 
 class TestBuildQualityTrendChart:

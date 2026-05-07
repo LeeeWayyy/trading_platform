@@ -28,6 +28,8 @@ from .data_manifest_service import (
     DataManifestService,
 )
 from .schemas.data_management import (
+    BacktestHandoffDTO,
+    BacktestRoleProvenanceDTO,
     DataPreviewDTO,
     DatasetInfoDTO,
     ExportJobDTO,
@@ -97,6 +99,18 @@ _NULL_COLUMN_REASONS_BY_TABLE: dict[str, dict[str, str]] = {
         "ret": "raw_sip_returns_unavailable",
     }
 }
+_ALPACA_SIP_BACKTEST_ROLE_TABLES: dict[str, str] = {
+    "universe": "alpaca_sip_daily",
+    "prices": "alpaca_sip_daily",
+    "corp_actions": "alpaca_sip_corp_actions",
+}
+_ALPACA_SIP_DAILY_ADJUSTMENT_MODE = "raw"
+_ALPACA_SIP_DAILY_CANONICAL_STORAGE_MODE = "raw"
+_ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE = "unavailable"
+_ALPACA_SIP_CORP_ACTIONS_STORAGE_MODE = "read_only_adjustment_input"
+_ADJUSTED_PREVIEW_UNAVAILABLE_REASON = "read_time_adjustment_layer_not_defined"
+_ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON = "alpaca_sip_manifest_validation_failed"
+_ALPACA_SIP_UNTRUSTED_REASON = "alpaca_sip_untrusted_without_manifest"
 
 
 class RateLimitExceeded(RuntimeError):
@@ -243,6 +257,13 @@ class DataExplorerService:
                     ),
                     sql_handoff_url=_sql_handoff_url(dataset, trusted_tables),
                     query_templates=_query_templates_for_dataset(dataset, trusted_tables),
+                    **_dataset_adjustment_metadata(
+                        dataset,
+                        trusted_tables=trusted_tables,
+                        queryable_state=queryable_state,
+                        alpaca_summary=alpaca_summary,
+                        alpaca_summary_unavailable=alpaca_summary_error,
+                    ),
                 )
             )
 
@@ -270,10 +291,12 @@ class DataExplorerService:
             if limit <= 0:
                 raise ValueError("Preview limit must be positive")
 
-            table_name, trusted_table_paths, resolution = await self._select_preview_table(
-                dataset,
-                requested_table=table,
-            )
+            (
+                table_name,
+                trusted_table_paths,
+                resolution,
+                provenance_trusted_tables,
+            ) = await self._select_preview_table(dataset, requested_table=table)
             await self._enforce_rate_limit(
                 user,
                 action="data_preview",
@@ -292,7 +315,11 @@ class DataExplorerService:
             has_more = fetched_row_count > limit
             if has_more:
                 frame = frame.head(limit)
-            preview_provenance = await self._preview_provenance_for_table(table_name)
+            preview_provenance = await self._preview_provenance_for_table(
+                table_name,
+                dataset=dataset,
+                trusted_tables=provenance_trusted_tables,
+            )
             execution_ms = int((time.monotonic() - started) * 1000)
             log_sql_query_audit(
                 user,
@@ -787,7 +814,13 @@ class DataExplorerService:
                     self._alpaca_summary_cache = next_cache
                 return None, True
 
-    async def _preview_provenance_for_table(self, table_name: str) -> dict[str, Any]:
+    async def _preview_provenance_for_table(
+        self,
+        table_name: str,
+        *,
+        dataset: str | None = None,
+        trusted_tables: list[str] | None = None,
+    ) -> dict[str, Any]:
         null_column_reasons = dict(_NULL_COLUMN_REASONS_BY_TABLE.get(table_name, {}))
         warnings = sorted(set(null_column_reasons.values()))
         manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table_name)
@@ -802,20 +835,37 @@ class DataExplorerService:
             return {
                 "null_column_reasons": null_column_reasons,
                 "warnings": [*warnings, "alpaca_sip_manifest_summary_unavailable"],
+                "backtest_handoff": _build_backtest_handoff(
+                    dataset or "",
+                    trusted_tables=trusted_tables or [],
+                    alpaca_summary=None,
+                    alpaca_summary_unavailable=True,
+                    queryable_state="missing",
+                ),
             }
 
-        manifest = next(
-            (
-                candidate
-                for candidate in getattr(alpaca_summary, "manifests", [])
-                if getattr(candidate, "dataset", None) == manifest_dataset
-            ),
-            None,
+        trusted_table_names = trusted_tables if trusted_tables is not None else [table_name]
+        manifest = _trusted_manifest_for_table(
+            alpaca_summary,
+            table_name,
+            trusted_table_names,
         )
         if manifest is None:
+            warning_code = _preview_manifest_warning_code(
+                alpaca_summary,
+                table_name,
+                trusted_table_names,
+            )
             return {
                 "null_column_reasons": null_column_reasons,
-                "warnings": [*warnings, f"alpaca_sip_missing_manifest:{manifest_dataset}"],
+                "warnings": [*warnings, warning_code],
+                "backtest_handoff": _build_backtest_handoff(
+                    dataset or "",
+                    trusted_tables=trusted_table_names,
+                    alpaca_summary=alpaca_summary,
+                    alpaca_summary_unavailable=False,
+                    queryable_state="missing",
+                ),
             }
 
         manifest_version = getattr(manifest, "manifest_version", None)
@@ -837,6 +887,13 @@ class DataExplorerService:
             "provider_signature": getattr(manifest, "provider_signature", None),
             "null_column_reasons": null_column_reasons,
             "warnings": warnings,
+            "backtest_handoff": _build_backtest_handoff(
+                dataset or "",
+                trusted_tables=trusted_table_names,
+                alpaca_summary=alpaca_summary,
+                alpaca_summary_unavailable=False,
+                queryable_state="trusted_manifest_backed",
+            ),
         }
 
     def _audit_query_failure(
@@ -866,7 +923,7 @@ class DataExplorerService:
         dataset: str,
         *,
         requested_table: str | None,
-    ) -> tuple[str, dict[str, TablePathSpec], SqlTableResolution]:
+    ) -> tuple[str, dict[str, TablePathSpec], SqlTableResolution, list[str]]:
         table_resolutions, _warnings = await self._resolve_table_availability()
         allowed_tables = DATASET_TABLES.get(dataset)
         if not allowed_tables:
@@ -909,7 +966,10 @@ class DataExplorerService:
                         f"No trusted local data available for table {table}"
                     )
                 continue
-            return table, {table: trusted_table_paths[table]}, resolution
+            provenance_trusted_tables = (
+                sorted(trusted_table_paths) if dataset == ALPACA_SIP_DATASET_KEY else [table]
+            )
+            return table, {table: trusted_table_paths[table]}, resolution, provenance_trusted_tables
 
         if saw_manifest_invalid:
             raise ValueError(f"Trusted manifest is invalid for {dataset}; re-run validation")
@@ -1044,6 +1104,265 @@ def _trusted_alpaca_summary_manifests(alpaca_summary: Any, trusted_tables: list[
         if getattr(manifest, "dataset", None) in trusted_manifest_datasets
         and str(getattr(manifest, "validation_status", "")).lower() == "passed"
     ]
+
+
+def _dataset_adjustment_metadata(
+    dataset: str,
+    *,
+    trusted_tables: list[str],
+    queryable_state: str,
+    alpaca_summary: Any | None,
+    alpaca_summary_unavailable: bool,
+) -> dict[str, Any]:
+    if dataset != ALPACA_SIP_DATASET_KEY:
+        return {}
+
+    daily_manifest = _trusted_manifest_for_table(
+        alpaca_summary,
+        "alpaca_sip_daily",
+        trusted_tables,
+    )
+    warnings = set(_NULL_COLUMN_REASONS_BY_TABLE["alpaca_sip_daily"].values())
+    if alpaca_summary_unavailable:
+        warnings.add("alpaca_sip_manifest_summary_unavailable")
+    if alpaca_summary is not None:
+        warnings.update(str(warning) for warning in getattr(alpaca_summary, "warnings", []))
+
+    return {
+        "adjustment_mode": _manifest_text(
+            daily_manifest,
+            "adjustment_mode",
+            _ALPACA_SIP_DAILY_ADJUSTMENT_MODE,
+        ),
+        "canonical_storage_mode": _manifest_text(
+            daily_manifest,
+            "canonical_storage_mode",
+            _ALPACA_SIP_DAILY_CANONICAL_STORAGE_MODE,
+        ),
+        "read_time_adjustment_mode": _manifest_text(
+            daily_manifest,
+            "read_time_adjustment_mode",
+            _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+        ),
+        "null_column_reasons": dict(_NULL_COLUMN_REASONS_BY_TABLE["alpaca_sip_daily"]),
+        "warnings": sorted(warnings),
+        "backtest_handoff": _build_backtest_handoff(
+            dataset,
+            trusted_tables=trusted_tables,
+            alpaca_summary=alpaca_summary,
+            alpaca_summary_unavailable=alpaca_summary_unavailable,
+            queryable_state=queryable_state,
+        ),
+    }
+
+
+def _build_backtest_handoff(
+    dataset: str,
+    *,
+    trusted_tables: list[str],
+    alpaca_summary: Any | None,
+    alpaca_summary_unavailable: bool,
+    queryable_state: str,
+) -> BacktestHandoffDTO | None:
+    if dataset != ALPACA_SIP_DATASET_KEY:
+        return None
+
+    reason_codes: set[str] = {_ADJUSTED_PREVIEW_UNAVAILABLE_REASON}
+    if queryable_state == "queryable_fallback_only":
+        reason_codes.add("alpaca_sip_untrusted_without_manifest")
+    if alpaca_summary_unavailable:
+        reason_codes.add("alpaca_sip_manifest_summary_unavailable")
+
+    daily_manifest = _trusted_manifest_for_table(
+        alpaca_summary,
+        "alpaca_sip_daily",
+        trusted_tables,
+    )
+    selected_read_time_adjustment_mode = _manifest_text(
+        daily_manifest,
+        "read_time_adjustment_mode",
+        _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+    )
+
+    data_roles: dict[str, BacktestRoleProvenanceDTO] = {}
+    for role, table in _ALPACA_SIP_BACKTEST_ROLE_TABLES.items():
+        manifest = _trusted_manifest_for_table(alpaca_summary, table, trusted_tables)
+        if manifest is None:
+            reason = _backtest_manifest_unavailable_reason(
+                alpaca_summary,
+                table,
+                trusted_tables,
+                alpaca_summary_unavailable=alpaca_summary_unavailable,
+            )
+            reason_codes.add(reason)
+            data_roles[role] = _missing_role_provenance(role, table, reason)
+            if table == "alpaca_sip_daily":
+                reason_codes.add("raw_sip_returns_unavailable")
+            continue
+
+        data_roles[role] = _role_provenance_from_manifest(role, table, manifest)
+        if table == "alpaca_sip_daily":
+            read_mode = _manifest_text(
+                manifest,
+                "read_time_adjustment_mode",
+                _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+            )
+            if read_mode != "available":
+                reason_codes.add("raw_sip_returns_unavailable")
+
+    return BacktestHandoffDTO(
+        dataset=dataset,
+        data_roles=data_roles,
+        selected_read_time_adjustment_mode=selected_read_time_adjustment_mode,
+        adjusted_preview_available=False,
+        adjusted_preview_unavailable_reason=_ADJUSTED_PREVIEW_UNAVAILABLE_REASON,
+        reason_codes=sorted(reason_codes),
+    )
+
+
+def _trusted_manifest_for_table(
+    alpaca_summary: Any | None,
+    table: str,
+    trusted_tables: list[str],
+) -> Any | None:
+    if alpaca_summary is None or table not in trusted_tables:
+        return None
+    manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
+    return next(
+        (
+            candidate
+            for candidate in getattr(alpaca_summary, "manifests", [])
+            if getattr(candidate, "dataset", None) == manifest_dataset
+            and str(getattr(candidate, "validation_status", "")).lower() == "passed"
+        ),
+        None,
+    )
+
+
+def _manifest_candidates_for_table(alpaca_summary: Any | None, table: str) -> list[Any]:
+    if alpaca_summary is None:
+        return []
+    manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
+    return [
+        candidate
+        for candidate in getattr(alpaca_summary, "manifests", [])
+        if getattr(candidate, "dataset", None) == manifest_dataset
+    ]
+
+
+def _preview_manifest_warning_code(
+    alpaca_summary: Any | None,
+    table: str,
+    trusted_tables: list[str],
+) -> str:
+    manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
+    if table not in trusted_tables:
+        return _ALPACA_SIP_UNTRUSTED_REASON
+    if _manifest_candidates_for_table(alpaca_summary, table):
+        return _ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON
+    return f"alpaca_sip_missing_manifest:{manifest_dataset}"
+
+
+def _backtest_manifest_unavailable_reason(
+    alpaca_summary: Any | None,
+    table: str,
+    trusted_tables: list[str],
+    *,
+    alpaca_summary_unavailable: bool,
+) -> str:
+    if alpaca_summary_unavailable:
+        return "alpaca_sip_manifest_summary_unavailable"
+    if table not in trusted_tables:
+        return _ALPACA_SIP_UNTRUSTED_REASON
+    if _manifest_candidates_for_table(alpaca_summary, table):
+        return _ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON
+    return _ALPACA_SIP_UNTRUSTED_REASON
+
+
+def _role_provenance_from_manifest(
+    role: str,
+    table: str,
+    manifest: Any,
+) -> BacktestRoleProvenanceDTO:
+    return BacktestRoleProvenanceDTO(
+        role=role,
+        dataset=_optional_text(getattr(manifest, "dataset", None)),
+        table=table,
+        available=True,
+        manifest_ids=_optional_text_list(getattr(manifest, "manifest_id", None)),
+        manifest_references=_optional_text_list(getattr(manifest, "manifest_reference", None)),
+        manifest_checksums=_optional_text_list(getattr(manifest, "manifest_checksum", None)),
+        provider_id=_optional_text(getattr(manifest, "provider_id", None)),
+        provider_version=_optional_text(getattr(manifest, "provider_version", None)),
+        # Manifest summaries sanitize provider signatures before this handoff layer.
+        provider_signature=getattr(manifest, "provider_signature", None),
+        source_feed=_optional_text(getattr(manifest, "source_feed", None)),
+        adjustment_mode=_optional_text(getattr(manifest, "adjustment_mode", None)),
+        canonical_storage_mode=_role_canonical_storage_mode(table, manifest),
+        read_time_adjustment_mode=_role_read_time_adjustment_mode(table, manifest),
+    )
+
+
+def _missing_role_provenance(
+    role: str,
+    table: str,
+    reason: str,
+) -> BacktestRoleProvenanceDTO:
+    return BacktestRoleProvenanceDTO(
+        role=role,
+        dataset=_ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table),
+        table=table,
+        available=False,
+        unavailable_reason=reason,
+        canonical_storage_mode=_role_canonical_storage_mode(table, None),
+        read_time_adjustment_mode=_role_read_time_adjustment_mode(table, None),
+    )
+
+
+def _role_canonical_storage_mode(table: str, manifest: Any | None) -> str:
+    if table == "alpaca_sip_daily":
+        return _manifest_text(
+            manifest,
+            "canonical_storage_mode",
+            _ALPACA_SIP_DAILY_CANONICAL_STORAGE_MODE,
+        )
+    if table == "alpaca_sip_corp_actions":
+        return _manifest_text(
+            manifest,
+            "canonical_storage_mode",
+            _ALPACA_SIP_CORP_ACTIONS_STORAGE_MODE,
+        )
+    return _manifest_text(manifest, "canonical_storage_mode", "unknown")
+
+
+def _role_read_time_adjustment_mode(table: str, manifest: Any | None) -> str:
+    if table == "alpaca_sip_daily":
+        return _manifest_text(
+            manifest,
+            "read_time_adjustment_mode",
+            _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+        )
+    if table == "alpaca_sip_corp_actions":
+        return _manifest_text(manifest, "read_time_adjustment_mode", "not_applicable")
+    return _manifest_text(manifest, "read_time_adjustment_mode", "unknown")
+
+
+def _manifest_text(manifest: Any | None, attribute: str, default: str) -> str:
+    if manifest is None:
+        return default
+    value = getattr(manifest, attribute, None)
+    return str(value) if value is not None and str(value) else default
+
+
+def _optional_text(value: Any) -> str | None:
+    return str(value) if value is not None and str(value) else None
+
+
+def _optional_text_list(value: Any) -> list[str]:
+    if isinstance(value, list | tuple):
+        return [text for item in value if (text := _optional_text(item)) is not None]
+    text = _optional_text(value)
+    return [text] if text is not None else []
 
 
 def _dataset_description(dataset: str, queryable_state: str) -> str:

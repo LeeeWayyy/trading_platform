@@ -295,7 +295,7 @@ class DataManifestService:
 
 def _data_roles_for_dataset(dataset: str) -> dict[str, str] | None:
     role_map = {
-        ALPACA_SIP_DAILY_DATASET: {"prices": dataset},
+        ALPACA_SIP_DAILY_DATASET: {"universe": dataset, "prices": dataset},
         ALPACA_SIP_CORP_ACTIONS_DATASET: {"corp_actions": dataset},
     }
     return role_map.get(dataset)

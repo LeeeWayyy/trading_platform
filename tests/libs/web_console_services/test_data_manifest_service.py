@@ -98,6 +98,10 @@ def test_alpaca_sip_summary_exposes_raw_daily_provenance(tmp_path: Path) -> None
     assert daily.read_time_adjustment_mode == "unavailable"
     assert daily.provider_signature.canonical_storage_mode == "raw"
     assert daily.provider_signature.read_time_adjustment_mode == "unavailable"
+    assert daily.provider_signature.data_roles == {
+        "universe": ALPACA_SIP_DAILY_DATASET,
+        "prices": ALPACA_SIP_DAILY_DATASET,
+    }
     assert daily.manifest_reference == "manifests://alpaca_sip_daily.json"
     assert daily.provider_signature.manifest_reference == daily.manifest_reference
     assert daily.provider_signature.manifest_checksum == daily.manifest_checksum

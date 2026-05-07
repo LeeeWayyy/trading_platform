@@ -813,6 +813,140 @@ async def test_list_datasets_exposes_trusted_alpaca_manifest_summary(
     assert alpaca.last_sync == latest_sync
     assert alpaca.sql_handoff_url is not None
     assert alpaca.query_templates
+    assert alpaca.canonical_storage_mode == "raw"
+    assert alpaca.read_time_adjustment_mode == "unavailable"
+    assert alpaca.null_column_reasons == {
+        "adj_close": "raw_sip_returns_unavailable",
+        "ret": "raw_sip_returns_unavailable",
+    }
+    assert alpaca.backtest_handoff is not None
+    assert alpaca.backtest_handoff.adjusted_preview_available is False
+    assert "raw_sip_returns_unavailable" in alpaca.backtest_handoff.reason_codes
+    assert alpaca.backtest_handoff.data_roles["prices"].available is True
+    assert alpaca.backtest_handoff.data_roles["prices"].canonical_storage_mode == "raw"
+    assert (
+        alpaca.backtest_handoff.data_roles["prices"].read_time_adjustment_mode
+        == "unavailable"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_list_datasets_builds_role_keyed_backtest_handoff_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rate_limiter: AsyncMock,
+) -> None:
+    data_root = tmp_path / "data"
+    daily_partition = (
+        data_root / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2026.parquet"
+    )
+    daily_partition.parent.mkdir(parents=True)
+    pl.DataFrame({"symbol": ["AAPL"]}).write_parquet(daily_partition)
+    corp_partition = (
+        data_root / "alpaca" / "sip" / "corp_actions" / "snapshots" / "sync-1" / "actions.parquet"
+    )
+    corp_partition.parent.mkdir(parents=True)
+    pl.DataFrame({"symbol": ["AAPL"]}).write_parquet(corp_partition)
+    monkeypatch.setattr(sql_module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
+    sync_time = datetime(2026, 1, 3, tzinfo=UTC)
+    daily_signature = ProviderSignatureDTO(
+        provider_id="alpaca_sip",
+        provider_version="1.0",
+        source_feed="sip",
+        adjustment_mode="raw",
+        canonical_storage_mode="raw",
+        read_time_adjustment_mode="unavailable",
+        manifest_id="alpaca_sip_daily@v1:abc",
+        manifest_reference="manifests://alpaca_sip_daily.json",
+        manifest_checksum="abc",
+        data_roles={"universe": "alpaca_sip_daily", "prices": "alpaca_sip_daily"},
+        dataset_keys=["alpaca_sip_daily"],
+    )
+    corp_signature = ProviderSignatureDTO(
+        provider_id="alpaca_sip",
+        provider_version="1.0",
+        source_feed="sip",
+        manifest_id="alpaca_sip_corp_actions@v1:def",
+        manifest_reference="manifests://alpaca_sip_corp_actions.json",
+        manifest_checksum="def",
+        data_roles={"corp_actions": "alpaca_sip_corp_actions"},
+        dataset_keys=["alpaca_sip_corp_actions"],
+    )
+    manifest_service = MagicMock()
+    manifest_service.get_alpaca_sip_summary.return_value = SimpleNamespace(
+        has_any_manifest=True,
+        manifests=[
+            SimpleNamespace(
+                dataset="alpaca_sip_daily",
+                validation_status="passed",
+                sync_timestamp=sync_time,
+                start_date=date(2026, 1, 2),
+                end_date=date(2026, 1, 2),
+                row_count=1,
+                manifest_id="alpaca_sip_daily@v1:abc",
+                manifest_reference="manifests://alpaca_sip_daily.json",
+                manifest_checksum="abc",
+                provider_id="alpaca_sip",
+                provider_version="1.0",
+                source_feed="sip",
+                adjustment_mode="raw",
+                canonical_storage_mode="raw",
+                read_time_adjustment_mode="unavailable",
+                provider_signature=daily_signature,
+            ),
+            SimpleNamespace(
+                dataset="alpaca_sip_corp_actions",
+                validation_status="passed",
+                sync_timestamp=sync_time,
+                start_date=date(2026, 1, 2),
+                end_date=date(2026, 1, 2),
+                row_count=1,
+                manifest_id="alpaca_sip_corp_actions@v1:def",
+                manifest_reference="manifests://alpaca_sip_corp_actions.json",
+                manifest_checksum="def",
+                provider_id="alpaca_sip",
+                provider_version="1.0",
+                source_feed="sip",
+                provider_signature=corp_signature,
+            ),
+        ],
+        warnings=[],
+    )
+    service = DataExplorerService(
+        rate_limiter=rate_limiter,
+        manifest_service=manifest_service,
+        table_paths={
+            "alpaca_sip_daily": (str(daily_partition),),
+            "alpaca_sip_corp_actions": (str(corp_partition),),
+        },
+    )
+
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
+    ):
+        datasets = await service.list_datasets(DummyUser(user_id="user-1"))
+
+    alpaca = next(item for item in datasets if item.name == "alpaca_sip")
+    assert alpaca.backtest_handoff is not None
+    handoff = alpaca.backtest_handoff
+    assert sorted(handoff.data_roles) == ["corp_actions", "prices", "universe"]
+    assert handoff.adjusted_preview_available is False
+    assert handoff.adjusted_preview_unavailable_reason == (
+        "read_time_adjustment_layer_not_defined"
+    )
+    assert handoff.data_roles["universe"].manifest_ids == ["alpaca_sip_daily@v1:abc"]
+    assert handoff.data_roles["prices"].provider_signature == daily_signature
+    assert handoff.data_roles["corp_actions"].manifest_checksums == ["def"]
+    assert (
+        handoff.data_roles["corp_actions"].canonical_storage_mode
+        == "read_only_adjustment_input"
+    )
+    assert handoff.data_roles["corp_actions"].read_time_adjustment_mode == "not_applicable"
+    assert "raw_sip_returns_unavailable" in handoff.reason_codes
 
 
 @pytest.mark.asyncio()
@@ -989,6 +1123,13 @@ def test_trusted_alpaca_summary_manifests_handles_missing_manifests() -> None:
     )
 
     assert manifests == []
+
+
+def test_optional_text_list_preserves_sequence_values() -> None:
+    assert data_explorer_module._optional_text_list(["id-1", None, "", 2]) == [
+        "id-1",
+        "2",
+    ]
 
 
 @pytest.mark.asyncio()
@@ -1474,6 +1615,10 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
     data_root = tmp_path / "data"
     partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2026.parquet"
     partition.parent.mkdir(parents=True)
+    corp_partition = (
+        data_root / "alpaca" / "sip" / "corp_actions" / "snapshots" / "sync-1" / "actions.parquet"
+    )
+    corp_partition.parent.mkdir(parents=True)
     pl.DataFrame(
         {
             "symbol": ["AAPL"],
@@ -1483,10 +1628,16 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
             "ret": [None],
         }
     ).write_parquet(partition)
+    pl.DataFrame({"symbol": ["AAPL"], "ex_date": [date(2026, 1, 2)]}).write_parquet(
+        corp_partition
+    )
     monkeypatch.setattr(sql_module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
     service = DataExplorerService(
         rate_limiter=rate_limiter,
-        table_paths={"alpaca_sip_daily": (str(partition),)},
+        table_paths={
+            "alpaca_sip_daily": (str(partition),),
+            "alpaca_sip_corp_actions": (str(corp_partition),),
+        },
     )
     provider_signature = ProviderSignatureDTO(
         provider_id="alpaca_sip",
@@ -1498,12 +1649,20 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
         manifest_reference="manifests://alpaca_sip_daily.json",
         manifest_checksum="abc",
     )
+    corp_provider_signature = ProviderSignatureDTO(
+        provider_id="alpaca_sip",
+        source_feed="sip",
+        manifest_id="alpaca_sip_corp_actions@v1:def",
+        manifest_reference="manifests://alpaca_sip_corp_actions.json",
+        manifest_checksum="def",
+    )
     service._get_alpaca_summary = AsyncMock(  # type: ignore[method-assign]
         return_value=(
             SimpleNamespace(
                 manifests=[
                     SimpleNamespace(
                         dataset="alpaca_sip_daily",
+                        validation_status="passed",
                         manifest_id="alpaca_sip_daily@v1:abc",
                         manifest_reference="manifests://alpaca_sip_daily.json",
                         manifest_checksum="abc",
@@ -1515,6 +1674,18 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
                         canonical_storage_mode="raw",
                         read_time_adjustment_mode="unavailable",
                         provider_signature=provider_signature,
+                    ),
+                    SimpleNamespace(
+                        dataset="alpaca_sip_corp_actions",
+                        validation_status="passed",
+                        manifest_id="alpaca_sip_corp_actions@v1:def",
+                        manifest_reference="manifests://alpaca_sip_corp_actions.json",
+                        manifest_checksum="def",
+                        manifest_version=1,
+                        provider_id="alpaca_sip",
+                        provider_version="1.0",
+                        source_feed="sip",
+                        provider_signature=corp_provider_signature,
                     )
                 ]
             ),
@@ -1552,6 +1723,120 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
         "ret": "raw_sip_returns_unavailable",
     }
     assert preview.warnings == ["raw_sip_returns_unavailable"]
+    assert preview.backtest_handoff is not None
+    assert preview.backtest_handoff.data_roles["prices"].manifest_ids == [
+        "alpaca_sip_daily@v1:abc"
+    ]
+    assert preview.backtest_handoff.data_roles["corp_actions"].available is True
+    assert preview.backtest_handoff.data_roles["corp_actions"].manifest_ids == [
+        "alpaca_sip_corp_actions@v1:def"
+    ]
+    assert "raw_sip_returns_unavailable" in preview.backtest_handoff.reason_codes
+
+
+@pytest.mark.asyncio()
+async def test_get_dataset_preview_does_not_register_companion_tables_for_sql(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rate_limiter: AsyncMock,
+) -> None:
+    data_root = tmp_path / "data"
+    daily_partition = (
+        data_root / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2026.parquet"
+    )
+    daily_partition.parent.mkdir(parents=True)
+    corp_partition = (
+        data_root / "alpaca" / "sip" / "corp_actions" / "snapshots" / "sync-1" / "actions.parquet"
+    )
+    corp_partition.parent.mkdir(parents=True)
+    pl.DataFrame({"symbol": ["AAPL"]}).write_parquet(daily_partition)
+    corp_partition.write_text("not parquet", encoding="utf-8")
+    monkeypatch.setattr(sql_module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
+    service = DataExplorerService(
+        rate_limiter=rate_limiter,
+        table_paths={
+            "alpaca_sip_daily": (str(daily_partition),),
+            "alpaca_sip_corp_actions": (str(corp_partition),),
+        },
+    )
+    service._get_alpaca_summary = AsyncMock(  # type: ignore[method-assign]
+        return_value=(
+            SimpleNamespace(
+                manifests=[
+                    SimpleNamespace(
+                        dataset="alpaca_sip_daily",
+                        validation_status="passed",
+                        manifest_id="alpaca_sip_daily@v1:abc",
+                    ),
+                    SimpleNamespace(
+                        dataset="alpaca_sip_corp_actions",
+                        validation_status="passed",
+                        manifest_id="alpaca_sip_corp_actions@v1:def",
+                    ),
+                ]
+            ),
+            False,
+        )
+    )
+
+    with (
+        patch("libs.web_console_services.data_explorer_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_explorer_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_explorer_service.get_user_id", return_value="user-1"),
+    ):
+        preview = await service.get_dataset_preview(
+            DummyUser(user_id="user-1"),
+            "alpaca_sip",
+            limit=5,
+            table="alpaca_sip_daily",
+        )
+
+    assert preview.rows == [{"symbol": "AAPL"}]
+    assert preview.backtest_handoff is not None
+    assert preview.backtest_handoff.data_roles["corp_actions"].manifest_ids == [
+        "alpaca_sip_corp_actions@v1:def"
+    ]
+
+
+@pytest.mark.asyncio()
+async def test_preview_provenance_ignores_failed_manifest(
+    rate_limiter: AsyncMock,
+) -> None:
+    service = DataExplorerService(rate_limiter=rate_limiter)
+    service._get_alpaca_summary = AsyncMock(  # type: ignore[method-assign]
+        return_value=(
+            SimpleNamespace(
+                manifests=[
+                    SimpleNamespace(
+                        dataset="alpaca_sip_daily",
+                        validation_status="failed",
+                        manifest_id="failed-daily",
+                        manifest_reference="manifests://alpaca_sip_daily.json",
+                        manifest_checksum="bad",
+                        manifest_version=1,
+                    )
+                ]
+            ),
+            False,
+        )
+    )
+
+    provenance = await service._preview_provenance_for_table(
+        "alpaca_sip_daily",
+        dataset="alpaca_sip",
+        trusted_tables=["alpaca_sip_daily"],
+    )
+
+    assert "manifest_id" not in provenance
+    assert "alpaca_sip_manifest_validation_failed" in provenance["warnings"]
+    handoff = provenance["backtest_handoff"]
+    assert handoff is not None
+    assert handoff.data_roles["prices"].available is False
+    assert handoff.data_roles["prices"].manifest_ids == []
+    assert "alpaca_sip_manifest_validation_failed" in handoff.reason_codes
 
 
 @pytest.mark.asyncio()
