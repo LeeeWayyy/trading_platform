@@ -95,6 +95,20 @@ class SQLValidator:
         expression = sqlglot.parse_one(query, read="duckdb")
         return list(self._extract_tables_from_expression(expression))
 
+    def is_literal_smoke_query(self, query: str) -> bool:
+        """Return whether a tableless query is limited to literal smoke output."""
+        try:
+            expressions = sqlglot.parse(query, read="duckdb")
+        except sqlglot.errors.ParseError:
+            return False
+
+        if len(expressions) != 1:
+            return False
+        expression = expressions[0]
+        if expression is None:
+            return False
+        return self._is_literal_smoke_select(expression)
+
     def enforce_row_limit(self, query: str, max_rows: int) -> str:
         """Add or clamp LIMIT clause to enforce a maximum row count.
 
@@ -144,6 +158,34 @@ class SQLValidator:
     def _extract_tables_from_expression(self, expression: exp.Expression) -> list[str]:
         """Extract table names only (for backward compatibility)."""
         return [name for name, _, _ in self._extract_tables_with_schema(expression)]
+
+    @classmethod
+    def _is_literal_smoke_select(cls, expression: exp.Expression) -> bool:
+        if not isinstance(expression, exp.Select):
+            return False
+        if any(
+            key != "expressions" and value is not None
+            for key, value in expression.args.items()
+        ):
+            return False
+        if any(
+            expression.find(node_type) is not None
+            for node_type in (exp.From, exp.Join, exp.Subquery, exp.CTE, exp.SetOperation)
+        ):
+            return False
+        return bool(expression.expressions) and all(
+            cls._is_literal_projection(projection) for projection in expression.expressions
+        )
+
+    @classmethod
+    def _is_literal_projection(cls, expression: exp.Expression) -> bool:
+        if isinstance(expression, exp.Alias | exp.Paren):
+            return cls._is_literal_projection(expression.this)
+        if isinstance(expression, exp.Cast):
+            return cls._is_literal_projection(expression.this)
+        if isinstance(expression, exp.Neg):
+            return cls._is_literal_projection(expression.this)
+        return isinstance(expression, exp.Literal | exp.Null | exp.Boolean)
 
     def _first_blocked_function(self, expression: exp.Expression) -> str | None:
         for func in expression.find_all(exp.Func):

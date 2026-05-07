@@ -134,6 +134,33 @@ def _make_export_job() -> ExportJobDTO:
     )
 
 
+class _FakeElement:
+    def __init__(self, *, value: Any = None, options: Any = None) -> None:
+        self.value = value
+        self.options = options
+
+    def __enter__(self) -> _FakeElement:
+        return self
+
+    def __exit__(self, *_args: Any) -> bool:
+        return False
+
+    def classes(self, *_args: Any, **_kwargs: Any) -> _FakeElement:
+        return self
+
+    def props(self, *_args: Any, **_kwargs: Any) -> _FakeElement:
+        return self
+
+    def clear(self) -> None:
+        return None
+
+    def update(self) -> None:
+        return None
+
+    def on_value_change(self, _handler: Any) -> None:
+        return None
+
+
 def _make_validation_results() -> list[ValidationResultDTO]:
     return [
         ValidationResultDTO(
@@ -237,9 +264,7 @@ def quality_service() -> MagicMock:
     svc.get_anomaly_alerts = AsyncMock(return_value=_make_anomaly_alerts())
     svc.get_quality_trends = AsyncMock(return_value=_make_quality_trend())
     svc.get_quarantine_status = AsyncMock(return_value=_make_quarantine_entries())
-    svc.acknowledge_alert = AsyncMock(
-        return_value=MagicMock(acknowledged_by="user-1")
-    )
+    svc.acknowledge_alert = AsyncMock(return_value=MagicMock(acknowledged_by="user-1"))
     return svc
 
 
@@ -365,9 +390,7 @@ class TestSyncStatusWiring:
 
     @pytest.mark.asyncio()
     @patch("apps.web_console_ng.pages.data_management.ui")
-    async def test_calls_get_sync_status(
-        self, mock_ui: MagicMock, sync_service: MagicMock
-    ) -> None:
+    async def test_calls_get_sync_status(self, mock_ui: MagicMock, sync_service: MagicMock) -> None:
         mock_ui.column.return_value = MagicMock()
         mock_ui.column.return_value.__enter__ = MagicMock()
         mock_ui.column.return_value.__exit__ = MagicMock(return_value=False)
@@ -430,9 +453,7 @@ class TestSyncTriggerWiring:
     async def test_trigger_sync_rate_limit(
         self, mock_ui: MagicMock, sync_service: MagicMock
     ) -> None:
-        sync_service.trigger_sync = AsyncMock(
-            side_effect=SyncRateLimitExceeded("1 per 60 seconds")
-        )
+        sync_service.trigger_sync = AsyncMock(side_effect=SyncRateLimitExceeded("1 per 60 seconds"))
         # The rate limit is caught in the trigger_sync callback (closured)
         # We can't easily test the closure, but we can test that the exception type is correct
         with pytest.raises(SyncRateLimitExceeded):
@@ -448,9 +469,7 @@ class TestQueryExecutionWiring:
     """Test execute_query calls service correctly."""
 
     @pytest.mark.asyncio()
-    async def test_query_rate_limit_exception_type(
-        self, explorer_service: MagicMock
-    ) -> None:
+    async def test_query_rate_limit_exception_type(self, explorer_service: MagicMock) -> None:
         explorer_service.execute_query = AsyncMock(
             side_effect=ExplorerRateLimitExceeded("10 per 60 seconds")
         )
@@ -458,9 +477,7 @@ class TestQueryExecutionWiring:
             await explorer_service.execute_query(ADMIN_USER, "crsp", "SELECT 1")
 
     @pytest.mark.asyncio()
-    async def test_query_validation_error(
-        self, explorer_service: MagicMock
-    ) -> None:
+    async def test_query_validation_error(self, explorer_service: MagicMock) -> None:
         explorer_service.execute_query = AsyncMock(
             side_effect=ValueError("Invalid query: DROP not allowed")
         )
@@ -533,14 +550,54 @@ class TestBuildQueryResults:
         mock_ui.table.assert_called_once()
 
     @patch("apps.web_console_ng.pages.data_management.ui")
-    def test_empty_results(self, mock_ui: MagicMock) -> None:
+    def test_renders_service_limited_rows_without_extra_trim(self, mock_ui: MagicMock) -> None:
+        mock_ui.table.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        mock_ui.row.return_value = MagicMock()
+        mock_ui.row.return_value.__enter__ = MagicMock()
+        mock_ui.row.return_value.__exit__ = MagicMock(return_value=False)
         mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
 
         result = QueryResultDTO(
-            columns=[], rows=[], total_count=0, has_more=False, cursor=None
+            columns=["id"],
+            rows=[{"id": i} for i in range(dm_module.INLINE_QUERY_RESULT_ROW_LIMIT)],
+            total_count=dm_module.INLINE_QUERY_RESULT_ROW_LIMIT + 1,
+            has_more=True,
+            cursor=None,
         )
+
+        dm_module._build_query_results(result)
+
+        rows = mock_ui.table.call_args.kwargs.get("rows") or mock_ui.table.call_args[1]["rows"]
+        assert len(rows) == dm_module.INLINE_QUERY_RESULT_ROW_LIMIT
+        labels = [call.args[0] for call in mock_ui.label.call_args_list]
+        assert f"Showing: {dm_module.INLINE_QUERY_RESULT_ROW_LIMIT} rows" in labels
+        assert f"Fetched: {dm_module.INLINE_QUERY_RESULT_ROW_LIMIT + 1} rows" not in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_empty_results(self, mock_ui: MagicMock) -> None:
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+
+        result = QueryResultDTO(columns=[], rows=[], total_count=0, has_more=False, cursor=None)
         dm_module._build_query_results(result)
         mock_ui.table.assert_not_called()
+
+    def test_set_select_options_uses_native_helper_when_available(self) -> None:
+        select = MagicMock()
+        options = {"0": "Latest daily bars"}
+
+        dm_module._set_select_options(select, options, "0")
+
+        select.set_options.assert_called_once_with(options, value="0")
+        select.update.assert_not_called()
+
+    def test_set_select_options_falls_back_to_assignment(self) -> None:
+        select = _FakeElement()
+        options = {"0": "Latest daily bars"}
+
+        dm_module._set_select_options(select, options, "0")
+
+        assert select.options == options
+        assert select.value == "0"
 
 
 class TestBuildQualityTrendChart:
@@ -556,10 +613,7 @@ class TestBuildQualityTrendChart:
         trend = _make_quality_trend()
         dm_module._build_quality_trend_chart(trend)
         # Should show "No trend data available yet"
-        labels = [
-            str(call.args[0]) if call.args else ""
-            for call in mock_ui.label.call_args_list
-        ]
+        labels = [str(call.args[0]) if call.args else "" for call in mock_ui.label.call_args_list]
         assert any("No trend data" in label for label in labels)
 
 
@@ -659,6 +713,56 @@ class TestExportPermissionGating:
         from libs.platform.web_console_auth.permissions import Permission
 
         assert hasattr(Permission, "EXPORT_DATA")
+
+    def test_export_format_normalization(self) -> None:
+        assert dm_module._export_format_value("csv") == "csv"
+        assert dm_module._export_format_value("PARQUET") == "parquet"
+        assert dm_module._export_format_value("xlsx") is None
+
+    @pytest.mark.asyncio()
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    async def test_data_explorer_export_button_calls_service(
+        self,
+        mock_ui: MagicMock,
+        explorer_service: MagicMock,
+    ) -> None:
+        buttons: dict[str, Any] = {}
+        textareas_by_label: dict[str, _FakeElement] = {}
+
+        mock_ui.row.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.card.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.column.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.label.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.separator.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.select.side_effect = lambda *_args, **kwargs: _FakeElement(
+            value=kwargs.get("value"),
+            options=kwargs.get("options"),
+        )
+
+        def _textarea(*_args: Any, **kwargs: Any) -> _FakeElement:
+            element = _FakeElement(value=kwargs.get("value", ""))
+            label = str(kwargs.get("label", ""))
+            textareas_by_label[label] = element
+            return element
+
+        def _button(label: str, *_args: Any, **kwargs: Any) -> _FakeElement:
+            buttons[label] = kwargs.get("on_click")
+            return _FakeElement()
+
+        mock_ui.textarea.side_effect = _textarea
+        mock_ui.button.side_effect = _button
+
+        with patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True):
+            await dm_module._render_data_explorer_section(ADMIN_USER, explorer_service)
+        textareas_by_label["SQL Query"].value = "SELECT * FROM crsp_daily LIMIT 10"
+        await buttons["Export Results"]()
+
+        explorer_service.export_data.assert_awaited_once_with(
+            ADMIN_USER,
+            "crsp",
+            "SELECT * FROM crsp_daily LIMIT 10",
+            "csv",
+        )
 
 
 # ============================================================================
@@ -760,8 +864,11 @@ class TestQualityScoreCards:
         quality_service.get_validation_results = AsyncMock(
             return_value=[
                 ValidationResultDTO(
-                    id="v1", dataset="crsp", validation_type="row_count",
-                    status="ok", created_at=NOW,
+                    id="v1",
+                    dataset="crsp",
+                    validation_type="row_count",
+                    status="ok",
+                    created_at=NOW,
                 ),
             ]
         )
@@ -798,9 +905,7 @@ class TestQualityScoreCards:
         mock_ui.notify = MagicMock()
 
         quality_service = MagicMock()
-        quality_service.get_validation_results = AsyncMock(
-            side_effect=PermissionError("No access")
-        )
+        quality_service.get_validation_results = AsyncMock(side_effect=PermissionError("No access"))
 
         await dm_module._build_quality_score_cards(ADMIN_USER, quality_service)
         mock_ui.notify.assert_called_once()

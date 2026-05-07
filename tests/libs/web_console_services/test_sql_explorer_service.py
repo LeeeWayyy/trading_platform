@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,12 @@ from libs.web_console_services.sql_explorer_service import (
     _verify_sandbox,
     can_query_dataset,
 )
+
+
+def _raw_path_spec(path_spec: module.TablePathSpec) -> str | tuple[str, ...]:
+    if isinstance(path_spec, module.ResolvedTablePathSpec):
+        return path_spec.path_spec
+    return path_spec
 
 
 class _DummyRateLimiter:
@@ -64,6 +72,11 @@ class _DummyConn:
 
     def close(self) -> None:
         self.closed = True
+
+
+async def _wait_until(predicate: Callable[[], bool], *, interval: float = 0.01) -> None:
+    while not predicate():
+        await asyncio.sleep(interval)
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +133,7 @@ def test_safe_error_message_returns_canonical_codes() -> None:
     assert _safe_error_message("validation_error", "raw") == "Query failed validation"
     assert _safe_error_message("unknown", "raw") == "Internal execution error"
     assert _safe_error_message("success") is None
+    assert _safe_error_message("queued") is None
 
 
 def test_fingerprint_query_replaces_literals_and_handles_unparseable() -> None:
@@ -134,7 +148,7 @@ def test_fingerprint_query_replaces_literals_and_handles_unparseable() -> None:
 def test_create_query_connection_sets_extension_lockdown(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeResult:
         def fetchall(self) -> list[tuple[str]]:
-            return [("core_functions",), ("parquet",)]
+            return [("core_functions",), ("jemalloc",), ("parquet",)]
 
     class FakeConn:
         def __init__(self) -> None:
@@ -155,8 +169,59 @@ def test_create_query_connection_sets_extension_lockdown(monkeypatch: pytest.Mon
 
     module._create_query_connection("crsp", available_tables=set())
 
-    assert "SET enable_extension_autoloading = false" in fake_conn.statements
+    assert "LOAD core_functions" in fake_conn.statements
+    assert "LOAD icu" in fake_conn.statements
+    assert "LOAD jemalloc" not in fake_conn.statements
+    assert "LOAD json" in fake_conn.statements
+    assert "LOAD parquet" in fake_conn.statements
     assert "SET enable_extension_loading = false" in fake_conn.statements
+    assert "SET enable_extension_autoloading = false" in fake_conn.statements
+    assert "SET autoinstall_known_extensions = false" in fake_conn.statements
+    assert "SET autoload_known_extensions = false" in fake_conn.statements
+    assert "SET allow_unsigned_extensions = false" in fake_conn.statements
+    assert "SET allow_community_extensions = false" in fake_conn.statements
+    assert fake_conn.statements.index("SET autoinstall_known_extensions = false") < (
+        fake_conn.statements.index("LOAD parquet")
+    )
+    assert fake_conn.statements.index("LOAD parquet") < (
+        fake_conn.statements.index("SET enable_extension_loading = false")
+    )
+
+
+def test_pinned_duckdb_accepts_required_extension_lockdown_options() -> None:
+    conn = module.duckdb.connect()
+    try:
+        conn.execute("SET autoinstall_known_extensions = false")
+        conn.execute("SET autoload_known_extensions = false")
+        conn.execute("SET allow_unsigned_extensions = false")
+        conn.execute("SET allow_community_extensions = false")
+    finally:
+        conn.close()
+
+
+def test_create_query_connection_allows_removed_legacy_lockdown_options_in_production(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    partition = data_root / "wrds" / "crsp" / "daily" / "part.parquet"
+    partition.parent.mkdir(parents=True)
+    pl.DataFrame({"a": [1]}).write_parquet(partition)
+    monkeypatch.setattr(module, "_APP_ENV", "production")
+    monkeypatch.setattr(module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
+    monkeypatch.setattr(
+        module,
+        "_resolve_table_paths",
+        lambda: {"crsp_daily": str(partition)},
+    )
+
+    conn = module._create_query_connection("crsp", available_tables={"crsp_daily"})
+    try:
+        result = conn.execute("SELECT count(*) FROM crsp_daily").fetchone()
+    finally:
+        conn.close()
+
+    assert result == (1,)
 
 
 def test_validate_table_paths_detects_alpaca_sip_snapshot_partition(
@@ -178,6 +243,83 @@ def test_validate_table_paths_detects_alpaca_sip_snapshot_partition(
     assert not any("alpaca_sip_daily" in warning for warning in warnings)
 
 
+def test_resolve_sql_table_availability_marks_alpaca_fallback_untrusted(
+    tmp_path: Path,
+) -> None:
+    partition = (
+        tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "fallback" / "2026.parquet"
+    )
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+
+    resolutions, warnings = module.resolve_sql_table_availability(
+        {"alpaca_sip_daily": str(partition)}
+    )
+
+    daily = resolutions["alpaca_sip_daily"]
+    assert daily.available is True
+    assert daily.fallback_only is True
+    assert daily.manifest_backed is False
+    assert daily.trusted_for_data_page is False
+    assert any("queryable fallback only" in warning for warning in warnings)
+
+
+def test_resolve_sql_table_availability_marks_manifest_pinned_alpaca_trusted(
+    tmp_path: Path,
+) -> None:
+    partition = (
+        tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2026.parquet"
+    )
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+
+    resolutions, warnings = module.resolve_sql_table_availability(
+        {"alpaca_sip_daily": (str(partition),)}
+    )
+
+    daily = resolutions["alpaca_sip_daily"]
+    assert daily.available is True
+    assert daily.fallback_only is False
+    assert daily.manifest_backed is True
+    assert daily.trusted_for_data_page is True
+    assert not any("queryable fallback only" in warning for warning in warnings)
+
+
+def test_resolve_sql_table_availability_marks_invalid_manifest_untrusted(
+    tmp_path: Path,
+) -> None:
+    partition = (
+        tmp_path / "data" / "alpaca" / "sip" / "daily" / "snapshots" / "sync-1" / "2026.parquet"
+    )
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+
+    resolutions, warnings = module.resolve_sql_table_availability(
+        {
+            "alpaca_sip_daily": module.ResolvedTablePathSpec(
+                path_spec=(str(partition),),
+                manifest_backed=True,
+                manifest_invalid=True,
+            )
+        }
+    )
+
+    daily = resolutions["alpaca_sip_daily"]
+    assert daily.available is True
+    assert daily.manifest_backed is True
+    assert daily.manifest_invalid is True
+    assert daily.trusted_for_data_page is False
+    assert any("manifest is invalid" in warning for warning in warnings)
+
+
+def test_resolve_sql_table_availability_honors_empty_path_override() -> None:
+    resolutions, warnings = module.resolve_sql_table_availability({})
+
+    assert resolutions
+    assert all(not resolution.available for resolution in resolutions.values())
+    assert any("No Parquet files found" in warning for warning in warnings)
+
+
 def test_resolve_table_paths_uses_alpaca_manifest_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -195,19 +337,21 @@ def test_resolve_table_paths_uses_alpaca_manifest_paths(
     manifest_dir = data_root / "manifests"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "alpaca_sip_daily.json").write_text(
-        json.dumps({"file_paths": [str(partition)]}),
+        json.dumps({"file_paths": [str(partition)], "validation_status": "passed"}),
         encoding="utf-8",
     )
     (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
-        json.dumps({"file_paths": [str(corp_partition)]}),
+        json.dumps({"file_paths": [str(corp_partition)], "validation_status": "passed"}),
         encoding="utf-8",
     )
     monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
 
     paths = module._resolve_table_paths()
 
-    assert paths["alpaca_sip_daily"] == (str(partition),)
-    assert paths["alpaca_sip_corp_actions"] == (str(corp_partition),)
+    assert _raw_path_spec(paths["alpaca_sip_daily"]) == (str(partition),)
+    assert _raw_path_spec(paths["alpaca_sip_corp_actions"]) == (str(corp_partition),)
+    assert isinstance(paths["alpaca_sip_daily"], module.ResolvedTablePathSpec)
+    assert paths["alpaca_sip_daily"].manifest_backed is True
 
 
 def test_resolve_table_paths_uses_nested_relative_manifest_paths(
@@ -223,17 +367,19 @@ def test_resolve_table_paths_uses_nested_relative_manifest_paths(
     manifest_dir = data_root / "manifests"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "alpaca_sip_daily.json").write_text(
-        json.dumps({"file_paths": ["snapshots/sync-1/2024.parquet"]}),
+        json.dumps(
+            {"file_paths": ["snapshots/sync-1/2024.parquet"], "validation_status": "passed"}
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
 
     paths = module._resolve_table_paths()
 
-    assert paths["alpaca_sip_daily"] == (str(partition),)
+    assert _raw_path_spec(paths["alpaca_sip_daily"]) == (str(partition),)
 
 
-def test_resolve_table_paths_keeps_valid_alpaca_manifest_paths_with_missing_entries(
+def test_resolve_table_paths_rejects_partially_invalid_alpaca_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -252,7 +398,8 @@ def test_resolve_table_paths_keeps_valid_alpaca_manifest_paths_with_missing_entr
                 "file_paths": [
                     "snapshots/sync-1/2024.parquet",
                     "snapshots/sync-1/missing.parquet",
-                ]
+                ],
+                "validation_status": "passed",
             }
         ),
         encoding="utf-8",
@@ -262,8 +409,84 @@ def test_resolve_table_paths_keeps_valid_alpaca_manifest_paths_with_missing_entr
     with caplog.at_level(logging.WARNING):
         paths = module._resolve_table_paths()
 
-    assert paths["alpaca_sip_daily"] == (str(partition),)
+    daily = paths["alpaca_sip_daily"]
+    assert _raw_path_spec(daily) == ()
+    assert isinstance(daily, module.ResolvedTablePathSpec)
+    assert daily.manifest_invalid is True
+    assert daily.manifest_backed is False
     assert "sql_explorer_alpaca_sip_manifest_invalid_paths" in caplog.text
+
+
+def test_resolve_table_paths_rejects_failed_alpaca_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "alpaca_sip_daily.json"
+    manifest_path.write_text(
+        json.dumps({"file_paths": [str(partition)], "validation_status": "failed"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+    module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    daily = paths["alpaca_sip_daily"]
+    assert _raw_path_spec(daily) == ()
+    assert isinstance(daily, module.ResolvedTablePathSpec)
+    assert daily.manifest_invalid is True
+    assert daily.manifest_backed is False
+    assert "sql_explorer_alpaca_sip_manifest_untrusted" in caplog.text
+    assert str(manifest_path.resolve()) in module._ALPACA_SIP_MANIFEST_PATH_CACHE
+
+
+def test_resolve_table_paths_marks_missing_alpaca_manifest_status_fallback_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    storage_root = data_root / "alpaca" / "sip" / "daily"
+    partition = storage_root / "snapshots" / "sync-1" / "2024.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_bytes(b"PAR1")
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "alpaca_sip_daily.json"
+    manifest_path.write_text(
+        json.dumps({"file_paths": [str(partition)]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+    module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    daily = paths["alpaca_sip_daily"]
+    assert _raw_path_spec(daily) == f"{storage_root.resolve()}/snapshots/*/*.parquet"
+    assert isinstance(daily, module.ResolvedTablePathSpec)
+    assert daily.manifest_invalid is False
+    assert daily.fallback_only is True
+    assert daily.manifest_backed is False
+    assert any(getattr(record, "validation_status", None) == "unknown" for record in caplog.records)
+    assert str(manifest_path.resolve()) in module._ALPACA_SIP_MANIFEST_PATH_CACHE
+
+    resolutions, warnings = module.resolve_sql_table_availability({"alpaca_sip_daily": daily})
+    assert resolutions["alpaca_sip_daily"].available is True
+    assert not any("manifest is invalid" in warning for warning in warnings)
+    assert any("queryable fallback only" in warning for warning in warnings)
 
 
 def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
@@ -273,19 +496,82 @@ def test_resolve_table_paths_fail_closed_on_unreadable_alpaca_manifest(
 ) -> None:
     project_root = tmp_path
     data_root = project_root / "data"
-    fallback_partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    fallback_partition = (
+        data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    )
     fallback_partition.parent.mkdir(parents=True)
     fallback_partition.write_bytes(b"PAR1")
     manifest_dir = data_root / "manifests"
     manifest_dir.mkdir(parents=True)
-    (manifest_dir / "alpaca_sip_daily.json").write_text("{not-json", encoding="utf-8")
+    manifest_path = manifest_dir / "alpaca_sip_daily.json"
+    manifest_path.write_text("{not-json", encoding="utf-8")
     monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+    module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
 
     with caplog.at_level(logging.WARNING):
         paths = module._resolve_table_paths()
 
-    assert paths["alpaca_sip_daily"] == ()
+    assert _raw_path_spec(paths["alpaca_sip_daily"]) == ()
+    assert isinstance(paths["alpaca_sip_daily"], module.ResolvedTablePathSpec)
+    assert paths["alpaca_sip_daily"].manifest_invalid is True
     assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+    assert str(manifest_path.resolve()) in module._ALPACA_SIP_MANIFEST_PATH_CACHE
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        cached_paths = module._resolve_table_paths()
+
+    assert _raw_path_spec(cached_paths["alpaca_sip_daily"]) == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" not in caplog.text
+
+    monkeypatch.setattr(module, "_ALPACA_SIP_MANIFEST_FAILURE_CACHE_TTL_SECONDS", 0.0)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        expired_paths = module._resolve_table_paths()
+
+    assert _raw_path_spec(expired_paths["alpaca_sip_daily"]) == ()
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+
+
+def test_resolve_table_paths_handles_manifest_stat_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    project_root = tmp_path
+    data_root = project_root / "data"
+    manifest_dir = data_root / "manifests"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "alpaca_sip_daily.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
+    module._ALPACA_SIP_MANIFEST_PATH_CACHE.clear()
+
+    original_exists = Path.exists
+    original_stat = Path.stat
+
+    def racing_exists(path: Path) -> bool:
+        if path == manifest_path:
+            return True
+        return original_exists(path)
+
+    def disappearing_stat(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path == manifest_path:
+            raise FileNotFoundError("manifest disappeared")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", racing_exists)
+    monkeypatch.setattr(Path, "stat", disappearing_stat)
+
+    with caplog.at_level(logging.WARNING):
+        paths = module._resolve_table_paths()
+
+    daily = paths["alpaca_sip_daily"]
+    assert _raw_path_spec(daily) == ()
+    assert isinstance(daily, module.ResolvedTablePathSpec)
+    assert daily.manifest_invalid is True
+    assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
+    assert str(manifest_path.resolve()) not in module._ALPACA_SIP_MANIFEST_PATH_CACHE
 
 
 def test_resolve_table_paths_fail_closed_on_non_object_alpaca_manifest(
@@ -295,7 +581,9 @@ def test_resolve_table_paths_fail_closed_on_non_object_alpaca_manifest(
 ) -> None:
     project_root = tmp_path
     data_root = project_root / "data"
-    fallback_partition = data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    fallback_partition = (
+        data_root / "alpaca" / "sip" / "daily" / "snapshots" / "old" / "2024.parquet"
+    )
     fallback_partition.parent.mkdir(parents=True)
     fallback_partition.write_bytes(b"PAR1")
     manifest_dir = data_root / "manifests"
@@ -306,7 +594,9 @@ def test_resolve_table_paths_fail_closed_on_non_object_alpaca_manifest(
     with caplog.at_level(logging.WARNING):
         paths = module._resolve_table_paths()
 
-    assert paths["alpaca_sip_daily"] == ()
+    assert _raw_path_spec(paths["alpaca_sip_daily"]) == ()
+    assert isinstance(paths["alpaca_sip_daily"], module.ResolvedTablePathSpec)
+    assert paths["alpaca_sip_daily"].manifest_invalid is True
     assert "sql_explorer_alpaca_sip_daily_manifest_unreadable" in caplog.text
     assert any(
         getattr(record, "error", None) == "Manifest JSON is not an object"
@@ -343,7 +633,7 @@ def test_create_query_connection_handles_manifest_path_list(
 ) -> None:
     class FakeResult:
         def fetchall(self) -> list[tuple[str]]:
-            return [("core_functions",), ("parquet",)]
+            return [("core_functions",), ("jemalloc",), ("parquet",)]
 
     class FakeConn:
         def __init__(self) -> None:
@@ -416,11 +706,38 @@ def test_service_init_unset_app_env_defaults_to_local(
     assert svc is not None
 
 
-def test_service_init_requires_attestation_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execution_allowed_requires_attestation_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(module, "_APP_ENV", "production")
     monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false")
     with pytest.raises(RuntimeError, match="deploy-attested"):
-        SqlExplorerService(rate_limiter=_DummyRateLimiter())
+        module.ensure_sql_explorer_execution_allowed()
+
+
+def test_service_init_defers_attestation_probe_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(module, "_APP_ENV", "production")
+    monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false")
+    monkeypatch.setattr(
+        module,
+        "_verify_sandbox",
+        lambda: pytest.fail("constructor should not run sandbox probe"),
+    )
+
+    svc = SqlExplorerService(rate_limiter=_DummyRateLimiter())
+
+    assert svc is not None
+
+
+def test_create_scoped_query_connection_requires_attestation_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(module, "_APP_ENV", "production")
+    monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false")
+    with pytest.raises(RuntimeError, match="deploy-attested"):
+        module.create_scoped_query_connection("crsp", available_tables=set())
 
 
 def test_service_init_rate_limiter_guards(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -432,12 +749,14 @@ def test_service_init_rate_limiter_guards(monkeypatch: pytest.MonkeyPatch) -> No
         SqlExplorerService(rate_limiter=_DummyRateLimiter(fallback_mode="allow"))
 
 
-def test_service_init_dev_mode_forbidden_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execution_allowed_dev_mode_forbidden_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(module, "_APP_ENV", "production")
     monkeypatch.setattr(module, "_IS_DEV_MODE", True)
     monkeypatch.setenv("SQL_EXPLORER_DEPLOY_ATTESTED", "true")
     with pytest.raises(RuntimeError, match="forbidden"):
-        SqlExplorerService(rate_limiter=_DummyRateLimiter())
+        module.ensure_sql_explorer_execution_allowed()
 
 
 @pytest.mark.asyncio()
@@ -478,9 +797,47 @@ async def test_execute_query_timeout_interrupts_connection(
             "SELECT * FROM crsp_daily",
             timeout_seconds=0,
             available_tables={"crsp_daily"},
-        )
+    )
 
-    assert conn.interrupt_called is True
+    await asyncio.wait_for(_wait_until(lambda: conn.interrupt_called), timeout=1.0)
+    await asyncio.wait_for(_wait_until(lambda: conn.closed), timeout=1.0)
+
+
+@pytest.mark.asyncio()
+async def test_execute_query_timeout_returns_before_worker_cleanup(
+    operator_user: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class SlowConn(_DummyConn):
+        def __init__(self) -> None:
+            super().__init__()
+            self.finished = threading.Event()
+
+        def execute(self, sql: str) -> _DummyConn:
+            del sql
+            time.sleep(0.2)
+            self.finished.set()
+            return self
+
+    service = SqlExplorerService(rate_limiter=_DummyRateLimiter())
+    conn = SlowConn()
+    monkeypatch.setattr(module, "_create_query_connection", lambda dataset, available_tables: conn)
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        await service.execute_query(
+            operator_user,
+            "crsp",
+            "SELECT * FROM crsp_daily",
+            timeout_seconds=0.01,
+            available_tables={"crsp_daily"},
+        )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.15
+    await asyncio.wait_for(_wait_until(lambda: conn.interrupt_called), timeout=1.0)
+    assert conn.finished.is_set() is False
+    assert await asyncio.to_thread(conn.finished.wait, 1.0)
+    assert conn.closed is True
 
 
 @pytest.mark.asyncio()
@@ -546,23 +903,44 @@ async def test_execute_query_audit_statuses(
     with pytest.raises(RateLimitExceededError):
         await service_rl.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
+    original_execute_frame = module.execute_scoped_query_frame_with_timeout
+
     # concurrency_limit
-    async def raise_concurrency(conn: Any, sql: str, timeout_seconds: int) -> pl.DataFrame:
-        del conn, sql, timeout_seconds
+    async def raise_concurrency(
+        dataset: str,
+        sql: str,
+        timeout_seconds: int,
+        *,
+        available_tables: set[str],
+        table_paths: dict[str, module.TablePathSpec] | None = None,
+    ) -> pl.DataFrame:
+        del dataset, sql, timeout_seconds, available_tables, table_paths
         raise ConcurrencyLimitError("busy")
 
-    monkeypatch.setattr(module, "_execute_query_with_timeout", raise_concurrency)
+    monkeypatch.setattr(module, "execute_scoped_query_frame_with_timeout", raise_concurrency)
     with pytest.raises(ConcurrencyLimitError):
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
 
     # timeout
-    async def raise_timeout(conn: Any, sql: str, timeout_seconds: int) -> pl.DataFrame:
-        del conn, sql, timeout_seconds
+    async def raise_timeout(
+        dataset: str,
+        sql: str,
+        timeout_seconds: int,
+        *,
+        available_tables: set[str],
+        table_paths: dict[str, module.TablePathSpec] | None = None,
+    ) -> pl.DataFrame:
+        del dataset, sql, timeout_seconds, available_tables, table_paths
         raise TimeoutError
 
-    monkeypatch.setattr(module, "_execute_query_with_timeout", raise_timeout)
+    monkeypatch.setattr(module, "execute_scoped_query_frame_with_timeout", raise_timeout)
     with pytest.raises(TimeoutError):
         await service.execute_query(operator_user, "crsp", "SELECT * FROM crsp_daily")
+    monkeypatch.setattr(
+        module,
+        "execute_scoped_query_frame_with_timeout",
+        original_execute_frame,
+    )
 
     # error
     monkeypatch.setattr(
@@ -652,6 +1030,29 @@ def test_verify_sandbox_writable_dir_is_failure(
     assert safe is False
     assert len(failures) == 1
     assert "filesystem_write_allowed" in failures[0]
+
+
+def test_ensure_execution_allowed_rechecks_sandbox_after_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_verify() -> tuple[bool, list[str]]:
+        nonlocal calls
+        calls += 1
+        return True, []
+
+    times = iter([10.0, 10.5, 71.0])
+    monkeypatch.setattr(module, "_sandbox_probe_result", None)
+    monkeypatch.setattr(module, "_SANDBOX_PROBE_CACHE_TTL_SECONDS", 60.0)
+    monkeypatch.setattr(module, "_verify_sandbox", fake_verify)
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(times))
+
+    module.ensure_sql_explorer_execution_allowed()
+    module.ensure_sql_explorer_execution_allowed()
+    module.ensure_sql_explorer_execution_allowed()
+
+    assert calls == 2
 
 
 def test_log_query_no_raw_sql_by_default(caplog: pytest.LogCaptureFixture) -> None:

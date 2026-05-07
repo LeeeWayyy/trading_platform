@@ -9,8 +9,10 @@ import logging
 import os
 import re
 import socket
+import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path as _Path
 from typing import Any
@@ -45,16 +47,58 @@ _QUERY_RATE_LIMIT = 10
 _EXPORT_RATE_LIMIT = 5
 _MAX_CELLS = 1_000_000
 _MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES = 64
-_TablePathSpec = str | tuple[str, ...]
+_ALPACA_SIP_MANIFEST_FAILURE_CACHE_TTL_SECONDS = 5.0
+_DUCKDB_LOCKDOWN_MIN_VERSION = (1, 4, 0)
+_SANDBOX_PROBE_CACHE_TTL_SECONDS = 60.0
+_DUCKDB_LOADABLE_EXTENSIONS = frozenset({"core_functions", "icu", "json", "parquet"})
+_DUCKDB_ALLOWED_LOADED_EXTENSIONS = _DUCKDB_LOADABLE_EXTENSIONS | frozenset({"jemalloc"})
+_DUCKDB_DENIED_EXTENSIONS = frozenset(
+    {"httpfs", "postgres_scanner", "sqlite_scanner", "mysql_scanner", "azure", "aws"}
+)
+_RawTablePathSpec = str | tuple[str, ...]
+
+
+class ResolvedTablePathSpec(BaseModel, frozen=True):
+    """Physical table path plus explicit provenance for trust decisions."""
+
+    path_spec: _RawTablePathSpec
+    manifest_backed: bool = False
+    fallback_only: bool = False
+    manifest_invalid: bool = False
+
+
+_TablePathSpec = _RawTablePathSpec | ResolvedTablePathSpec
+TablePathSpec = _TablePathSpec
+
+_ALPACA_SIP_TABLE_MANIFESTS: dict[str, str] = {
+    "alpaca_sip_daily": "alpaca_sip_daily.json",
+    "alpaca_sip_corp_actions": "alpaca_sip_corp_actions.json",
+}
 
 
 class _ManifestPathCacheEntry(BaseModel, frozen=True):
     mtime_ns: int
     size: int
     path_spec: _TablePathSpec
+    failure_cached_at: float | None = None
+
+
+class SqlTableResolution(BaseModel, frozen=True):
+    """Resolved local table state for SQL-backed data surfaces."""
+
+    dataset: str
+    table: str
+    path_spec: TablePathSpec | None
+    available: bool
+    manifest_required: bool
+    manifest_backed: bool
+    manifest_invalid: bool
+    fallback_only: bool
+    trusted_for_data_page: bool
 
 
 _ALPACA_SIP_MANIFEST_PATH_CACHE: OrderedDict[str, _ManifestPathCacheEntry] = OrderedDict()
+_ALPACA_SIP_MANIFEST_PATH_CACHE_LOCK = threading.Lock()
 
 
 def _cache_alpaca_sip_manifest_path(
@@ -62,13 +106,31 @@ def _cache_alpaca_sip_manifest_path(
     entry: _ManifestPathCacheEntry,
 ) -> None:
     """Store a manifest cache entry while bounding global cache growth."""
-    _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = entry
-    _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
-    while (
-        len(_ALPACA_SIP_MANIFEST_PATH_CACHE)
-        > _MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES
-    ):
-        _ALPACA_SIP_MANIFEST_PATH_CACHE.popitem(last=False)
+    with _ALPACA_SIP_MANIFEST_PATH_CACHE_LOCK:
+        _ALPACA_SIP_MANIFEST_PATH_CACHE[cache_key] = entry
+        _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
+        while len(_ALPACA_SIP_MANIFEST_PATH_CACHE) > _MAX_ALPACA_SIP_MANIFEST_PATH_CACHE_ENTRIES:
+            _ALPACA_SIP_MANIFEST_PATH_CACHE.popitem(last=False)
+
+
+def _cache_resolved_alpaca_sip_manifest_path(
+    cache_key: str,
+    manifest_stat: os.stat_result,
+    path_spec: _TablePathSpec,
+    *,
+    failure_cache: bool = False,
+) -> _TablePathSpec:
+    _cache_alpaca_sip_manifest_path(
+        cache_key,
+        _ManifestPathCacheEntry(
+            mtime_ns=manifest_stat.st_mtime_ns,
+            size=manifest_stat.st_size,
+            path_spec=path_spec,
+            failure_cached_at=time.monotonic() if failure_cache else None,
+        ),
+    )
+    return path_spec
+
 
 _KNOWN_ENVS = {"production", "staging", "development", "test", "local"}
 
@@ -81,6 +143,7 @@ _ERROR_CODES: dict[str, str] = {
     "concurrency_limit": "Too many concurrent queries",
     "error": "Query execution failed",
 }
+_NON_ERROR_AUDIT_STATUSES = {"success", "queued"}
 
 _SENSITIVE_TABLES_EXACT = frozenset(
     {
@@ -189,6 +252,8 @@ if _AUDIT_LOG_RAW_SQL:
 
 _active_queries = 0
 _active_queries_lock = asyncio.Lock()
+_sandbox_probe_result: tuple[float, bool, tuple[str, ...]] | None = None
+_sandbox_probe_lock = threading.Lock()
 
 
 class SensitiveTableAccessError(ValueError):
@@ -216,15 +281,20 @@ class QueryResult(BaseModel, frozen=True):
 def _safe_error_message(status: str, _raw_error: str | None = None) -> str | None:
     """Return canonical, non-sensitive error messages only.
 
-    Returns None for success status to avoid misleading audit log entries.
+    Returns None for non-error statuses to avoid misleading audit log entries.
     The _raw_error parameter is intentionally unused — it exists in the
     signature so callers pass it for documentation/audit purposes, but
     its value is never included in the returned message to prevent
     leaking SQL fragments or internal details.
     """
-    if status == "success":
+    if status in _NON_ERROR_AUDIT_STATUSES:
         return None
     return _ERROR_CODES.get(status, "Internal execution error")
+
+
+def safe_sql_error_message(status: str) -> str | None:
+    """Return canonical, non-sensitive SQL Explorer audit error text."""
+    return _safe_error_message(status)
 
 
 def _fingerprint_query(sql: str) -> str:
@@ -298,10 +368,17 @@ def _glob_has_match(pattern: str) -> bool:
     return bool(_glob_module.glob(pattern, recursive=True))
 
 
+def _raw_path_spec(path_spec: _TablePathSpec) -> _RawTablePathSpec:
+    if isinstance(path_spec, ResolvedTablePathSpec):
+        return path_spec.path_spec
+    return path_spec
+
+
 def _path_spec_has_match(path_spec: _TablePathSpec) -> bool:
-    if isinstance(path_spec, str):
-        return _glob_has_match(path_spec)
-    return any(_Path(path).exists() for path in path_spec)
+    raw_path_spec = _raw_path_spec(path_spec)
+    if isinstance(raw_path_spec, str):
+        return _glob_has_match(raw_path_spec)
+    return any(_Path(path).exists() for path in raw_path_spec)
 
 
 def _validate_path_safe(path: str) -> None:
@@ -337,19 +414,29 @@ def _resolve_alpaca_sip_snapshot_paths(
     data_root_path = _Path(data_root).resolve()
     storage_root = (data_root_path / "alpaca" / "sip" / storage_leaf).resolve()
     manifest_path = (data_root_path / "manifests" / manifest_name).resolve()
+    fallback_path_spec = f"{storage_root}/snapshots/*/*.parquet"
 
     if manifest_path.exists():
         cache_key = str(manifest_path.resolve())
+        manifest_stat: os.stat_result | None = None
         try:
             manifest_stat = manifest_path.stat()
-            cached = _ALPACA_SIP_MANIFEST_PATH_CACHE.get(cache_key)
-            if (
-                cached is not None
-                and cached.mtime_ns == manifest_stat.st_mtime_ns
-                and cached.size == manifest_stat.st_size
-            ):
-                _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
-                return cached.path_spec
+            with _ALPACA_SIP_MANIFEST_PATH_CACHE_LOCK:
+                cached = _ALPACA_SIP_MANIFEST_PATH_CACHE.get(cache_key)
+                if (
+                    cached is not None
+                    and cached.mtime_ns == manifest_stat.st_mtime_ns
+                    and cached.size == manifest_stat.st_size
+                ):
+                    failure_expired = (
+                        cached.failure_cached_at is not None
+                        and time.monotonic() - cached.failure_cached_at
+                        >= _ALPACA_SIP_MANIFEST_FAILURE_CACHE_TTL_SECONDS
+                    )
+                    if not failure_expired:
+                        _ALPACA_SIP_MANIFEST_PATH_CACHE.move_to_end(cache_key)
+                        return cached.path_spec
+                    _ALPACA_SIP_MANIFEST_PATH_CACHE.pop(cache_key, None)
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not isinstance(manifest, dict):
                 logger.warning(
@@ -359,14 +446,53 @@ def _resolve_alpaca_sip_snapshot_paths(
                         "error": "Manifest JSON is not an object",
                     },
                 )
-                return ()
+                return _cache_resolved_alpaca_sip_manifest_path(
+                    cache_key,
+                    manifest_stat,
+                    ResolvedTablePathSpec(path_spec=(), manifest_invalid=True),
+                )
+            raw_validation_status = manifest.get("validation_status")
+            validation_status = (
+                str(raw_validation_status).lower()
+                if raw_validation_status is not None
+                else "unknown"
+            )
+            if validation_status != "passed":
+                logger.warning(
+                    "sql_explorer_alpaca_sip_manifest_untrusted",
+                    extra={
+                        "manifest_path": str(manifest_path),
+                        "validation_status": validation_status,
+                    },
+                )
+                if raw_validation_status is None:
+                    return _cache_resolved_alpaca_sip_manifest_path(
+                        cache_key,
+                        manifest_stat,
+                        ResolvedTablePathSpec(
+                            path_spec=fallback_path_spec,
+                            fallback_only=True,
+                        ),
+                    )
+                return _cache_resolved_alpaca_sip_manifest_path(
+                    cache_key,
+                    manifest_stat,
+                    ResolvedTablePathSpec(path_spec=(), manifest_invalid=True),
+                )
             file_paths = manifest.get("file_paths", [])
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
                 unreadable_log_event,
                 extra={"manifest_path": str(manifest_path), "error": str(exc)},
             )
-            return ()
+            if manifest_stat is None:
+                return ResolvedTablePathSpec(path_spec=(), manifest_invalid=True)
+            return _cache_resolved_alpaca_sip_manifest_path(
+                cache_key,
+                manifest_stat,
+                ResolvedTablePathSpec(path_spec=(), manifest_invalid=True),
+                failure_cache=True,
+            )
         else:
             resolved_paths: list[str] = []
             if isinstance(file_paths, list):
@@ -396,33 +522,40 @@ def _resolve_alpaca_sip_snapshot_paths(
                             "invalid_paths": invalid_paths,
                         },
                     )
+                    path_spec = ResolvedTablePathSpec(path_spec=(), manifest_invalid=True)
+                    return _cache_resolved_alpaca_sip_manifest_path(
+                        cache_key,
+                        manifest_stat,
+                        path_spec,
+                    )
 
-                path_spec: _TablePathSpec = tuple(sorted(resolved_paths))
-                _cache_alpaca_sip_manifest_path(
-                    cache_key,
-                    _ManifestPathCacheEntry(
-                        mtime_ns=manifest_stat.st_mtime_ns,
-                        size=manifest_stat.st_size,
-                        path_spec=path_spec,
-                    ),
+                raw_path_spec = tuple(sorted(resolved_paths))
+                path_spec = ResolvedTablePathSpec(
+                    path_spec=raw_path_spec,
+                    manifest_backed=bool(raw_path_spec),
+                    manifest_invalid=not raw_path_spec,
                 )
-                return path_spec
+                return _cache_resolved_alpaca_sip_manifest_path(
+                    cache_key,
+                    manifest_stat,
+                    path_spec,
+                )
 
             logger.warning(
                 "sql_explorer_alpaca_sip_manifest_invalid_file_paths",
                 extra={"manifest_path": str(manifest_path)},
             )
-            _cache_alpaca_sip_manifest_path(
+            path_spec = ResolvedTablePathSpec(path_spec=(), manifest_invalid=True)
+            return _cache_resolved_alpaca_sip_manifest_path(
                 cache_key,
-                _ManifestPathCacheEntry(
-                    mtime_ns=manifest_stat.st_mtime_ns,
-                    size=manifest_stat.st_size,
-                    path_spec=(),
-                ),
+                manifest_stat,
+                path_spec,
             )
-            return ()
 
-    return f"{storage_root}/snapshots/*/*.parquet"
+    return ResolvedTablePathSpec(
+        path_spec=fallback_path_spec,
+        fallback_only=True,
+    )
 
 
 def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:
@@ -447,16 +580,52 @@ def _resolve_alpaca_sip_corp_actions_paths(data_root: str) -> _TablePathSpec:
 
 def _duckdb_read_parquet_arg(path_spec: _TablePathSpec) -> str:
     """Build a safe DuckDB read_parquet argument from validated path specs."""
-    paths = (path_spec,) if isinstance(path_spec, str) else path_spec
+    raw_path_spec = _raw_path_spec(path_spec)
+    paths = (raw_path_spec,) if isinstance(raw_path_spec, str) else raw_path_spec
     for path in paths:
         _validate_path_safe(path)
 
-    if isinstance(path_spec, str):
-        return f"'{path_spec}'"
-    if not path_spec:
+    if isinstance(raw_path_spec, str):
+        return f"'{raw_path_spec}'"
+    if not raw_path_spec:
         raise ValueError("Empty path list rejected")
-    quoted_paths = ", ".join(f"'{path}'" for path in path_spec)
+    quoted_paths = ", ".join(f"'{path}'" for path in raw_path_spec)
     return f"[{quoted_paths}]"
+
+
+def _set_duckdb_option(
+    conn: duckdb.DuckDBPyConnection,
+    sql: str,
+    *,
+    option_name: str,
+    allow_unrecognized: bool = False,
+) -> None:
+    try:
+        conn.execute(sql)
+    except duckdb.CatalogException as exc:
+        if allow_unrecognized and "unrecognized configuration parameter" in str(exc):
+            logger.warning(
+                "duckdb_option_unavailable",
+                extra={"option": option_name},
+            )
+            return
+        raise
+
+
+def _duckdb_version_tuple(version: str) -> tuple[int, int, int]:
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
+    if match is None:
+        return (0, 0, 0)
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+def _ensure_duckdb_lockdown_supported() -> None:
+    version = _duckdb_version_tuple(str(getattr(duckdb, "__version__", "")))
+    if version < _DUCKDB_LOCKDOWN_MIN_VERSION:
+        raise RuntimeError(
+            "SQL Explorer requires DuckDB >= 1.4.0 for hardened extension lockdown "
+            f"(found {getattr(duckdb, '__version__', 'unknown')})."
+        )
 
 
 def _resolve_table_paths() -> dict[str, _TablePathSpec]:
@@ -482,7 +651,7 @@ def _validate_table_paths(
 ) -> tuple[dict[str, set[str]], list[str]]:
     """Validate discovered table paths and return per-dataset availability."""
 
-    paths = table_paths or _resolve_table_paths()
+    paths = _resolve_table_paths() if table_paths is None else table_paths
     available_tables_by_dataset: dict[str, set[str]] = {}
     warnings: list[str] = []
 
@@ -503,32 +672,141 @@ def _validate_table_paths(
     return available_tables_by_dataset, warnings
 
 
-def _create_query_connection(dataset: str, available_tables: set[str]) -> duckdb.DuckDBPyConnection:
+def resolve_sql_table_paths() -> dict[str, TablePathSpec]:
+    """Resolve logical SQL Explorer tables to local parquet path specs."""
+    return _resolve_table_paths()
+
+
+def validate_sql_table_paths(
+    table_paths: dict[str, TablePathSpec] | None = None,
+) -> tuple[dict[str, set[str]], list[str]]:
+    """Return queryable local tables grouped by dataset."""
+    return _validate_table_paths(table_paths)
+
+
+def resolve_sql_table_availability(
+    table_paths: dict[str, TablePathSpec] | None = None,
+) -> tuple[dict[str, SqlTableResolution], list[str]]:
+    """Return table availability with Data-page trust metadata.
+
+    SQL Explorer can inspect fallback Alpaca SIP parquet files, but the main
+    data page requires manifest-pinned paths for preview and handoff actions.
+    """
+
+    paths = resolve_sql_table_paths() if table_paths is None else table_paths
+    resolutions: dict[str, SqlTableResolution] = {}
+    warnings: list[str] = []
+
+    for dataset, tables in DATASET_TABLES.items():
+        for table in tables:
+            path_spec = paths.get(table)
+            available = bool(path_spec and _path_spec_has_match(path_spec))
+            manifest_required = table in _ALPACA_SIP_TABLE_MANIFESTS
+            if isinstance(path_spec, ResolvedTablePathSpec):
+                manifest_backed = bool(path_spec.manifest_backed and available)
+                fallback_only = bool(path_spec.fallback_only)
+                manifest_invalid = bool(path_spec.manifest_invalid)
+            else:
+                manifest_backed = bool(
+                    manifest_required and isinstance(path_spec, tuple) and available
+                )
+                fallback_only = bool(manifest_required and isinstance(path_spec, str))
+                manifest_invalid = False
+            trusted_for_data_page = bool(
+                available
+                and not manifest_invalid
+                and (not manifest_required or manifest_backed)
+            )
+            if manifest_invalid:
+                warnings.append(
+                    f"{table} manifest is invalid or has no valid parquet files; /data disabled"
+                )
+            if fallback_only:
+                warnings.append(
+                    f"{table} is queryable fallback only; manifest-backed /data preview disabled"
+                )
+            elif not available and not manifest_invalid:
+                warnings.append(f"No Parquet files found for {table}: {path_spec}")
+
+            resolutions[table] = SqlTableResolution(
+                dataset=dataset,
+                table=table,
+                path_spec=path_spec,
+                available=available,
+                manifest_required=manifest_required,
+                manifest_backed=manifest_backed,
+                manifest_invalid=manifest_invalid,
+                fallback_only=fallback_only,
+                trusted_for_data_page=trusted_for_data_page,
+            )
+
+    return resolutions, warnings
+
+
+def _create_query_connection(
+    dataset: str,
+    available_tables: set[str],
+    table_paths: dict[str, TablePathSpec] | None = None,
+) -> duckdb.DuckDBPyConnection:
     """Create hardened DuckDB connection scoped to available dataset tables."""
 
+    _ensure_duckdb_lockdown_supported()
     conn = duckdb.connect()
     try:
-        conn.execute("SET enable_extension_autoloading = false")
-        conn.execute("SET enable_extension_loading = false")
-
-        _allowed_extensions = frozenset({"core_functions", "icu", "json", "parquet"})
-        _denied_extensions = frozenset(
-            {"httpfs", "postgres_scanner", "sqlite_scanner", "mysql_scanner", "azure", "aws"}
-        )
         _strict_extensions = os.getenv("SQL_EXPLORER_STRICT_EXTENSIONS", "true").lower() == "true"
         if not _strict_extensions and _APP_ENV == "production":
             raise RuntimeError(
                 "SQL_EXPLORER_STRICT_EXTENSIONS=false is forbidden when APP_ENV=production."
             )
 
+        _set_duckdb_option(
+            conn,
+            "SET autoinstall_known_extensions = false",
+            option_name="autoinstall_known_extensions",
+        )
+        _set_duckdb_option(
+            conn,
+            "SET autoload_known_extensions = false",
+            option_name="autoload_known_extensions",
+        )
+        _set_duckdb_option(
+            conn,
+            "SET allow_unsigned_extensions = false",
+            option_name="allow_unsigned_extensions",
+        )
+        _set_duckdb_option(
+            conn,
+            "SET allow_community_extensions = false",
+            option_name="allow_community_extensions",
+        )
+
+        for extension in sorted(_DUCKDB_LOADABLE_EXTENSIONS):
+            conn.execute(f"LOAD {extension}")
+
+        # Legacy aliases are removed in the locked DuckDB 1.4.4 build, so they
+        # are advisory only. Apply them after loading the required built-ins for
+        # builds that still support the broader extension-loading switch.
+        _set_duckdb_option(
+            conn,
+            "SET enable_extension_loading = false",
+            option_name="enable_extension_loading",
+            allow_unrecognized=True,
+        )
+        _set_duckdb_option(
+            conn,
+            "SET enable_extension_autoloading = false",
+            option_name="enable_extension_autoloading",
+            allow_unrecognized=True,
+        )
+
         loaded_extensions = conn.execute(
             "SELECT extension_name FROM duckdb_extensions() WHERE loaded = true"
         ).fetchall()
 
         for (ext_name,) in loaded_extensions:
-            if ext_name in _denied_extensions:
+            if ext_name in _DUCKDB_DENIED_EXTENSIONS:
                 raise RuntimeError(f"Denied DuckDB extension loaded: {ext_name}")
-            if ext_name not in _allowed_extensions:
+            if ext_name not in _DUCKDB_ALLOWED_LOADED_EXTENSIONS:
                 if _strict_extensions:
                     raise RuntimeError(f"Unknown DuckDB extension loaded: {ext_name}")
                 logger.warning("duckdb_unknown_extension_advisory", extra={"extension": ext_name})
@@ -547,14 +825,14 @@ def _create_query_connection(dataset: str, available_tables: set[str]) -> duckdb
         conn.execute(f"SET max_memory = '{max_memory_mb}MB'")
         conn.execute("SET threads = 1")
 
-        table_paths = _resolve_table_paths()
+        resolved_table_paths = _resolve_table_paths() if table_paths is None else table_paths
         for table_name in DATASET_TABLES[dataset]:
             if table_name not in available_tables:
                 continue
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
                 raise ValueError(f"Invalid table identifier: {table_name}")
 
-            parquet_path_spec = table_paths.get(table_name)
+            parquet_path_spec = resolved_table_paths.get(table_name)
             if parquet_path_spec is None:
                 continue
             parquet_arg = _duckdb_read_parquet_arg(parquet_path_spec)
@@ -567,6 +845,18 @@ def _create_query_connection(dataset: str, available_tables: set[str]) -> duckdb
     except Exception:
         conn.close()
         raise
+
+
+def create_scoped_query_connection(
+    dataset: str,
+    available_tables: set[str],
+    table_paths: dict[str, TablePathSpec] | None = None,
+) -> duckdb.DuckDBPyConnection:
+    """Create a hardened DuckDB connection scoped to approved tables."""
+    ensure_sql_explorer_execution_allowed()
+    if table_paths is None:
+        return _create_query_connection(dataset, available_tables)
+    return _create_query_connection(dataset, available_tables, table_paths=table_paths)
 
 
 def _verify_sandbox() -> tuple[bool, list[str]]:
@@ -631,12 +921,27 @@ def can_query_dataset(user: Any, dataset: str) -> bool:
     return has_dataset_permission(user, permission)
 
 
-async def _execute_query_with_timeout(
+def _query_frame_from_connection(
     conn: duckdb.DuckDBPyConnection,
     sql: str,
-    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
 ) -> pl.DataFrame:
-    """Execute query with bounded concurrency and hard timeout."""
+    result = conn.execute(sql)
+    df = result.pl()
+    cell_count = len(df) * len(df.columns)
+    if cell_count > _MAX_CELLS:
+        raise ValueError(
+            f"Result too large: {cell_count:,} cells exceeds limit of {_MAX_CELLS:,}. "
+            "Add filters or reduce columns."
+        )
+    return df
+
+
+async def _execute_query_callable_with_timeout(
+    run_query: Callable[[], pl.DataFrame],
+    timeout_seconds: int,
+    interrupt: Callable[[], None],
+) -> pl.DataFrame:
+    """Execute query work with bounded concurrency and cooperative timeout cleanup."""
 
     global _active_queries
 
@@ -649,45 +954,198 @@ async def _execute_query_with_timeout(
 
     clamped_timeout = min(timeout_seconds, _MAX_TIMEOUT_SECONDS)
 
-    try:
+    async def _release_slot_after_cleanup(task: asyncio.Task[pl.DataFrame]) -> None:
+        global _active_queries
 
-        def _run() -> pl.DataFrame:
-            result = conn.execute(sql)
-            df = result.pl()
-            cell_count = len(df) * len(df.columns)
-            if cell_count > _MAX_CELLS:
-                raise ValueError(
-                    f"Result too large: {cell_count:,} cells exceeds limit of {_MAX_CELLS:,}. "
-                    "Add filters or reduce columns."
-                )
-            return df
-
-        return await asyncio.wait_for(asyncio.to_thread(_run), timeout=clamped_timeout)
-    except TimeoutError:
         try:
-            conn.interrupt()
+            await asyncio.shield(task)
         except Exception:
-            logger.warning("duckdb_interrupt_failed", extra={"timeout": clamped_timeout})
-        raise
+            pass
+        finally:
+            async with _active_queries_lock:
+                _active_queries -= 1
+
+    try:
+        task = asyncio.create_task(asyncio.to_thread(run_query))
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=clamped_timeout)
+        except TimeoutError as exc:
+            if not task.done():
+                try:
+                    interrupt()
+                except Exception:
+                    logger.warning("duckdb_interrupt_failed", extra={"timeout": clamped_timeout})
+                asyncio.create_task(_release_slot_after_cleanup(task))
+                acquired_slot = False
+            raise TimeoutError("SQL query timed out") from exc
     finally:
         if acquired_slot:
             async with _active_queries_lock:
                 _active_queries -= 1
 
 
+async def _execute_query_with_timeout(
+    conn: duckdb.DuckDBPyConnection,
+    sql: str,
+    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+) -> pl.DataFrame:
+    """Execute query with bounded concurrency and timeout-safe cleanup."""
+
+    return await _execute_query_callable_with_timeout(
+        lambda: _query_frame_from_connection(conn, sql),
+        timeout_seconds,
+        conn.interrupt,
+    )
+
+
+class _ScopedQueryRunner:
+    """Own a scoped DuckDB connection inside the worker thread that executes it."""
+
+    def __init__(
+        self,
+        *,
+        dataset: str,
+        available_tables: set[str],
+        table_paths: dict[str, TablePathSpec] | None,
+        sql: str,
+    ) -> None:
+        self._dataset = dataset
+        self._available_tables = available_tables
+        self._table_paths = table_paths
+        self._sql = sql
+        self._conn: duckdb.DuckDBPyConnection | None = None
+        self._conn_lock = threading.Lock()
+        self._interrupt_requested = threading.Event()
+
+    def run(self) -> pl.DataFrame:
+        conn = create_scoped_query_connection(
+            self._dataset,
+            available_tables=self._available_tables,
+            table_paths=self._table_paths,
+        )
+        with self._conn_lock:
+            self._conn = conn
+        try:
+            if self._interrupt_requested.is_set():
+                conn.interrupt()
+            return _query_frame_from_connection(conn, self._sql)
+        finally:
+            try:
+                conn.close()
+            finally:
+                with self._conn_lock:
+                    if self._conn is conn:
+                        self._conn = None
+
+    def interrupt(self) -> None:
+        self._interrupt_requested.set()
+        with self._conn_lock:
+            conn = self._conn
+        if conn is not None:
+            conn.interrupt()
+
+
+async def execute_scoped_query_frame_with_timeout(
+    dataset: str,
+    sql: str,
+    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+    *,
+    available_tables: set[str],
+    table_paths: dict[str, TablePathSpec] | None = None,
+) -> pl.DataFrame:
+    """Execute a scoped DuckDB query while owning close in the query worker thread."""
+
+    runner = _ScopedQueryRunner(
+        dataset=dataset,
+        available_tables=available_tables,
+        table_paths=table_paths,
+        sql=sql,
+    )
+    return await _execute_query_callable_with_timeout(
+        runner.run,
+        timeout_seconds,
+        runner.interrupt,
+    )
+
+
+async def execute_scoped_query_with_timeout(
+    conn: duckdb.DuckDBPyConnection,
+    sql: str,
+    timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+) -> pl.DataFrame:
+    """Execute a scoped DuckDB query with shared timeout/concurrency limits."""
+    return await _execute_query_with_timeout(conn, sql, timeout_seconds)
+
+
+def check_sensitive_tables(tables: list[str]) -> None:
+    """Raise if a query references obviously sensitive tables."""
+    _check_sensitive_tables(tables)
+
+
+def fingerprint_sql_query(sql: str) -> str:
+    """Return a normalized audit/display fingerprint for SQL text."""
+    return _fingerprint_query(sql)
+
+
+def ensure_sql_explorer_execution_allowed() -> None:
+    """Enforce SQL Explorer production attestation and sandbox checks."""
+    global _sandbox_probe_result
+
+    if _APP_ENV == "production":
+        if os.getenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false").lower() != "true":
+            raise RuntimeError("SQL Explorer requires deploy-attested sandbox in production")
+
+    if _IS_DEV_MODE and _APP_ENV == "production":
+        raise RuntimeError("SQL_EXPLORER_DEV_MODE=true is forbidden when APP_ENV=production.")
+
+    now = time.monotonic()
+    with _sandbox_probe_lock:
+        if (
+            _sandbox_probe_result is None
+            or now - _sandbox_probe_result[0] >= _SANDBOX_PROBE_CACHE_TTL_SECONDS
+        ):
+            safe, failures = _verify_sandbox()
+            _sandbox_probe_result = (now, safe, tuple(failures))
+        else:
+            _checked_at, safe, failures_tuple = _sandbox_probe_result
+            failures = list(failures_tuple)
+
+    if not safe:
+        if _APP_ENV == "production":
+            raise RuntimeError(
+                f"SQL Explorer sandbox probe failed in production: {', '.join(failures)}. "
+                "Ensure network egress is blocked and filesystem is read-only."
+            )
+        logger.warning("sql_explorer_sandbox_probe_failed", extra={"failures": failures})
+
+
+def log_sql_query_audit(
+    user: Any,
+    dataset: str,
+    original_query: str,
+    executed_query: str | None,
+    row_count: int,
+    execution_ms: int,
+    status: str,
+    error_message: str | None,
+) -> None:
+    """Write a SQL Explorer-compatible query audit record."""
+    _log_query(
+        user,
+        dataset,
+        original_query,
+        executed_query,
+        row_count,
+        execution_ms,
+        status,
+        error_message,
+    )
+
+
 class SqlExplorerService:
     """Service encapsulating SQL Explorer security and execution pipeline."""
 
     def __init__(self, rate_limiter: RateLimiter | None = None) -> None:
-        app_env = _APP_ENV
-
-        if app_env == "production":
-            if os.getenv("SQL_EXPLORER_DEPLOY_ATTESTED", "false").lower() != "true":
-                raise RuntimeError("SQL Explorer requires deploy-attested sandbox in production")
-
-        if _IS_DEV_MODE and app_env == "production":
-            raise RuntimeError("SQL_EXPLORER_DEV_MODE=true is forbidden when APP_ENV=production.")
-
         if rate_limiter is None:
             if not _IS_DEV_MODE:
                 raise ValueError(
@@ -700,15 +1158,6 @@ class SqlExplorerService:
 
         self._rate_limiter = rate_limiter
         self._validator = SQLValidator()
-
-        safe, failures = _verify_sandbox()
-        if not safe:
-            if app_env == "production":
-                raise RuntimeError(
-                    f"SQL Explorer sandbox probe failed in production: {', '.join(failures)}. "
-                    "Ensure network egress is blocked and filesystem is read-only."
-                )
-            logger.warning("sql_explorer_sandbox_probe_failed", extra={"failures": failures})
 
     async def execute_query(
         self,
@@ -751,11 +1200,12 @@ class SqlExplorerService:
             resolved_tables = (
                 available_tables if available_tables is not None else set(DATASET_TABLES[dataset])
             )
-            conn = _create_query_connection(dataset, available_tables=resolved_tables)
-            try:
-                result = await _execute_query_with_timeout(conn, limited_sql, timeout_seconds)
-            finally:
-                conn.close()
+            result = await execute_scoped_query_frame_with_timeout(
+                dataset,
+                limited_sql,
+                timeout_seconds,
+                available_tables=resolved_tables,
+            )
 
             execution_ms = int((time.monotonic() - start) * 1000)
             fingerprint = _fingerprint_query(query)
@@ -885,10 +1335,24 @@ class SqlExplorerService:
 __all__ = [
     "SqlExplorerService",
     "QueryResult",
+    "SqlTableResolution",
+    "TablePathSpec",
+    "ResolvedTablePathSpec",
     "SensitiveTableAccessError",
     "ConcurrencyLimitError",
     "RateLimitExceededError",
     "can_query_dataset",
+    "check_sensitive_tables",
+    "create_scoped_query_connection",
+    "ensure_sql_explorer_execution_allowed",
+    "execute_scoped_query_frame_with_timeout",
+    "execute_scoped_query_with_timeout",
+    "fingerprint_sql_query",
+    "log_sql_query_audit",
+    "safe_sql_error_message",
+    "resolve_sql_table_availability",
+    "resolve_sql_table_paths",
+    "validate_sql_table_paths",
     "_DEFAULT_TIMEOUT_SECONDS",
     "_MAX_TIMEOUT_SECONDS",
     "_DEFAULT_MAX_ROWS",

@@ -63,6 +63,32 @@ class TestTableAccess:
         assert valid
         assert error is None
 
+    def test_literal_smoke_query_allows_select_literal(self, validator: SQLValidator) -> None:
+        """Tableless smoke queries are limited to literal output."""
+        assert validator.is_literal_smoke_query("SELECT 1") is True
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "SELECT count(*) FROM range(1000000)",
+            "SELECT * FROM generate_series(1, 10)",
+            "SELECT * FROM (SELECT 1) AS t",
+            "SELECT unnest([1, 2, 3])",
+            "SELECT 1 WHERE random() > 0",
+            "SELECT 1 ORDER BY random()",
+            "SELECT 1 LIMIT 1 OFFSET random()",
+            "SELECT 1 HAVING random() > 0",
+            "SELECT 1 QUALIFY random() > 0",
+        ],
+    )
+    def test_literal_smoke_query_rejects_computed_sources(
+        self,
+        validator: SQLValidator,
+        query: str,
+    ) -> None:
+        """Synthetic row sources cannot use the tableless smoke path."""
+        assert validator.is_literal_smoke_query(query) is False
+
     def test_schema_qualified_table_rejected(self, validator: SQLValidator) -> None:
         """Schema-qualified tables (schema.table) should be rejected."""
         valid, error = validator.validate("SELECT * FROM other_schema.crsp_daily", "crsp")
