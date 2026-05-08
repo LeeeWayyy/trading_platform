@@ -667,6 +667,7 @@ async def _render_data_explorer_section(
                             if not ds:
                                 ui.notify("Please select a dataset", type="warning")
                                 return
+                            queried_dataset_info = dataset_map.get(ds)
                             query_val = str(query_textarea.value).strip()
                             if not query_val:
                                 ui.notify("Please enter a query", type="warning")
@@ -682,7 +683,7 @@ async def _render_data_explorer_section(
                                 with results_container:
                                     _build_query_results(
                                         result,
-                                        dataset_info=_selected_dataset_info(),
+                                        dataset_info=queried_dataset_info,
                                     )
                             except ValueError as e:
                                 ui.notify(f"Query error: {e}", type="negative")
@@ -754,10 +755,12 @@ def _render_adjusted_preview_controls(dataset_info: Any) -> None:
     ) is None:
         return
     handoff = getattr(dataset_info, "backtest_handoff", None)
-    unavailable_reason = (
-        getattr(handoff, "adjusted_preview_unavailable_reason", None)
-        or "read_time_adjustment_layer_not_defined"
-    )
+    unavailable_reason = "read_time_adjustment_layer_not_defined"
+    if handoff is not None:
+        unavailable_reason = (
+            getattr(handoff, "adjusted_preview_unavailable_reason", None)
+            or unavailable_reason
+        )
     with ui.row().classes("w-full gap-2 items-end mt-2"):
         ui.select(
             label="Preview Mode",

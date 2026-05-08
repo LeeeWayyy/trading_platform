@@ -584,6 +584,85 @@ class TestBuildQueryResults:
         dm_module._build_query_results(result)
         mock_ui.table.assert_not_called()
 
+    @pytest.mark.asyncio()
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    async def test_query_results_use_dataset_captured_before_await(
+        self,
+        mock_ui: MagicMock,
+        explorer_service: MagicMock,
+    ) -> None:
+        buttons: dict[str, Any] = {}
+        textareas_by_label: dict[str, _FakeElement] = {}
+        dataset_change_handlers: list[Any] = []
+        query_started = asyncio.Event()
+        finish_query = asyncio.Event()
+        queried_dataset = DatasetInfoDTO(
+            name="crsp",
+            canonical_storage_mode="raw",
+        )
+        later_selected_dataset = DatasetInfoDTO(
+            name="compustat",
+            canonical_storage_mode="adjusted",
+        )
+
+        class _DatasetSelect(_FakeElement):
+            def on_value_change(self, handler: Any) -> None:
+                dataset_change_handlers.append(handler)
+
+        async def _execute_query(*_args: Any, **_kwargs: Any) -> QueryResultDTO:
+            query_started.set()
+            await finish_query.wait()
+            return _make_query_result()
+
+        mock_ui.row.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.card.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.column.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.label.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.separator.side_effect = lambda *_args, **_kwargs: _FakeElement()
+
+        def _select(*_args: Any, **kwargs: Any) -> _FakeElement:
+            element_cls = (
+                _DatasetSelect
+                if kwargs.get("label") == "Select Dataset"
+                else _FakeElement
+            )
+            return element_cls(
+                value=kwargs.get("value"),
+                options=kwargs.get("options"),
+            )
+
+        def _textarea(*_args: Any, **kwargs: Any) -> _FakeElement:
+            element = _FakeElement(value=kwargs.get("value", ""))
+            label = str(kwargs.get("label", ""))
+            textareas_by_label[label] = element
+            return element
+
+        def _button(label: str, *_args: Any, **kwargs: Any) -> _FakeElement:
+            buttons[label] = kwargs.get("on_click")
+            return _FakeElement()
+
+        mock_ui.select.side_effect = _select
+        mock_ui.textarea.side_effect = _textarea
+        mock_ui.button.side_effect = _button
+        explorer_service.list_datasets = AsyncMock(
+            return_value=[queried_dataset, later_selected_dataset]
+        )
+        explorer_service.execute_query = AsyncMock(side_effect=_execute_query)
+
+        with (
+            patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True),
+            patch("apps.web_console_ng.pages.data_management._build_query_results") as build,
+        ):
+            await dm_module._render_data_explorer_section(ADMIN_USER, explorer_service)
+            textareas_by_label["SQL Query"].value = "SELECT * FROM crsp_daily LIMIT 10"
+            query_task = asyncio.create_task(buttons["Run Query"]())
+            await query_started.wait()
+            await dataset_change_handlers[0](MagicMock(value="compustat"))
+            finish_query.set()
+            await query_task
+
+        assert build.call_args.kwargs["dataset_info"] == queried_dataset
+
     def test_set_select_options_uses_native_helper_when_available(self) -> None:
         select = MagicMock()
         options = {"0": "Latest daily bars"}
