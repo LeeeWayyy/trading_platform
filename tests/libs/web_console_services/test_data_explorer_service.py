@@ -1125,6 +1125,21 @@ def test_trusted_alpaca_summary_manifests_handles_missing_manifests() -> None:
     assert manifests == []
 
 
+def test_backtest_handoff_uses_preview_missing_manifest_reason() -> None:
+    handoff = data_explorer_module._build_backtest_handoff(
+        "alpaca_sip",
+        trusted_tables=["alpaca_sip_daily"],
+        alpaca_summary=SimpleNamespace(manifests=[]),
+        alpaca_summary_unavailable=False,
+        queryable_state="missing",
+    )
+
+    assert handoff is not None
+    prices = handoff.data_roles["prices"]
+    assert prices.unavailable_reason == "alpaca_sip_missing_manifest:alpaca_sip_daily"
+    assert "alpaca_sip_missing_manifest:alpaca_sip_daily" in handoff.reason_codes
+
+
 def test_optional_text_list_preserves_sequence_values() -> None:
     assert data_explorer_module._optional_text_list(["id-1", None, "", 2]) == [
         "id-1",

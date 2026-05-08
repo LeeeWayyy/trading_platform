@@ -1272,11 +1272,7 @@ def _backtest_manifest_unavailable_reason(
 ) -> str:
     if alpaca_summary_unavailable:
         return "alpaca_sip_manifest_summary_unavailable"
-    if table not in trusted_tables:
-        return _ALPACA_SIP_UNTRUSTED_REASON
-    if _manifest_candidates_for_table(alpaca_summary, table):
-        return _ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON
-    return _ALPACA_SIP_UNTRUSTED_REASON
+    return _preview_manifest_warning_code(alpaca_summary, table, trusted_tables)
 
 
 def _role_provenance_from_manifest(
