@@ -819,9 +819,10 @@ def _adjustment_policy_lines(payload: Any) -> list[str]:
     for column, reason in sorted(null_reasons.items()):
         lines.append(f"{column}: {reason}")
 
-    warnings = sorted(str(warning) for warning in (getattr(payload, "warnings", []) or []))
+    displayed_reasons = {str(reason) for reason in null_reasons.values()}
+    warnings = sorted({str(warning) for warning in (getattr(payload, "warnings", []) or [])})
     for warning in warnings:
-        if warning not in lines:
+        if warning not in displayed_reasons and warning not in lines:
             lines.append(warning)
 
     handoff = getattr(payload, "backtest_handoff", None)

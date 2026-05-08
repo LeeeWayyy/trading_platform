@@ -729,6 +729,7 @@ class TestBuildQueryResults:
         assert "adj_close: raw_sip_returns_unavailable" in lines
         assert any("backtest role prices: alpaca_sip_daily" in line for line in lines)
         assert any("raw_sip_returns_unavailable" in line for line in lines)
+        assert "raw_sip_returns_unavailable" not in lines
 
     @patch("apps.web_console_ng.pages.data_management.ui")
     def test_render_adjustment_policy_summary_outputs_policy_labels(
