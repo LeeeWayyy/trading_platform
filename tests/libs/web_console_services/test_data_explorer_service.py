@@ -17,6 +17,10 @@ import pytest
 from libs.web_console_services import data_explorer_service as data_explorer_module
 from libs.web_console_services import sql_explorer_service as sql_module
 from libs.web_console_services.data_explorer_service import DataExplorerService, RateLimitExceeded
+from libs.web_console_services.data_manifest_service import (
+    AlpacaSipManifestSummaryDTO,
+    ManifestSummaryDTO,
+)
 from libs.web_console_services.provider_signature import ProviderSignatureDTO
 from libs.web_console_services.sql_validator import SQLValidator
 
@@ -24,6 +28,90 @@ from libs.web_console_services.sql_validator import SQLValidator
 @dataclass(frozen=True)
 class DummyUser:
     user_id: str
+
+
+def _manifest_summary(
+    *,
+    dataset: str = "alpaca_sip_daily",
+    validation_status: str = "passed",
+    sync_timestamp: datetime | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    row_count: int = 1,
+    manifest_id: str | None = None,
+    manifest_reference: str | None = None,
+    manifest_checksum: str | None = None,
+    manifest_version: int = 1,
+    schema_version: str = "1",
+    provider_id: str | None = "alpaca_sip",
+    provider_version: str | None = "1.0",
+    source_feed: str | None = "sip",
+    adjustment_mode: str | None = None,
+    canonical_storage_mode: str | None = None,
+    read_time_adjustment_mode: str | None = None,
+    provider_signature: ProviderSignatureDTO | None = None,
+) -> ManifestSummaryDTO:
+    timestamp = sync_timestamp or datetime(2026, 1, 3, tzinfo=UTC)
+    reference = manifest_reference or f"manifests://{dataset}.json"
+    checksum = manifest_checksum or f"{dataset}-checksum"
+    signature = provider_signature or ProviderSignatureDTO(
+        provider_id=provider_id or "alpaca_sip",
+        provider_version=provider_version,
+        source_feed=source_feed,
+        adjustment_mode=adjustment_mode,
+        canonical_storage_mode=canonical_storage_mode,
+        read_time_adjustment_mode=read_time_adjustment_mode,
+        manifest_id=manifest_id,
+        manifest_reference=reference,
+        manifest_checksum=checksum,
+        dataset_keys=[dataset],
+    )
+    return ManifestSummaryDTO(
+        dataset=dataset,
+        manifest_reference=reference,
+        manifest_id=manifest_id,
+        manifest_checksum=checksum,
+        manifest_version=manifest_version,
+        schema_version=schema_version,
+        validation_status=validation_status,
+        sync_timestamp=timestamp,
+        start_date=start_date or date(2026, 1, 2),
+        end_date=end_date or date(2026, 1, 2),
+        row_count=row_count,
+        file_count=1,
+        provider_id=provider_id,
+        provider_version=provider_version,
+        source_feed=source_feed,
+        adjustment_mode=adjustment_mode,
+        canonical_storage_mode=canonical_storage_mode,
+        read_time_adjustment_mode=read_time_adjustment_mode,
+        provider_signature=signature,
+    )
+
+
+def _alpaca_summary(
+    manifests: list[ManifestSummaryDTO],
+    *,
+    latest_sync: datetime | None = None,
+    row_count: int | None = None,
+    warnings: list[str] | None = None,
+) -> AlpacaSipManifestSummaryDTO:
+    return AlpacaSipManifestSummaryDTO(
+        manifests=manifests,
+        present_datasets=sorted({manifest.dataset for manifest in manifests}),
+        missing_datasets=[],
+        latest_sync=latest_sync or max(
+            (manifest.sync_timestamp for manifest in manifests),
+            default=None,
+        ),
+        row_count=row_count if row_count is not None else sum(manifest.row_count for manifest in manifests),
+        schema_versions=sorted({manifest.schema_version for manifest in manifests}),
+        validation_statuses=sorted({manifest.validation_status for manifest in manifests}),
+        sync_validation_status="passed",
+        source_status="ready",
+        source_error_rate_pct=0.0,
+        warnings=warnings or [],
+    )
 
 
 @pytest.fixture()
@@ -729,16 +817,16 @@ async def test_list_datasets_hides_untrusted_alpaca_manifest_summary(
     partition.parent.mkdir(parents=True)
     partition.write_bytes(b"PAR1")
     manifest_service = MagicMock()
-    manifest_service.get_alpaca_sip_summary.return_value = SimpleNamespace(
-        has_any_manifest=True,
-        row_count=123,
-        latest_sync=datetime(2026, 1, 3, tzinfo=UTC),
-        manifests=[
-            SimpleNamespace(
+    manifest_service.get_alpaca_sip_summary.return_value = _alpaca_summary(
+        [
+            _manifest_summary(
+                dataset="alpaca_sip_daily_untrusted",
                 start_date=date(2026, 1, 1),
                 end_date=date(2026, 1, 2),
+                row_count=123,
             )
         ],
+        row_count=123,
     )
     service = DataExplorerService(
         rate_limiter=rate_limiter,
@@ -775,20 +863,22 @@ async def test_list_datasets_exposes_trusted_alpaca_manifest_summary(
     monkeypatch.setattr(sql_module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
     latest_sync = datetime(2026, 1, 3, tzinfo=UTC)
     manifest_service = MagicMock()
-    manifest_service.get_alpaca_sip_summary.return_value = SimpleNamespace(
-        has_any_manifest=True,
-        row_count=1,
-        latest_sync=latest_sync,
-        manifests=[
-            SimpleNamespace(
+    manifest_service.get_alpaca_sip_summary.return_value = _alpaca_summary(
+        [
+            _manifest_summary(
                 dataset="alpaca_sip_daily",
                 validation_status="passed",
                 sync_timestamp=latest_sync,
                 start_date=date(2026, 1, 2),
                 end_date=date(2026, 1, 2),
                 row_count=1,
+                adjustment_mode="raw",
+                canonical_storage_mode="raw",
+                read_time_adjustment_mode="unavailable",
             )
         ],
+        latest_sync=latest_sync,
+        row_count=1,
     )
     service = DataExplorerService(
         rate_limiter=rate_limiter,
@@ -873,10 +963,9 @@ async def test_list_datasets_builds_role_keyed_backtest_handoff_metadata(
         dataset_keys=["alpaca_sip_corp_actions"],
     )
     manifest_service = MagicMock()
-    manifest_service.get_alpaca_sip_summary.return_value = SimpleNamespace(
-        has_any_manifest=True,
-        manifests=[
-            SimpleNamespace(
+    manifest_service.get_alpaca_sip_summary.return_value = _alpaca_summary(
+        [
+            _manifest_summary(
                 dataset="alpaca_sip_daily",
                 validation_status="passed",
                 sync_timestamp=sync_time,
@@ -894,7 +983,7 @@ async def test_list_datasets_builds_role_keyed_backtest_handoff_metadata(
                 read_time_adjustment_mode="unavailable",
                 provider_signature=daily_signature,
             ),
-            SimpleNamespace(
+            _manifest_summary(
                 dataset="alpaca_sip_corp_actions",
                 validation_status="passed",
                 sync_timestamp=sync_time,
@@ -962,12 +1051,9 @@ async def test_list_datasets_does_not_mark_invalid_manifest_path_queryable(
     monkeypatch.setattr(sql_module, "_ALLOWED_DATA_ROOTS", [data_root.resolve()])
     failed_sync = datetime(2026, 1, 10, tzinfo=UTC)
     manifest_service = MagicMock()
-    manifest_service.get_alpaca_sip_summary.return_value = SimpleNamespace(
-        has_any_manifest=True,
-        row_count=100,
-        latest_sync=failed_sync,
-        manifests=[
-            SimpleNamespace(
+    manifest_service.get_alpaca_sip_summary.return_value = _alpaca_summary(
+        [
+            _manifest_summary(
                 dataset="alpaca_sip_daily",
                 validation_status="failed",
                 sync_timestamp=failed_sync,
@@ -976,6 +1062,8 @@ async def test_list_datasets_does_not_mark_invalid_manifest_path_queryable(
                 row_count=100,
             )
         ],
+        latest_sync=failed_sync,
+        row_count=100,
     )
     service = DataExplorerService(
         rate_limiter=rate_limiter,
@@ -1024,12 +1112,9 @@ async def test_list_datasets_filters_alpaca_summary_to_trusted_manifests(
     trusted_sync = datetime(2026, 1, 3, tzinfo=UTC)
     failed_sync = datetime(2026, 1, 10, tzinfo=UTC)
     manifest_service = MagicMock()
-    manifest_service.get_alpaca_sip_summary.return_value = SimpleNamespace(
-        has_any_manifest=True,
-        row_count=105,
-        latest_sync=failed_sync,
-        manifests=[
-            SimpleNamespace(
+    manifest_service.get_alpaca_sip_summary.return_value = _alpaca_summary(
+        [
+            _manifest_summary(
                 dataset="alpaca_sip_daily",
                 validation_status="failed",
                 sync_timestamp=failed_sync,
@@ -1037,7 +1122,7 @@ async def test_list_datasets_filters_alpaca_summary_to_trusted_manifests(
                 end_date=date(2026, 1, 10),
                 row_count=100,
             ),
-            SimpleNamespace(
+            _manifest_summary(
                 dataset="alpaca_sip_corp_actions",
                 validation_status="passed",
                 sync_timestamp=trusted_sync,
@@ -1046,6 +1131,8 @@ async def test_list_datasets_filters_alpaca_summary_to_trusted_manifests(
                 row_count=5,
             ),
         ],
+        latest_sync=failed_sync,
+        row_count=105,
     )
     service = DataExplorerService(
         rate_limiter=rate_limiter,
@@ -1098,21 +1185,19 @@ def test_trusted_alpaca_summary_manifests_maps_tables_to_manifest_datasets(
         "alpaca_sip_daily",
         "alpaca_sip_daily_v1",
     )
-    trusted_manifest = SimpleNamespace(
+    trusted_manifest = _manifest_summary(
         dataset="alpaca_sip_daily_v1",
         validation_status="passed",
     )
-    stale_manifest = SimpleNamespace(
+    stale_manifest = _manifest_summary(
         dataset="alpaca_sip_daily",
         validation_status="passed",
     )
-    failed_manifest = SimpleNamespace(
+    failed_manifest = _manifest_summary(
         dataset="alpaca_sip_daily_v1",
         validation_status="failed",
     )
-    summary = SimpleNamespace(
-        manifests=[trusted_manifest, stale_manifest, failed_manifest],
-    )
+    summary = _alpaca_summary([trusted_manifest, stale_manifest, failed_manifest])
 
     manifests = data_explorer_module._trusted_alpaca_summary_manifests(
         summary,
@@ -1124,7 +1209,7 @@ def test_trusted_alpaca_summary_manifests_maps_tables_to_manifest_datasets(
 
 def test_trusted_alpaca_summary_manifests_handles_missing_manifests() -> None:
     manifests = data_explorer_module._trusted_alpaca_summary_manifests(
-        SimpleNamespace(),
+        _alpaca_summary([]),
         ["alpaca_sip_daily"],
     )
 
@@ -1135,7 +1220,7 @@ def test_backtest_handoff_uses_preview_missing_manifest_reason() -> None:
     handoff = data_explorer_module._build_backtest_handoff(
         "alpaca_sip",
         trusted_tables=["alpaca_sip_daily"],
-        alpaca_summary=SimpleNamespace(manifests=[]),
+        alpaca_summary=_alpaca_summary([]),
         alpaca_summary_unavailable=False,
         queryable_state="missing",
     )
@@ -1679,9 +1764,9 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
     )
     service._get_alpaca_summary = AsyncMock(  # type: ignore[method-assign]
         return_value=(
-            SimpleNamespace(
-                manifests=[
-                    SimpleNamespace(
+            _alpaca_summary(
+                [
+                    _manifest_summary(
                         dataset="alpaca_sip_daily",
                         validation_status="passed",
                         manifest_id="alpaca_sip_daily@v1:abc",
@@ -1696,7 +1781,7 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
                         read_time_adjustment_mode="unavailable",
                         provider_signature=provider_signature,
                     ),
-                    SimpleNamespace(
+                    _manifest_summary(
                         dataset="alpaca_sip_corp_actions",
                         validation_status="passed",
                         manifest_id="alpaca_sip_corp_actions@v1:def",
@@ -1707,7 +1792,7 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
                         provider_version="1.0",
                         source_feed="sip",
                         provider_signature=corp_provider_signature,
-                    )
+                    ),
                 ]
             ),
             False,
@@ -1782,14 +1867,14 @@ async def test_get_dataset_preview_does_not_register_companion_tables_for_sql(
     )
     service._get_alpaca_summary = AsyncMock(  # type: ignore[method-assign]
         return_value=(
-            SimpleNamespace(
-                manifests=[
-                    SimpleNamespace(
+            _alpaca_summary(
+                [
+                    _manifest_summary(
                         dataset="alpaca_sip_daily",
                         validation_status="passed",
                         manifest_id="alpaca_sip_daily@v1:abc",
                     ),
-                    SimpleNamespace(
+                    _manifest_summary(
                         dataset="alpaca_sip_corp_actions",
                         validation_status="passed",
                         manifest_id="alpaca_sip_corp_actions@v1:def",
@@ -1829,9 +1914,9 @@ async def test_preview_provenance_ignores_failed_manifest(
     service = DataExplorerService(rate_limiter=rate_limiter)
     service._get_alpaca_summary = AsyncMock(  # type: ignore[method-assign]
         return_value=(
-            SimpleNamespace(
-                manifests=[
-                    SimpleNamespace(
+            _alpaca_summary(
+                [
+                    _manifest_summary(
                         dataset="alpaca_sip_daily",
                         validation_status="failed",
                         manifest_id="failed-daily",

@@ -452,12 +452,11 @@ async def _render_data_explorer_section(
                         ui.label("Dataset Info").classes("font-bold mb-1")
                         if info.description:
                             ui.label(info.description).classes("text-sm text-gray-600")
-                        queryable_state = getattr(info, "queryable_state", None)
+                        queryable_state = info.queryable_state
                         if queryable_state:
                             ui.label(f"State: {queryable_state}").classes("text-sm text-gray-600")
-                        tables = getattr(info, "tables", None)
-                        if tables:
-                            ui.label(f"Tables: {', '.join(tables)}").classes(
+                        if info.tables:
+                            ui.label(f"Tables: {', '.join(info.tables)}").classes(
                                 "text-sm text-gray-600"
                             )
                         if info.row_count is not None:
@@ -470,9 +469,8 @@ async def _render_data_explorer_section(
                             start = info.date_range.get("start", "?")
                             end = info.date_range.get("end", "?")
                             ui.label(f"Range: {start} to {end}").classes("text-sm text-gray-600")
-                        availability_reason = getattr(info, "availability_reason", None)
-                        if availability_reason:
-                            ui.label(availability_reason).classes("text-xs text-amber-600")
+                        if info.availability_reason:
+                            ui.label(info.availability_reason).classes("text-xs text-amber-600")
                         _render_adjustment_policy_summary(info)
 
                 async def _load_schema(ds_name: str | None) -> None:
@@ -582,7 +580,7 @@ async def _render_data_explorer_section(
 
                     def refresh_query_templates() -> None:
                         info = _selected_dataset_info()
-                        templates = list(getattr(info, "query_templates", []) or [])
+                        templates = info.query_templates if info is not None else []
                         template_items.clear()
                         options: dict[str, str] = {}
                         for idx, template in enumerate(templates):
@@ -614,7 +612,7 @@ async def _render_data_explorer_section(
 
                         def open_sql_explorer() -> None:
                             info = _selected_dataset_info()
-                            handoff_url = getattr(info, "sql_handoff_url", None) if info else None
+                            handoff_url = info.sql_handoff_url if info is not None else None
                             if not handoff_url:
                                 ui.notify(
                                     "SQL Explorer handoff requires trusted local data",
@@ -757,17 +755,12 @@ def _render_adjustment_policy_summary(payload: DatasetInfoDTO | DataPreviewDTO) 
 
 def _render_adjusted_preview_controls(dataset_info: DatasetInfoDTO) -> None:
     """Show the future adjusted preview affordance in a disabled state."""
-    if getattr(dataset_info, "canonical_storage_mode", None) is None and getattr(
-        dataset_info, "backtest_handoff", None
-    ) is None:
+    if dataset_info.canonical_storage_mode is None and dataset_info.backtest_handoff is None:
         return
-    handoff = getattr(dataset_info, "backtest_handoff", None)
+    handoff = dataset_info.backtest_handoff
     unavailable_reason = "read_time_adjustment_layer_not_defined"
     if handoff is not None:
-        unavailable_reason = (
-            getattr(handoff, "adjusted_preview_unavailable_reason", None)
-            or unavailable_reason
-        )
+        unavailable_reason = handoff.adjusted_preview_unavailable_reason or unavailable_reason
     with ui.row().classes("w-full gap-2 items-end mt-2"):
         ui.select(
             label="Preview Mode",
@@ -794,17 +787,16 @@ def _render_preview_adjustment_metadata(preview: DataPreviewDTO) -> None:
 
 
 def _preview_provenance_lines(preview: DataPreviewDTO) -> list[str]:
-    fields = (
-        ("manifest_id", "manifest_id"),
-        ("manifest_reference", "manifest_reference"),
-        ("manifest_checksum", "manifest_checksum"),
-        ("provider_id", "provider_id"),
-        ("provider_version", "provider_version"),
-        ("source_feed", "source_feed"),
+    fields: tuple[tuple[str, str | None], ...] = (
+        ("manifest_id", preview.manifest_id),
+        ("manifest_reference", preview.manifest_reference),
+        ("manifest_checksum", preview.manifest_checksum),
+        ("provider_id", preview.provider_id),
+        ("provider_version", preview.provider_version),
+        ("source_feed", preview.source_feed),
     )
     lines: list[str] = []
-    for attribute, label in fields:
-        value = getattr(preview, attribute, None)
+    for label, value in fields:
         if value is not None and str(value):
             lines.append(f"{label}: {value}")
     return lines
@@ -812,9 +804,9 @@ def _preview_provenance_lines(preview: DataPreviewDTO) -> list[str]:
 
 def _adjustment_policy_lines(payload: DatasetInfoDTO | DataPreviewDTO) -> list[str]:
     lines: list[str] = []
-    canonical_mode = getattr(payload, "canonical_storage_mode", None)
-    read_time_mode = getattr(payload, "read_time_adjustment_mode", None)
-    adjustment_mode = getattr(payload, "adjustment_mode", None)
+    canonical_mode = payload.canonical_storage_mode
+    read_time_mode = payload.read_time_adjustment_mode
+    adjustment_mode = payload.adjustment_mode
     if canonical_mode is not None:
         lines.append(f"canonical_storage_mode: {canonical_mode}")
     if read_time_mode is not None:
@@ -822,28 +814,28 @@ def _adjustment_policy_lines(payload: DatasetInfoDTO | DataPreviewDTO) -> list[s
     if adjustment_mode is not None:
         lines.append(f"adjustment_mode: {adjustment_mode}")
 
-    null_reasons = getattr(payload, "null_column_reasons", {}) or {}
+    null_reasons = payload.null_column_reasons
     for column, reason in sorted(null_reasons.items()):
         lines.append(f"{column}: {reason}")
 
     displayed_reasons = {str(reason) for reason in null_reasons.values()}
-    warnings = sorted({str(warning) for warning in (getattr(payload, "warnings", []) or [])})
+    warnings = sorted({str(warning) for warning in payload.warnings})
     for warning in warnings:
         if warning not in displayed_reasons and warning not in lines:
             lines.append(warning)
 
-    handoff = getattr(payload, "backtest_handoff", None)
+    handoff = payload.backtest_handoff
     if handoff is not None:
-        roles = getattr(handoff, "data_roles", {}) or {}
+        roles = handoff.data_roles
         for role, provenance in sorted(roles.items()):
-            dataset = getattr(provenance, "dataset", None) or "-"
-            storage_mode = getattr(provenance, "canonical_storage_mode", None) or "-"
-            read_mode = getattr(provenance, "read_time_adjustment_mode", None) or "-"
+            dataset = provenance.dataset or "-"
+            storage_mode = provenance.canonical_storage_mode or "-"
+            read_mode = provenance.read_time_adjustment_mode or "-"
             lines.append(
                 f"backtest role {role}: {dataset}; "
                 f"storage={storage_mode}; read_time_adjustment={read_mode}"
             )
-        reason_codes = getattr(handoff, "reason_codes", []) or []
+        reason_codes = handoff.reason_codes
         if reason_codes:
             lines.append("backtest_handoff_reasons: " + ", ".join(sorted(reason_codes)))
     return lines
