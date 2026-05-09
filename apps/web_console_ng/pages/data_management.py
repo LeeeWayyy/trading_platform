@@ -67,6 +67,12 @@ from libs.web_console_services.data_explorer_service import (
 from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_quality_service import DataQualityService
 from libs.web_console_services.data_sync_service import DataSyncService
+from libs.web_console_services.schemas.data_management import (
+    DataPreviewDTO,
+    DatasetInfoDTO,
+    QueryResultDTO,
+    QueryTemplateDTO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -389,7 +395,7 @@ async def _render_data_explorer_section(
 
     # Track selected dataset
     selected_dataset: dict[str, str | None] = {"value": None}
-    dataset_map: dict[str, Any] = {}
+    dataset_map: dict[str, DatasetInfoDTO] = {}
     refresh_query_controls: Callable[[], None] | None = None
     refresh_adjustment_policy: Callable[[], None] | None = None
 
@@ -399,6 +405,7 @@ async def _render_data_explorer_section(
             ui.label("Datasets").classes("font-bold mb-2")
 
             if has_view_datasets or has_query:
+                datasets: list[DatasetInfoDTO]
                 try:
                     datasets = await explorer_service.list_datasets(user)
                 except PermissionError as e:
@@ -528,7 +535,7 @@ async def _render_data_explorer_section(
         with ui.column().classes("flex-1"):
             adjustment_policy_container = ui.column().classes("w-full mb-4")
 
-            def _selected_dataset_info() -> Any | None:
+            def _selected_dataset_info() -> DatasetInfoDTO | None:
                 ds = selected_dataset["value"]
                 if ds is None:
                     return None
@@ -559,7 +566,7 @@ async def _render_data_explorer_section(
 
                     results_container = ui.column().classes("w-full mt-4")
 
-                    template_items: dict[str, Any] = {}
+                    template_items: dict[str, QueryTemplateDTO] = {}
                     template_select = ui.select(
                         label="Query Template",
                         options={},
@@ -737,7 +744,7 @@ def _set_select_options(select: Any, options: dict[str, str], value: str | None)
     select.update()
 
 
-def _render_adjustment_policy_summary(payload: Any) -> None:
+def _render_adjustment_policy_summary(payload: DatasetInfoDTO | DataPreviewDTO) -> None:
     """Render raw/adjusted policy details carried by dataset or preview DTOs."""
     lines = _adjustment_policy_lines(payload)
     if not lines:
@@ -748,7 +755,7 @@ def _render_adjustment_policy_summary(payload: Any) -> None:
             ui.label(line).classes("text-xs text-amber-800")
 
 
-def _render_adjusted_preview_controls(dataset_info: Any) -> None:
+def _render_adjusted_preview_controls(dataset_info: DatasetInfoDTO) -> None:
     """Show the future adjusted preview affordance in a disabled state."""
     if getattr(dataset_info, "canonical_storage_mode", None) is None and getattr(
         dataset_info, "backtest_handoff", None
@@ -774,7 +781,7 @@ def _render_adjusted_preview_controls(dataset_info: Any) -> None:
         ui.label(unavailable_reason).classes("text-xs text-gray-500")
 
 
-def _render_preview_adjustment_metadata(preview: Any) -> None:
+def _render_preview_adjustment_metadata(preview: DataPreviewDTO) -> None:
     """Render preview-level provenance and null-column reason codes."""
     _render_adjustment_policy_summary(preview)
     lines = _preview_provenance_lines(preview)
@@ -786,7 +793,7 @@ def _render_preview_adjustment_metadata(preview: Any) -> None:
             ui.label(line).classes("text-xs text-gray-600")
 
 
-def _preview_provenance_lines(preview: Any) -> list[str]:
+def _preview_provenance_lines(preview: DataPreviewDTO) -> list[str]:
     fields = (
         ("manifest_id", "manifest_id"),
         ("manifest_reference", "manifest_reference"),
@@ -803,7 +810,7 @@ def _preview_provenance_lines(preview: Any) -> list[str]:
     return lines
 
 
-def _adjustment_policy_lines(payload: Any) -> list[str]:
+def _adjustment_policy_lines(payload: DatasetInfoDTO | DataPreviewDTO) -> list[str]:
     lines: list[str] = []
     canonical_mode = getattr(payload, "canonical_storage_mode", None)
     read_time_mode = getattr(payload, "read_time_adjustment_mode", None)
@@ -842,7 +849,11 @@ def _adjustment_policy_lines(payload: Any) -> list[str]:
     return lines
 
 
-def _build_query_results(result: Any, *, dataset_info: Any | None = None) -> None:
+def _build_query_results(
+    result: QueryResultDTO,
+    *,
+    dataset_info: DatasetInfoDTO | None = None,
+) -> None:
     """Build query results table from QueryResultDTO."""
     if dataset_info is not None:
         _render_adjustment_policy_summary(dataset_info)

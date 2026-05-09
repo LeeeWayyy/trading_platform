@@ -1082,6 +1082,12 @@ async def test_list_datasets_filters_alpaca_summary_to_trusted_manifests(
     assert [template.table for template in alpaca.query_templates] == [
         "alpaca_sip_corp_actions"
     ]
+    assert alpaca.backtest_handoff is not None
+    assert (
+        alpaca.backtest_handoff.data_roles["prices"].unavailable_reason
+        == "alpaca_sip_manifest_validation_failed"
+    )
+    assert "alpaca_sip_manifest_validation_failed" in alpaca.backtest_handoff.reason_codes
 
 
 def test_trusted_alpaca_summary_manifests_maps_tables_to_manifest_datasets(

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -25,7 +25,9 @@ from .data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
     ALPACA_SIP_DATASET_KEY,
+    AlpacaSipManifestSummaryDTO,
     DataManifestService,
+    ManifestSummaryDTO,
 )
 from .schemas.data_management import (
     BacktestHandoffDTO,
@@ -66,11 +68,20 @@ _MANIFEST_SUMMARY_CACHE_TTL_SECONDS = 30
 _MANIFEST_SUMMARY_FAILURE_CACHE_TTL_SECONDS = 5
 _MANIFEST_SUMMARY_TIMEOUT_SECONDS = 5.0
 _TableAvailabilityCache = tuple[float, tuple[dict[str, SqlTableResolution], list[str]]]
-_AlpacaSummaryCache = tuple[float, Any | None, bool]
+_AlpacaSummaryCache = tuple[float, AlpacaSipManifestSummaryDTO | None, bool]
 _SHARED_TABLE_AVAILABILITY_CACHE: _TableAvailabilityCache | None = None
 _SHARED_TABLE_AVAILABILITY_LOCK = asyncio.Lock()
 _SHARED_ALPACA_SUMMARY_CACHE: _AlpacaSummaryCache | None = None
 _SHARED_ALPACA_SUMMARY_LOCK = asyncio.Lock()
+
+
+class _DatasetAdjustmentMetadata(TypedDict, total=False):
+    adjustment_mode: str | None
+    canonical_storage_mode: str | None
+    read_time_adjustment_mode: str | None
+    null_column_reasons: dict[str, str]
+    warnings: list[str]
+    backtest_handoff: BacktestHandoffDTO | None
 
 _DATASET_DESCRIPTIONS: dict[str, str] = {
     "crsp": "CRSP stock and index history",
@@ -753,7 +764,7 @@ class DataExplorerService:
                 self._table_availability_cache = (now, result)
             return result
 
-    async def _get_alpaca_summary(self) -> tuple[Any | None, bool]:
+    async def _get_alpaca_summary(self) -> tuple[AlpacaSipManifestSummaryDTO | None, bool]:
         global _SHARED_ALPACA_SUMMARY_CACHE
 
         now = time.monotonic()
@@ -1094,7 +1105,10 @@ def _queryable_state_for_table(resolution: SqlTableResolution) -> str:
     return "missing"
 
 
-def _trusted_alpaca_summary_manifests(alpaca_summary: Any, trusted_tables: list[str]) -> list[Any]:
+def _trusted_alpaca_summary_manifests(
+    alpaca_summary: AlpacaSipManifestSummaryDTO,
+    trusted_tables: list[str],
+) -> list[ManifestSummaryDTO]:
     trusted_manifest_datasets = {
         _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table) for table in trusted_tables
     }
@@ -1111,9 +1125,9 @@ def _dataset_adjustment_metadata(
     *,
     trusted_tables: list[str],
     queryable_state: str,
-    alpaca_summary: Any | None,
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
     alpaca_summary_unavailable: bool,
-) -> dict[str, Any]:
+) -> _DatasetAdjustmentMetadata:
     if dataset != ALPACA_SIP_DATASET_KEY:
         return {}
 
@@ -1160,7 +1174,7 @@ def _build_backtest_handoff(
     dataset: str,
     *,
     trusted_tables: list[str],
-    alpaca_summary: Any | None,
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
     alpaca_summary_unavailable: bool,
     queryable_state: str,
 ) -> BacktestHandoffDTO | None:
@@ -1221,10 +1235,10 @@ def _build_backtest_handoff(
 
 
 def _trusted_manifest_for_table(
-    alpaca_summary: Any | None,
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
     table: str,
     trusted_tables: list[str],
-) -> Any | None:
+) -> ManifestSummaryDTO | None:
     if alpaca_summary is None or table not in trusted_tables:
         return None
     manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
@@ -1239,7 +1253,10 @@ def _trusted_manifest_for_table(
     )
 
 
-def _manifest_candidates_for_table(alpaca_summary: Any | None, table: str) -> list[Any]:
+def _manifest_candidates_for_table(
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
+    table: str,
+) -> list[ManifestSummaryDTO]:
     if alpaca_summary is None:
         return []
     manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
@@ -1251,20 +1268,24 @@ def _manifest_candidates_for_table(alpaca_summary: Any | None, table: str) -> li
 
 
 def _preview_manifest_warning_code(
-    alpaca_summary: Any | None,
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
     table: str,
     trusted_tables: list[str],
 ) -> str:
     manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
+    candidates = _manifest_candidates_for_table(alpaca_summary, table)
+    if any(
+        str(getattr(candidate, "validation_status", "")).lower() != "passed"
+        for candidate in candidates
+    ):
+        return _ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON
     if table not in trusted_tables:
         return _ALPACA_SIP_UNTRUSTED_REASON
-    if _manifest_candidates_for_table(alpaca_summary, table):
-        return _ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON
     return f"alpaca_sip_missing_manifest:{manifest_dataset}"
 
 
 def _backtest_manifest_unavailable_reason(
-    alpaca_summary: Any | None,
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
     table: str,
     trusted_tables: list[str],
     *,
@@ -1278,7 +1299,7 @@ def _backtest_manifest_unavailable_reason(
 def _role_provenance_from_manifest(
     role: str,
     table: str,
-    manifest: Any,
+    manifest: ManifestSummaryDTO,
 ) -> BacktestRoleProvenanceDTO:
     return BacktestRoleProvenanceDTO(
         role=role,
