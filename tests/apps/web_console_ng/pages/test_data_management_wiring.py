@@ -27,6 +27,9 @@ from libs.web_console_services.data_sync_service import (
 )
 from libs.web_console_services.schemas.data_management import (
     AnomalyAlertDTO,
+    BacktestHandoffDTO,
+    BacktestRoleProvenanceDTO,
+    DataPreviewDTO,
     DatasetInfoDTO,
     ExportJobDTO,
     QualityTrendDTO,
@@ -581,6 +584,85 @@ class TestBuildQueryResults:
         dm_module._build_query_results(result)
         mock_ui.table.assert_not_called()
 
+    @pytest.mark.asyncio()
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    async def test_query_results_use_dataset_captured_before_await(
+        self,
+        mock_ui: MagicMock,
+        explorer_service: MagicMock,
+    ) -> None:
+        buttons: dict[str, Any] = {}
+        textareas_by_label: dict[str, _FakeElement] = {}
+        dataset_change_handlers: list[Any] = []
+        query_started = asyncio.Event()
+        finish_query = asyncio.Event()
+        queried_dataset = DatasetInfoDTO(
+            name="crsp",
+            canonical_storage_mode="raw",
+        )
+        later_selected_dataset = DatasetInfoDTO(
+            name="compustat",
+            canonical_storage_mode="adjusted",
+        )
+
+        class _DatasetSelect(_FakeElement):
+            def on_value_change(self, handler: Any) -> None:
+                dataset_change_handlers.append(handler)
+
+        async def _execute_query(*_args: Any, **_kwargs: Any) -> QueryResultDTO:
+            query_started.set()
+            await finish_query.wait()
+            return _make_query_result()
+
+        mock_ui.row.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.card.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.column.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.label.side_effect = lambda *_args, **_kwargs: _FakeElement()
+        mock_ui.separator.side_effect = lambda *_args, **_kwargs: _FakeElement()
+
+        def _select(*_args: Any, **kwargs: Any) -> _FakeElement:
+            element_cls = (
+                _DatasetSelect
+                if kwargs.get("label") == "Select Dataset"
+                else _FakeElement
+            )
+            return element_cls(
+                value=kwargs.get("value"),
+                options=kwargs.get("options"),
+            )
+
+        def _textarea(*_args: Any, **kwargs: Any) -> _FakeElement:
+            element = _FakeElement(value=kwargs.get("value", ""))
+            label = str(kwargs.get("label", ""))
+            textareas_by_label[label] = element
+            return element
+
+        def _button(label: str, *_args: Any, **kwargs: Any) -> _FakeElement:
+            buttons[label] = kwargs.get("on_click")
+            return _FakeElement()
+
+        mock_ui.select.side_effect = _select
+        mock_ui.textarea.side_effect = _textarea
+        mock_ui.button.side_effect = _button
+        explorer_service.list_datasets = AsyncMock(
+            return_value=[queried_dataset, later_selected_dataset]
+        )
+        explorer_service.execute_query = AsyncMock(side_effect=_execute_query)
+
+        with (
+            patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True),
+            patch("apps.web_console_ng.pages.data_management._build_query_results") as build,
+        ):
+            await dm_module._render_data_explorer_section(ADMIN_USER, explorer_service)
+            textareas_by_label["SQL Query"].value = "SELECT * FROM crsp_daily LIMIT 10"
+            query_task = asyncio.create_task(buttons["Run Query"]())
+            await query_started.wait()
+            await dataset_change_handlers[0](MagicMock(value="compustat"))
+            finish_query.set()
+            await query_task
+
+        assert build.call_args.kwargs["dataset_info"] == queried_dataset
+
     def test_set_select_options_uses_native_helper_when_available(self) -> None:
         select = MagicMock()
         options = {"0": "Latest daily bars"}
@@ -598,6 +680,180 @@ class TestBuildQueryResults:
 
         assert select.options == options
         assert select.value == "0"
+
+    def test_adjustment_policy_lines_expose_raw_null_reasons_and_handoff_roles(
+        self,
+    ) -> None:
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            read_time_adjustment_mode="unavailable",
+            adjustment_mode="raw",
+            null_column_reasons={
+                "adj_close": "raw_sip_returns_unavailable",
+                "ret": "raw_sip_returns_unavailable",
+            },
+            warnings=["raw_sip_returns_unavailable"],
+            backtest_handoff=BacktestHandoffDTO(
+                dataset="alpaca_sip",
+                data_roles={
+                    "prices": BacktestRoleProvenanceDTO(
+                        role="prices",
+                        dataset="alpaca_sip_daily",
+                        table="alpaca_sip_daily",
+                        available=True,
+                        manifest_ids=["alpaca_sip_daily@v1:abc"],
+                        manifest_references=["manifests://alpaca_sip_daily.json"],
+                        manifest_checksums=["abc"],
+                        provider_id="alpaca_sip",
+                        source_feed="sip",
+                        canonical_storage_mode="raw",
+                        read_time_adjustment_mode="unavailable",
+                    )
+                },
+                adjusted_preview_available=False,
+                adjusted_preview_unavailable_reason=(
+                    "read_time_adjustment_layer_not_defined"
+                ),
+                reason_codes=[
+                    "raw_sip_returns_unavailable",
+                    "read_time_adjustment_layer_not_defined",
+                ],
+            ),
+        )
+
+        lines = dm_module._adjustment_policy_lines(dataset)
+
+        assert "canonical_storage_mode: raw" in lines
+        assert "read_time_adjustment_mode: unavailable" in lines
+        assert "adj_close: raw_sip_returns_unavailable" in lines
+        assert any("backtest role prices: alpaca_sip_daily" in line for line in lines)
+        assert any("raw_sip_returns_unavailable" in line for line in lines)
+        assert "raw_sip_returns_unavailable" not in lines
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_render_adjustment_policy_summary_outputs_policy_labels(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        mock_ui.column.return_value = _FakeElement()
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            read_time_adjustment_mode="unavailable",
+            null_column_reasons={"adj_close": "raw_sip_returns_unavailable"},
+            warnings=["read_time_adjustment_layer_not_defined"],
+        )
+
+        dm_module._render_adjustment_policy_summary(dataset)
+
+        labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
+        assert "Raw/Adjusted Policy" in labels
+        assert "canonical_storage_mode: raw" in labels
+        assert "read_time_adjustment_mode: unavailable" in labels
+        assert "adj_close: raw_sip_returns_unavailable" in labels
+        assert "read_time_adjustment_layer_not_defined" in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_render_preview_adjustment_metadata_outputs_manifest_provenance(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        mock_ui.column.return_value = _FakeElement()
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        preview = DataPreviewDTO(
+            columns=["symbol"],
+            rows=[{"symbol": "AAPL"}],
+            total_count=1,
+            table="alpaca_sip_daily",
+            canonical_storage_mode="raw",
+            read_time_adjustment_mode="unavailable",
+            manifest_id="alpaca_sip_daily@v1:abc",
+            manifest_reference="manifests://alpaca_sip_daily.json",
+            manifest_checksum="abc",
+            provider_id="alpaca_sip",
+            provider_version="1.0",
+            source_feed="sip",
+        )
+
+        dm_module._render_preview_adjustment_metadata(preview)
+
+        labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
+        assert "Raw/Adjusted Policy" in labels
+        assert "Preview Provenance" in labels
+        assert "manifest_id: alpaca_sip_daily@v1:abc" in labels
+        assert "provider_id: alpaca_sip" in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_adjusted_preview_controls_are_disabled(self, mock_ui: MagicMock) -> None:
+        row = MagicMock()
+        row.__enter__ = MagicMock(return_value=row)
+        row.__exit__ = MagicMock(return_value=False)
+        mock_ui.row.return_value = row
+        select = MagicMock()
+        select.classes.return_value = select
+        select.props.return_value = select
+        button = MagicMock()
+        button.props.return_value = button
+        mock_ui.select.return_value = select
+        mock_ui.button.return_value = button
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            backtest_handoff=BacktestHandoffDTO(
+                dataset="alpaca_sip",
+                adjusted_preview_available=False,
+                adjusted_preview_unavailable_reason=(
+                    "read_time_adjustment_layer_not_defined"
+                ),
+            ),
+        )
+
+        dm_module._render_adjusted_preview_controls(dataset)
+
+        select.props.assert_called_once_with("disable")
+        button.props.assert_called_once_with("flat disable")
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_adjusted_preview_controls_tolerate_missing_handoff(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        row = MagicMock()
+        row.__enter__ = MagicMock(return_value=row)
+        row.__exit__ = MagicMock(return_value=False)
+        mock_ui.row.return_value = row
+        select = MagicMock()
+        select.classes.return_value = select
+        select.props.return_value = select
+        button = MagicMock()
+        button.props.return_value = button
+        mock_ui.select.return_value = select
+        mock_ui.button.return_value = button
+        mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
+        dataset = DatasetInfoDTO(
+            name="alpaca_sip",
+            canonical_storage_mode="raw",
+            backtest_handoff=None,
+        )
+
+        dm_module._render_adjusted_preview_controls(dataset)
+
+        labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
+        assert "read_time_adjustment_layer_not_defined" in labels
+
+    @patch("apps.web_console_ng.pages.data_management.ui")
+    def test_adjusted_preview_controls_hidden_without_adjustment_metadata(
+        self,
+        mock_ui: MagicMock,
+    ) -> None:
+        dataset = DatasetInfoDTO(name="crsp")
+
+        dm_module._render_adjusted_preview_controls(dataset)
+
+        mock_ui.row.assert_not_called()
 
 
 class TestBuildQualityTrendChart:

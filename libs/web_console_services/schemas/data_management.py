@@ -202,6 +202,37 @@ class QueryTemplateDTO(BaseModel):
     sql: str
 
 
+class BacktestRoleProvenanceDTO(BaseModel):
+    """Replay-safe provenance for one role in a future backtest handoff."""
+
+    role: str
+    dataset: str | None = None
+    table: str | None = None
+    available: bool = False
+    unavailable_reason: str | None = None
+    manifest_ids: list[str] = Field(default_factory=list)
+    manifest_references: list[str] = Field(default_factory=list)
+    manifest_checksums: list[str] = Field(default_factory=list)
+    provider_id: str | None = None
+    provider_version: str | None = None
+    provider_signature: ProviderSignatureDTO | None = None
+    source_feed: str | None = None
+    adjustment_mode: str | None = None
+    canonical_storage_mode: str | None = None
+    read_time_adjustment_mode: str | None = None
+
+
+class BacktestHandoffDTO(BaseModel):
+    """Role-keyed provenance contract for backtest handoff payloads."""
+
+    dataset: str
+    data_roles: dict[str, BacktestRoleProvenanceDTO] = Field(default_factory=dict)
+    selected_read_time_adjustment_mode: str = "unavailable"
+    adjusted_preview_available: bool = False
+    adjusted_preview_unavailable_reason: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+
 class DatasetInfoDTO(BaseModel):
     """High-level metadata for a dataset in the explorer."""
 
@@ -218,6 +249,12 @@ class DatasetInfoDTO(BaseModel):
     availability_reason: str | None = None
     sql_handoff_url: str | None = None
     query_templates: list[QueryTemplateDTO] = Field(default_factory=list)
+    adjustment_mode: str | None = None
+    canonical_storage_mode: str | None = None
+    read_time_adjustment_mode: str | None = None
+    null_column_reasons: dict[str, str] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    backtest_handoff: BacktestHandoffDTO | None = None
 
 
 class DataPreviewDTO(BaseModel):
@@ -246,6 +283,7 @@ class DataPreviewDTO(BaseModel):
     provider_signature: ProviderSignatureDTO | None = None
     null_column_reasons: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    backtest_handoff: BacktestHandoffDTO | None = None
 
 
 class QueryResultDTO(BaseModel):

@@ -67,6 +67,12 @@ from libs.web_console_services.data_explorer_service import (
 from libs.web_console_services.data_manifest_service import DataManifestService
 from libs.web_console_services.data_quality_service import DataQualityService
 from libs.web_console_services.data_sync_service import DataSyncService
+from libs.web_console_services.schemas.data_management import (
+    DataPreviewDTO,
+    DatasetInfoDTO,
+    QueryResultDTO,
+    QueryTemplateDTO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -389,8 +395,9 @@ async def _render_data_explorer_section(
 
     # Track selected dataset
     selected_dataset: dict[str, str | None] = {"value": None}
-    dataset_map: dict[str, Any] = {}
+    dataset_map: dict[str, DatasetInfoDTO] = {}
     refresh_query_controls: Callable[[], None] | None = None
+    refresh_adjustment_policy: Callable[[], None] | None = None
 
     with ui.row().classes("w-full gap-4"):
         # Dataset browser sidebar
@@ -398,6 +405,7 @@ async def _render_data_explorer_section(
             ui.label("Datasets").classes("font-bold mb-2")
 
             if has_view_datasets or has_query:
+                datasets: list[DatasetInfoDTO]
                 try:
                     datasets = await explorer_service.list_datasets(user)
                 except PermissionError as e:
@@ -444,12 +452,11 @@ async def _render_data_explorer_section(
                         ui.label("Dataset Info").classes("font-bold mb-1")
                         if info.description:
                             ui.label(info.description).classes("text-sm text-gray-600")
-                        queryable_state = getattr(info, "queryable_state", None)
+                        queryable_state = info.queryable_state
                         if queryable_state:
                             ui.label(f"State: {queryable_state}").classes("text-sm text-gray-600")
-                        tables = getattr(info, "tables", None)
-                        if tables:
-                            ui.label(f"Tables: {', '.join(tables)}").classes(
+                        if info.tables:
+                            ui.label(f"Tables: {', '.join(info.tables)}").classes(
                                 "text-sm text-gray-600"
                             )
                         if info.row_count is not None:
@@ -462,9 +469,9 @@ async def _render_data_explorer_section(
                             start = info.date_range.get("start", "?")
                             end = info.date_range.get("end", "?")
                             ui.label(f"Range: {start} to {end}").classes("text-sm text-gray-600")
-                        availability_reason = getattr(info, "availability_reason", None)
-                        if availability_reason:
-                            ui.label(availability_reason).classes("text-xs text-amber-600")
+                        if info.availability_reason:
+                            ui.label(info.availability_reason).classes("text-xs text-amber-600")
+                        _render_adjustment_policy_summary(info)
 
                 async def _load_schema(ds_name: str | None) -> None:
                     """Load schema preview for dataset (requires QUERY_DATA)."""
@@ -482,6 +489,7 @@ async def _render_data_explorer_section(
                             ui.label("Schema Preview").classes("font-bold mb-1")
                             for col in preview.columns:
                                 ui.label(f"  {col}").classes("text-sm text-gray-600 font-mono")
+                            _render_preview_adjustment_metadata(preview)
                     except ValueError as e:
                         with schema_container:
                             ui.label(str(e)).classes("text-sm text-amber-600")
@@ -508,6 +516,8 @@ async def _render_data_explorer_section(
                     await _load_schema(ds)
                     if refresh_query_controls is not None:
                         refresh_query_controls()
+                    if refresh_adjustment_policy is not None:
+                        refresh_adjustment_policy()
 
                 dataset_select.on_value_change(on_dataset_change)
 
@@ -521,6 +531,26 @@ async def _render_data_explorer_section(
 
         # Main content area
         with ui.column().classes("flex-1"):
+            adjustment_policy_container = ui.column().classes("w-full mb-4")
+
+            def _selected_dataset_info() -> DatasetInfoDTO | None:
+                ds = selected_dataset["value"]
+                if ds is None:
+                    return None
+                return dataset_map.get(ds)
+
+            def _refresh_adjustment_policy() -> None:
+                adjustment_policy_container.clear()
+                info = _selected_dataset_info()
+                if info is None:
+                    return
+                with adjustment_policy_container:
+                    _render_adjustment_policy_summary(info)
+                    _render_adjusted_preview_controls(info)
+
+            refresh_adjustment_policy = _refresh_adjustment_policy
+            _refresh_adjustment_policy()
+
             # Query editor
             with ui.card().classes("w-full p-4 mb-4"):
                 ui.label("Query Editor").classes("font-bold mb-2")
@@ -534,13 +564,7 @@ async def _render_data_explorer_section(
 
                     results_container = ui.column().classes("w-full mt-4")
 
-                    def _selected_dataset_info() -> Any | None:
-                        ds = selected_dataset["value"]
-                        if ds is None:
-                            return None
-                        return dataset_map.get(ds)
-
-                    template_items: dict[str, Any] = {}
+                    template_items: dict[str, QueryTemplateDTO] = {}
                     template_select = ui.select(
                         label="Query Template",
                         options={},
@@ -556,7 +580,7 @@ async def _render_data_explorer_section(
 
                     def refresh_query_templates() -> None:
                         info = _selected_dataset_info()
-                        templates = list(getattr(info, "query_templates", []) or [])
+                        templates = info.query_templates if info is not None else []
                         template_items.clear()
                         options: dict[str, str] = {}
                         for idx, template in enumerate(templates):
@@ -588,7 +612,7 @@ async def _render_data_explorer_section(
 
                         def open_sql_explorer() -> None:
                             info = _selected_dataset_info()
-                            handoff_url = getattr(info, "sql_handoff_url", None) if info else None
+                            handoff_url = info.sql_handoff_url if info is not None else None
                             if not handoff_url:
                                 ui.notify(
                                     "SQL Explorer handoff requires trusted local data",
@@ -648,6 +672,7 @@ async def _render_data_explorer_section(
                             if not ds:
                                 ui.notify("Please select a dataset", type="warning")
                                 return
+                            queried_dataset_info = dataset_map.get(ds)
                             query_val = str(query_textarea.value).strip()
                             if not query_val:
                                 ui.notify("Please enter a query", type="warning")
@@ -661,7 +686,10 @@ async def _render_data_explorer_section(
                                 )
                                 results_container.clear()
                                 with results_container:
-                                    _build_query_results(result)
+                                    _build_query_results(
+                                        result,
+                                        dataset_info=queried_dataset_info,
+                                    )
                             except ValueError as e:
                                 ui.notify(f"Query error: {e}", type="negative")
                             except ExplorerRateLimitExceeded:
@@ -714,8 +742,114 @@ def _set_select_options(select: Any, options: dict[str, str], value: str | None)
     select.update()
 
 
-def _build_query_results(result: Any) -> None:
+def _render_adjustment_policy_summary(payload: DatasetInfoDTO | DataPreviewDTO) -> None:
+    """Render raw/adjusted policy details carried by dataset or preview DTOs."""
+    lines = _adjustment_policy_lines(payload)
+    if not lines:
+        return
+    with ui.column().classes("w-full p-3 mt-2 border border-amber-200 bg-amber-50"):
+        ui.label("Raw/Adjusted Policy").classes("font-bold text-sm text-amber-900")
+        for line in lines:
+            ui.label(line).classes("text-xs text-amber-800")
+
+
+def _render_adjusted_preview_controls(dataset_info: DatasetInfoDTO) -> None:
+    """Show the future adjusted preview affordance in a disabled state."""
+    if dataset_info.canonical_storage_mode is None and dataset_info.backtest_handoff is None:
+        return
+    handoff = dataset_info.backtest_handoff
+    unavailable_reason = "read_time_adjustment_layer_not_defined"
+    if handoff is not None:
+        unavailable_reason = handoff.adjusted_preview_unavailable_reason or unavailable_reason
+    with ui.row().classes("w-full gap-2 items-end mt-2"):
+        ui.select(
+            label="Preview Mode",
+            options={
+                "raw": "Raw canonical",
+                "adjusted": "Adjusted derived preview",
+            },
+            value="raw",
+        ).classes("w-56").props("disable")
+        ui.button("Adjusted Preview").props("flat disable")
+        ui.label(unavailable_reason).classes("text-xs text-gray-500")
+
+
+def _render_preview_adjustment_metadata(preview: DataPreviewDTO) -> None:
+    """Render preview-level provenance and null-column reason codes."""
+    _render_adjustment_policy_summary(preview)
+    lines = _preview_provenance_lines(preview)
+    if not lines:
+        return
+    with ui.column().classes("w-full p-3 mt-2 border border-gray-200 bg-gray-50"):
+        ui.label("Preview Provenance").classes("font-bold text-sm text-gray-800")
+        for line in lines:
+            ui.label(line).classes("text-xs text-gray-600")
+
+
+def _preview_provenance_lines(preview: DataPreviewDTO) -> list[str]:
+    fields: tuple[tuple[str, str | None], ...] = (
+        ("manifest_id", preview.manifest_id),
+        ("manifest_reference", preview.manifest_reference),
+        ("manifest_checksum", preview.manifest_checksum),
+        ("provider_id", preview.provider_id),
+        ("provider_version", preview.provider_version),
+        ("source_feed", preview.source_feed),
+    )
+    lines: list[str] = []
+    for label, value in fields:
+        if value is not None and str(value):
+            lines.append(f"{label}: {value}")
+    return lines
+
+
+def _adjustment_policy_lines(payload: DatasetInfoDTO | DataPreviewDTO) -> list[str]:
+    lines: list[str] = []
+    canonical_mode = payload.canonical_storage_mode
+    read_time_mode = payload.read_time_adjustment_mode
+    adjustment_mode = payload.adjustment_mode
+    if canonical_mode is not None:
+        lines.append(f"canonical_storage_mode: {canonical_mode}")
+    if read_time_mode is not None:
+        lines.append(f"read_time_adjustment_mode: {read_time_mode}")
+    if adjustment_mode is not None:
+        lines.append(f"adjustment_mode: {adjustment_mode}")
+
+    null_reasons = payload.null_column_reasons
+    for column, reason in sorted(null_reasons.items()):
+        lines.append(f"{column}: {reason}")
+
+    displayed_reasons = {str(reason) for reason in null_reasons.values()}
+    warnings = sorted({str(warning) for warning in payload.warnings})
+    for warning in warnings:
+        if warning not in displayed_reasons and warning not in lines:
+            lines.append(warning)
+
+    handoff = payload.backtest_handoff
+    if handoff is not None:
+        roles = handoff.data_roles
+        for role, provenance in sorted(roles.items()):
+            dataset = provenance.dataset or "-"
+            storage_mode = provenance.canonical_storage_mode or "-"
+            read_mode = provenance.read_time_adjustment_mode or "-"
+            lines.append(
+                f"backtest role {role}: {dataset}; "
+                f"storage={storage_mode}; read_time_adjustment={read_mode}"
+            )
+        reason_codes = handoff.reason_codes
+        if reason_codes:
+            lines.append("backtest_handoff_reasons: " + ", ".join(sorted(reason_codes)))
+    return lines
+
+
+def _build_query_results(
+    result: QueryResultDTO,
+    *,
+    dataset_info: DatasetInfoDTO | None = None,
+) -> None:
     """Build query results table from QueryResultDTO."""
+    if dataset_info is not None:
+        _render_adjustment_policy_summary(dataset_info)
+
     if not result.columns:
         ui.label("No results").classes("text-gray-500")
         return
