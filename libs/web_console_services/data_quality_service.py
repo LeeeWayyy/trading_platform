@@ -113,12 +113,11 @@ class AlpacaQualityReportStore:
         quality_dir = self._data_root / "quality"
         if not quality_dir.exists():
             return None
-        candidates = sorted(
+        return max(
             quality_dir.glob(pattern),
             key=lambda path: (path.stat().st_mtime, path.name),
-            reverse=True,
+            default=None,
         )
-        return candidates[0] if candidates else None
 
     def _load_report(
         self,
@@ -127,7 +126,7 @@ class AlpacaQualityReportStore:
         expected_report_type: str,
     ) -> QualityReportState | None:
         try:
-            payload = json.loads(report_path.read_text())
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
                 "alpaca_quality_report_unreadable",
