@@ -5,9 +5,10 @@ Enforces dataset-level access on all read paths for licensing compliance.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from libs.platform.web_console_auth.helpers import get_user_id
@@ -17,9 +18,20 @@ from libs.platform.web_console_auth.permissions import (
     has_permission,
 )
 
+from .data_manifest_service import (
+    ALPACA_SIP_DATASET_KEY,
+    AlpacaSipManifestSummaryDTO,
+    DataManifestService,
+)
+from .data_readiness_service import (
+    ALPACA_SIP_COMPANION_MANIFEST_STALE,
+    ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
+)
 from .schemas.data_management import (
     AlertAcknowledgmentDTO,
     AnomalyAlertDTO,
+    DataQualitySignalDTO,
+    DataQualitySummaryDTO,
     QualityTrendDTO,
     QuarantineEntryDTO,
     ValidationResultDTO,
@@ -28,13 +40,16 @@ from .schemas.data_management import (
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
+_MOCK_QUALITY_DATASETS = tuple(
+    dataset for dataset in _SUPPORTED_DATASETS if dataset != ALPACA_SIP_DATASET_KEY
+)
 
 
 class DataQualityService:
     """Service layer for data quality reporting.
 
     Enforces dataset-level access on all read paths for licensing compliance.
-    Alert acknowledgments stored in PostgreSQL.
+    Alert acknowledgments are currently in-memory placeholders.
 
     IMPORTANT: ALL read paths filter by user's dataset permissions.
     Users only see quality data for datasets they have access to.
@@ -46,11 +61,27 @@ class DataQualityService:
     - DB persistence for alert acknowledgments
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        manifest_service: DataManifestService | None = None,
+        integrity_reports_available: bool = False,
+        feed_delta_reports_available: bool = False,
+    ) -> None:
         # TODO: Replace with PostgreSQL persistence using data_quality_alert_acknowledgments table
         # Current in-memory implementation is for interface validation only.
         # Production requires: INSERT ... ON CONFLICT DO NOTHING RETURNING for idempotency
         self._ack_store: dict[str, AlertAcknowledgmentDTO] = {}
+        self._manifest_service = manifest_service or DataManifestService()
+        self._integrity_reports_available = integrity_reports_available
+        self._feed_delta_reports_available = feed_delta_reports_available
+        # Hard-pinned false until durable DB-backed acknowledgment storage lands.
+        self._acknowledgments_persistent = False
+
+    @property
+    def acknowledgments_persistent(self) -> bool:
+        """Whether alert acknowledgments are backed by durable server-side storage."""
+        return self._acknowledgments_persistent
 
     async def get_validation_results(
         self,
@@ -67,7 +98,7 @@ class DataQualityService:
         if dataset:
             self._require_dataset_access(user, dataset)
 
-        # TODO: Query data_validation_results table instead of mock data
+        # TODO: Query data_validation_results table instead of mock data for non-SIP datasets.
         now = datetime.now(UTC)
         mock = [
             ValidationResultDTO(
@@ -81,14 +112,39 @@ class DataQualityService:
                 error_message=None,
                 created_at=now,
             )
-            for idx, name in enumerate(_SUPPORTED_DATASETS, start=1)
+            for idx, name in enumerate(_MOCK_QUALITY_DATASETS, start=1)
         ]
         filtered = (
             [item for item in mock if item.dataset == dataset]
             if dataset
             else [item for item in mock if has_dataset_permission(user, item.dataset)]
         )
+        if (dataset is None and has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)) or (
+            dataset == ALPACA_SIP_DATASET_KEY
+        ):
+            try:
+                summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
+            except Exception:
+                logger.exception(
+                    "alpaca_sip_manifest_summary_unavailable",
+                    extra={"dataset": ALPACA_SIP_DATASET_KEY},
+                )
+                filtered.append(_alpaca_sip_unavailable_validation_result(now))
+            else:
+                filtered.extend(self._alpaca_sip_validation_results(now, summary))
         return filtered[:limit]
+
+    async def get_alpaca_sip_quality_summary(self, user: Any) -> DataQualitySummaryDTO:
+        """Return manifest-backed Alpaca SIP quality state for the data page."""
+        self._require_permission(user, Permission.VIEW_DATA_QUALITY)
+        self._require_dataset_access(user, ALPACA_SIP_DATASET_KEY)
+        summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
+        return _build_alpaca_sip_quality_summary(
+            summary,
+            integrity_reports_available=self._integrity_reports_available,
+            feed_delta_reports_available=self._feed_delta_reports_available,
+            acknowledgments_persistent=self.acknowledgments_persistent,
+        )
 
     async def get_anomaly_alerts(
         self,
@@ -118,7 +174,7 @@ class DataQualityService:
                 acknowledged_by=None,
                 created_at=now,
             )
-            for idx, name in enumerate(_SUPPORTED_DATASETS, start=1)
+            for idx, name in enumerate(_MOCK_QUALITY_DATASETS, start=1)
         ]
         filtered = [item for item in mock if has_dataset_permission(user, item.dataset)]
         if severity:
@@ -136,7 +192,7 @@ class DataQualityService:
         """Acknowledge an anomaly alert (idempotent).
 
         Permission: ACKNOWLEDGE_ALERTS + dataset-level access for alert's dataset
-        Storage: PostgreSQL alert_acknowledgments table
+        Storage: in-memory placeholder until PostgreSQL persistence is implemented
         Audit: Logged with user, alert_id, reason
         Security: Validate user has access to the dataset referenced by alert_id
 
@@ -201,9 +257,32 @@ class DataQualityService:
                 reason="validation_failure",
                 created_at=now,
             )
-            for name in _SUPPORTED_DATASETS
+            for name in _MOCK_QUALITY_DATASETS
         ]
         return [item for item in mock if has_dataset_permission(user, item.dataset)]
+
+    def _alpaca_sip_validation_results(
+        self,
+        observed_at: datetime,
+        summary: AlpacaSipManifestSummaryDTO,
+    ) -> list[ValidationResultDTO]:
+        if summary.latest_sync is not None:
+            observed_at = summary.latest_sync
+        signal = _manifest_validation_signal(summary)
+        status: Literal["ok", "error"] = "ok" if signal.status == "passed" else "error"
+        return [
+            ValidationResultDTO(
+                id="alpaca-sip-manifest-summary",
+                dataset=ALPACA_SIP_DATASET_KEY,
+                sync_run_id=None,
+                validation_type="manifest_summary",
+                status=status,
+                expected_value="trusted daily and corporate-actions manifests",
+                actual_value=_alpaca_sip_validation_actual_value(summary, signal.status),
+                error_message=signal.message if status != "ok" else None,
+                created_at=observed_at,
+            )
+        ]
 
     def _require_permission(self, user: Any, permission: Permission) -> None:
         if not has_permission(user, permission):
@@ -228,3 +307,217 @@ class DataQualityService:
 
 
 __all__ = ["DataQualityService"]
+
+
+def _build_alpaca_sip_quality_summary(
+    summary: AlpacaSipManifestSummaryDTO,
+    *,
+    integrity_reports_available: bool,
+    feed_delta_reports_available: bool,
+    acknowledgments_persistent: bool,
+) -> DataQualitySummaryDTO:
+    generated_at = datetime.now(UTC)
+    signals = [
+        _manifest_validation_signal(summary),
+        _manifest_pairing_signal(summary),
+        _report_availability_signal(
+            "alpaca_sip_integrity",
+            "No persisted Alpaca SIP deterministic re-pull integrity report is available.",
+            "Alpaca SIP deterministic re-pull integrity report is available.",
+            integrity_reports_available,
+            generated_at,
+        ),
+        _report_availability_signal(
+            "alpaca_feed_delta",
+            "No persisted Alpaca IEX-vs-SIP feed-delta report is available.",
+            "Alpaca IEX-vs-SIP feed-delta report is available.",
+            feed_delta_reports_available,
+            generated_at,
+        ),
+        _acknowledgment_persistence_signal(acknowledgments_persistent, generated_at),
+    ]
+    status: Literal["passed", "warning", "failed", "unavailable"]
+    if any(signal.status == "failed" for signal in signals):
+        status = "failed"
+    elif any(signal.status == "warning" for signal in signals):
+        status = "warning"
+    elif any(signal.status == "unavailable" for signal in signals):
+        status = "unavailable"
+    else:
+        status = "passed"
+    return DataQualitySummaryDTO(
+        dataset=ALPACA_SIP_DATASET_KEY,
+        status=status,
+        generated_at=generated_at,
+        signals=signals,
+        acknowledgments_persistent=acknowledgments_persistent,
+        acknowledgment_status_source=(
+            "persistent_store" if acknowledgments_persistent else "in_memory_store_unavailable"
+        ),
+    )
+
+
+def _alpaca_sip_unavailable_validation_result(observed_at: datetime) -> ValidationResultDTO:
+    return ValidationResultDTO(
+        id="alpaca-sip-manifest-summary-unavailable",
+        dataset=ALPACA_SIP_DATASET_KEY,
+        sync_run_id=None,
+        validation_type="manifest_summary",
+        status="unavailable",
+        expected_value="trusted daily and corporate-actions manifests",
+        actual_value="unavailable",
+        error_message="Alpaca SIP manifest summary unavailable.",
+        created_at=observed_at,
+    )
+
+
+def _alpaca_sip_validation_actual_value(
+    summary: AlpacaSipManifestSummaryDTO,
+    signal_status: str,
+) -> str:
+    if signal_status == "passed":
+        return summary.sync_validation_status
+    if summary.missing_datasets:
+        return summary.sync_validation_status
+    return signal_status
+
+
+def _manifest_validation_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQualitySignalDTO:
+    reason_codes: list[str] = []
+    if summary.missing_datasets:
+        reason_codes.extend(
+            f"alpaca_sip_missing_manifest:{item}" for item in summary.missing_datasets
+        )
+    failed = [manifest for manifest in summary.manifests if manifest.validation_status != "passed"]
+    reason_codes.extend(
+        f"alpaca_sip_manifest_validation_{manifest.validation_status}:{manifest.dataset}"
+        for manifest in failed
+    )
+    status: Literal["passed", "failed"]
+    if not summary.has_any_manifest or summary.missing_datasets or failed:
+        status = "failed"
+    else:
+        status = "passed"
+    if status == "failed":
+        if summary.source_error_message:
+            message = summary.source_error_message
+        elif summary.missing_datasets:
+            message = "Missing Alpaca SIP manifests: " + ", ".join(sorted(summary.missing_datasets))
+        elif failed:
+            message = "Alpaca SIP manifest validation failed: " + ", ".join(
+                f"{manifest.dataset}={manifest.validation_status}" for manifest in failed
+            )
+        else:
+            message = "Alpaca SIP manifest validation failed."
+    else:
+        message = "Alpaca SIP manifests are present and passed validation."
+    return DataQualitySignalDTO(
+        dataset=ALPACA_SIP_DATASET_KEY,
+        check="manifest_validation",
+        status=status,
+        source="manifest",
+        observed_at=summary.latest_sync,
+        message=message,
+        reason_codes=sorted(reason_codes),
+    )
+
+
+def _manifest_pairing_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQualitySignalDTO:
+    # Only pairing warnings are surfaced here; other manifest warnings belong to
+    # producer-specific quality checks as they are added.
+    pairing_warnings = sorted(
+        warning
+        for warning in summary.warnings
+        if warning
+        in {
+            ALPACA_SIP_COMPANION_MANIFEST_STALE,
+            ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
+        }
+    )
+    missing_pairing = sorted(
+        f"alpaca_sip_missing_manifest:{dataset}" for dataset in summary.missing_datasets
+    )
+    invalid_pairing = sorted(
+        f"alpaca_sip_manifest_validation_{manifest.validation_status}:{manifest.dataset}"
+        for manifest in summary.manifests
+        if manifest.validation_status != "passed"
+    )
+    reason_codes = [*missing_pairing, *invalid_pairing, *pairing_warnings]
+    status: Literal["passed", "warning", "failed"]
+    if missing_pairing:
+        status = "failed"
+        message = "Companion manifest is missing."
+    elif invalid_pairing:
+        status = "failed"
+        message = "Companion manifest validation failed."
+    elif pairing_warnings:
+        status = "warning"
+        message = "Companion manifests need operator review."
+    else:
+        status = "passed"
+        message = "Daily bars and corporate-actions manifests are paired."
+    return DataQualitySignalDTO(
+        dataset=ALPACA_SIP_DATASET_KEY,
+        check="manifest_pairing",
+        status=status,
+        source="manifest",
+        observed_at=summary.latest_sync,
+        message=message,
+        reason_codes=reason_codes,
+    )
+
+
+def _report_availability_signal(
+    check: str,
+    unavailable_message: str,
+    available_message: str,
+    available: bool,
+    observed_at: datetime,
+) -> DataQualitySignalDTO:
+    if available:
+        return DataQualitySignalDTO(
+            dataset=ALPACA_SIP_DATASET_KEY,
+            check=check,
+            status="passed",
+            source="report_store",
+            observed_at=observed_at,
+            message=available_message,
+            reason_codes=[],
+        )
+    return DataQualitySignalDTO(
+        dataset=ALPACA_SIP_DATASET_KEY,
+        check=check,
+        status="unavailable",
+        source="report_store",
+        observed_at=None,
+        message=unavailable_message,
+        reason_codes=[f"{check}_report_unavailable"],
+    )
+
+
+def _acknowledgment_persistence_signal(
+    acknowledgments_persistent: bool,
+    observed_at: datetime,
+) -> DataQualitySignalDTO:
+    if acknowledgments_persistent:
+        return DataQualitySignalDTO(
+            dataset=ALPACA_SIP_DATASET_KEY,
+            check="quality_acknowledgment_persistence",
+            status="passed",
+            source="persistent_store",
+            observed_at=observed_at,
+            message="Quality acknowledgments are persisted server-side.",
+            reason_codes=[],
+        )
+    return DataQualitySignalDTO(
+        dataset=ALPACA_SIP_DATASET_KEY,
+        check="quality_acknowledgment_persistence",
+        status="unavailable",
+        source="in_memory_store",
+        observed_at=None,
+        message=(
+            "Quality acknowledgment controls are unavailable until server-side "
+            "persistence records actor, time, source, and issue scope."
+        ),
+        reason_codes=["quality_acknowledgment_persistence_unavailable"],
+    )

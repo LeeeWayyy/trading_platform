@@ -286,6 +286,61 @@ class DataPreviewDTO(BaseModel):
     backtest_handoff: BacktestHandoffDTO | None = None
 
 
+ReadinessWorkflow = Literal[
+    "data_preview",
+    "simple_backtest",
+    "hybrid_research_backtest",
+    "quality_analysis",
+    "sql_exploration",
+]
+
+
+class DataReadinessCheckDTO(BaseModel):
+    """One workflow-readiness condition with a stable reason code."""
+
+    code: str
+    status: Literal["passed", "warning", "blocked"]
+    message: str
+    source: str
+    action_label: str | None = None
+    target_section: Literal["acquisition", "quality", "backtest"] | None = None
+
+
+class DataReadinessDTO(BaseModel):
+    """Workflow readiness result for a dataset or provider composition."""
+
+    dataset: str
+    workflow: ReadinessWorkflow
+    status: Literal["ready", "warning", "blocked"]
+    generated_at: AwareDatetime
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    checks: list[DataReadinessCheckDTO] = Field(default_factory=list)
+
+
+class DataQualitySignalDTO(BaseModel):
+    """Concrete quality signal surfaced on the data page."""
+
+    dataset: str
+    check: str
+    status: Literal["passed", "warning", "failed", "unavailable"]
+    source: str
+    observed_at: AwareDatetime | None = None
+    message: str
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class DataQualitySummaryDTO(BaseModel):
+    """Manifest/report-backed quality summary for one dataset family."""
+
+    dataset: str
+    status: Literal["passed", "warning", "failed", "unavailable"]
+    generated_at: AwareDatetime
+    signals: list[DataQualitySignalDTO] = Field(default_factory=list)
+    acknowledgments_persistent: bool
+    acknowledgment_status_source: str
+
+
 class QueryResultDTO(BaseModel):
     """Paginated query results for dataset explorer queries."""
 

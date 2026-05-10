@@ -11,6 +11,8 @@ from apps.web_console_ng.components.data_detail_drawer import (
     build_manifest_detail_fields,
 )
 from apps.web_console_ng.components.data_operations_grid import build_manifest_grid_rows
+from apps.web_console_ng.components.data_quality_section import build_quality_signal_rows
+from apps.web_console_ng.components.data_readiness_section import build_readiness_rows
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -18,6 +20,12 @@ from libs.web_console_services.data_manifest_service import (
     ManifestSummaryDTO,
 )
 from libs.web_console_services.provider_signature import ProviderSignatureDTO
+from libs.web_console_services.schemas.data_management import (
+    DataQualitySignalDTO,
+    DataQualitySummaryDTO,
+    DataReadinessCheckDTO,
+    DataReadinessDTO,
+)
 
 NOW = datetime(2026, 5, 1, 12, tzinfo=UTC)
 
@@ -251,3 +259,63 @@ def test_missing_companion_warning_stays_on_missing_row() -> None:
     assert metrics["Backtest Blocked"] == 2
     assert "alpaca_sip_untrusted_without_manifest" not in daily["issue_codes"]
     assert "alpaca_sip_untrusted_without_manifest" in corp_actions["issue_codes"]
+
+
+def test_readiness_rows_expose_action_targets() -> None:
+    readiness = DataReadinessDTO(
+        dataset="alpaca_sip",
+        workflow="simple_backtest",
+        status="blocked",
+        generated_at=NOW,
+        blockers=["raw_sip_returns_unavailable"],
+        checks=[
+            DataReadinessCheckDTO(
+                code="raw_sip_returns_unavailable",
+                status="blocked",
+                message="Raw SIP returns are unavailable.",
+                source="read_time_adjustment_policy",
+                action_label="Use adjusted returns",
+                target_section="backtest",
+            )
+        ],
+    )
+
+    rows = build_readiness_rows(readiness)
+
+    assert rows == [
+        {
+            "status": "blocked",
+            "code": "raw_sip_returns_unavailable",
+            "source": "read_time_adjustment_policy",
+            "message": "Raw SIP returns are unavailable.",
+            "action": "Use adjusted returns",
+            "target": "backtest",
+        }
+    ]
+
+
+def test_quality_signal_rows_expose_source_and_reason_codes() -> None:
+    summary = DataQualitySummaryDTO(
+        dataset="alpaca_sip",
+        status="warning",
+        generated_at=NOW,
+        acknowledgments_persistent=False,
+        acknowledgment_status_source="in_memory_store_unavailable",
+        signals=[
+            DataQualitySignalDTO(
+                dataset="alpaca_sip",
+                check="alpaca_feed_delta",
+                status="unavailable",
+                source="report_store",
+                observed_at=None,
+                message="No report persisted.",
+                reason_codes=["alpaca_feed_delta_report_unavailable"],
+            )
+        ],
+    )
+
+    rows = build_quality_signal_rows(summary)
+
+    assert rows[0]["source"] == "report_store"
+    assert rows[0]["observed_at"] == "-"
+    assert rows[0]["reason_codes"] == "alpaca_feed_delta_report_unavailable"

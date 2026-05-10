@@ -126,6 +126,12 @@ class TestComputeQualityScores:
         assert scores[0].overall_score is None
         assert scores[0].validation_pass_rate is None
 
+    def test_unavailable_validations_are_not_scored_as_failures(self) -> None:
+        validations = [FakeValidation("ds1", "unavailable")]
+        scores = compute_quality_scores(validations, [], [])
+        assert scores[0].overall_score is None
+        assert scores[0].validation_pass_rate is None
+
     def test_anomaly_penalty(self) -> None:
         validations = [FakeValidation("ds1", "ok")] * 10
         alerts = [
