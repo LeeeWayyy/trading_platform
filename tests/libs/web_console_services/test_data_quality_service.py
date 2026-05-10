@@ -20,6 +20,7 @@ from libs.web_console_services.data_manifest_service import (
     ManifestSummaryDTO,
 )
 from libs.web_console_services.data_quality_service import (
+    AlpacaQualityReportStore,
     DataQualityService,
     QualityReportState,
     _build_alpaca_sip_quality_summary,
@@ -49,6 +50,26 @@ class RaisingManifestService:
     def get_alpaca_sip_summary(self) -> AlpacaSipManifestSummaryDTO:
         self.thread_ids.append(get_ident())
         raise RuntimeError("manifest store unavailable")
+
+
+class ThreadTrackingReportStore:
+    def __init__(
+        self,
+        *,
+        integrity_report: QualityReportState | None = None,
+        feed_delta_report: QualityReportState | None = None,
+    ) -> None:
+        self.integrity_report = integrity_report
+        self.feed_delta_report = feed_delta_report
+        self.thread_ids: list[int] = []
+
+    def get_integrity_report(self) -> QualityReportState | None:
+        self.thread_ids.append(get_ident())
+        return self.integrity_report
+
+    def get_feed_delta_report(self) -> QualityReportState | None:
+        self.thread_ids.append(get_ident())
+        return self.feed_delta_report
 
 
 @pytest.fixture()
@@ -606,6 +627,58 @@ async def test_alpaca_sip_quality_summary_loads_persisted_report_statuses(
     ].reason_codes
     assert "alpaca_feed_delta_timeframe:1Day" in signals["alpaca_feed_delta"].reason_codes
     assert "hash=feed-delta-hash" in signals["alpaca_feed_delta"].message
+
+
+@pytest.mark.asyncio()
+async def test_alpaca_sip_quality_summary_loads_report_store_off_event_loop() -> None:
+    main_thread_id = get_ident()
+    manifest_service = FakeManifestService(
+        _summary(
+            [
+                _manifest(ALPACA_SIP_DAILY_DATASET),
+                _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+            ],
+        )
+    )
+    report_store = ThreadTrackingReportStore(
+        integrity_report=QualityReportState(
+            report_type="alpaca_sip_integrity",
+            status="passed",
+            raw_status="passed",
+            content_hash="integrity-hash",
+            start="2024-04-22T00:00:00+00:00",
+            end="2024-04-26T00:00:00+00:00",
+            timeframe="1Day",
+        ),
+        feed_delta_report=QualityReportState(
+            report_type="alpaca_feed_delta",
+            status="passed",
+            raw_status="passed",
+            content_hash="feed-delta-hash",
+            start="2024-04-22T00:00:00+00:00",
+            end="2024-04-26T00:00:00+00:00",
+            timeframe="1Day",
+        ),
+    )
+    svc = DataQualityService(
+        manifest_service=cast(DataManifestService, manifest_service),
+        report_store=cast(AlpacaQualityReportStore, report_store),
+    )
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+    ):
+        summary = await svc.get_alpaca_sip_quality_summary(DummyUser(user_id="user-1"))
+
+    statuses = {signal.check: signal.status for signal in summary.signals}
+    assert statuses["alpaca_sip_integrity"] == "passed"
+    assert statuses["alpaca_feed_delta"] == "passed"
+    assert report_store.thread_ids
+    assert all(thread_id != main_thread_id for thread_id in report_store.thread_ids)
 
 
 def test_alpaca_sip_quality_summary_builder_passes_when_persisted_inputs_available() -> None:

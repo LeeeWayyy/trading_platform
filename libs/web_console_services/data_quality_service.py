@@ -113,11 +113,30 @@ class AlpacaQualityReportStore:
         quality_dir = self._data_root / "quality"
         if not quality_dir.exists():
             return None
-        return max(
-            quality_dir.glob(pattern),
-            key=lambda path: (path.stat().st_mtime, path.name),
-            default=None,
-        )
+        return self._latest_report_path(quality_dir, pattern)
+
+    def _latest_report_path(self, quality_dir: Path, pattern: str) -> Path | None:
+        latest_path: Path | None = None
+        latest_key: tuple[float, str] | None = None
+        try:
+            for candidate in quality_dir.glob(pattern):
+                try:
+                    candidate_key = (candidate.stat().st_mtime, candidate.name)
+                except OSError as exc:
+                    logger.debug(
+                        "alpaca_quality_report_stat_unavailable",
+                        extra={"report_path": str(candidate), "error": str(exc)},
+                    )
+                    continue
+                if latest_key is None or candidate_key > latest_key:
+                    latest_key = candidate_key
+                    latest_path = candidate
+        except OSError as exc:
+            logger.debug(
+                "alpaca_quality_report_scan_unavailable",
+                extra={"quality_dir": str(quality_dir), "pattern": pattern, "error": str(exc)},
+            )
+        return latest_path
 
     def _load_report(
         self,
@@ -265,10 +284,14 @@ class DataQualityService:
         summary = alpaca_sip_summary
         if summary is None:
             summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
+        integrity_report, feed_delta_report = await asyncio.gather(
+            asyncio.to_thread(self._get_integrity_report_state),
+            asyncio.to_thread(self._get_feed_delta_report_state),
+        )
         return _build_alpaca_sip_quality_summary(
             summary,
-            integrity_report=self._get_integrity_report_state(),
-            feed_delta_report=self._get_feed_delta_report_state(),
+            integrity_report=integrity_report,
+            feed_delta_report=feed_delta_report,
             acknowledgments_persistent=self.acknowledgments_persistent,
         )
 
