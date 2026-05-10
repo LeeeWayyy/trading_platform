@@ -119,6 +119,7 @@ class DataQualityService:
             if dataset
             else [item for item in mock if has_dataset_permission(user, item.dataset)]
         )
+        alpaca_results: list[ValidationResultDTO] = []
         if (dataset is None and has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)) or (
             dataset == ALPACA_SIP_DATASET_KEY
         ):
@@ -129,10 +130,13 @@ class DataQualityService:
                     "alpaca_sip_manifest_summary_unavailable",
                     extra={"dataset": ALPACA_SIP_DATASET_KEY},
                 )
-                filtered.append(_alpaca_sip_unavailable_validation_result(now))
+                alpaca_results.append(_alpaca_sip_unavailable_validation_result(now))
             else:
-                filtered.extend(self._alpaca_sip_validation_results(now, summary))
-        return filtered[:limit]
+                alpaca_results.extend(self._alpaca_sip_validation_results(now, summary))
+
+        if dataset is None:
+            return [*alpaca_results, *filtered][:limit]
+        return [*filtered, *alpaca_results][:limit]
 
     async def get_alpaca_sip_quality_summary(self, user: Any) -> DataQualitySummaryDTO:
         """Return manifest-backed Alpaca SIP quality state for the data page."""

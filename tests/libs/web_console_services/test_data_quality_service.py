@@ -368,6 +368,38 @@ async def test_get_validation_results_appends_alpaca_manifest_for_all_datasets()
 
 
 @pytest.mark.asyncio()
+async def test_get_validation_results_prioritizes_alpaca_manifest_when_limited() -> None:
+    manifest_service = FakeManifestService(
+        _summary(
+            [
+                _manifest(ALPACA_SIP_DAILY_DATASET),
+                _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+            ]
+        )
+    )
+    svc = DataQualityService(manifest_service=cast(DataManifestService, manifest_service))
+
+    def dataset_access(_user: DummyUser, dataset: str) -> bool:
+        return dataset in {"crsp", "alpaca_sip"}
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            side_effect=dataset_access,
+        ),
+    ):
+        results = await svc.get_validation_results(
+            DummyUser(user_id="user-1"),
+            dataset=None,
+            limit=1,
+        )
+
+    assert [result.dataset for result in results] == ["alpaca_sip"]
+    assert results[0].validation_type == "manifest_summary"
+
+
+@pytest.mark.asyncio()
 async def test_get_validation_results_degrades_when_alpaca_manifest_unavailable() -> None:
     main_thread_id = get_ident()
     manifest_service = RaisingManifestService()
