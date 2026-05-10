@@ -325,7 +325,10 @@ async def test_data_quality_section_renders_alpaca_sip_quality_summary(
 
     await dm_module._render_data_quality_section({"role": "admin"}, quality_service)
 
-    quality_service.get_alpaca_sip_quality_summary.assert_awaited_once_with({"role": "admin"})
+    quality_service.get_alpaca_sip_quality_summary.assert_awaited_once_with(
+        {"role": "admin"},
+        alpaca_sip_summary=None,
+    )
     mock_quality_section.render_quality_summary.assert_called_once_with(summary)
     mock_ui.notify.assert_not_called()
     mock_dataset_permission.assert_any_call({"role": "admin"}, "alpaca_sip")
@@ -352,8 +355,48 @@ async def test_data_quality_section_skips_for_quality_permission_error(
     await dm_module._render_data_quality_section({"role": "admin"}, quality_service)
 
     mock_quality_section.render_quality_summary.assert_not_called()
-    quality_service.get_alpaca_sip_quality_summary.assert_awaited_once_with({"role": "admin"})
+    quality_service.get_alpaca_sip_quality_summary.assert_awaited_once_with(
+        {"role": "admin"},
+        alpaca_sip_summary=None,
+    )
     mock_ui.notify.assert_not_called()
+    mock_dataset_permission.assert_any_call({"role": "admin"}, "alpaca_sip")
+    mock_permission.assert_any_call({"role": "admin"}, Permission.VIEW_DATA_QUALITY)
+
+
+@pytest.mark.asyncio()
+@patch("apps.web_console_ng.pages.data_management.ui")
+@patch("apps.web_console_ng.pages.data_management._data_quality_section")
+@patch("apps.web_console_ng.pages.data_management.has_permission", return_value=True)
+@patch("apps.web_console_ng.pages.data_management.has_dataset_permission", return_value=True)
+async def test_data_quality_section_reuses_page_alpaca_sip_summary(
+    mock_dataset_permission: MagicMock,
+    mock_permission: MagicMock,
+    mock_quality_section: MagicMock,
+    mock_ui: MagicMock,
+) -> None:
+    _setup_data_quality_ui(mock_ui)
+    quality_service = _quality_service_for_section()
+    quality_summary = MagicMock()
+    manifest_summary = MagicMock()
+    quality_service.get_alpaca_sip_quality_summary = AsyncMock(return_value=quality_summary)
+
+    await dm_module._render_data_quality_section(
+        {"role": "admin"},
+        quality_service,
+        alpaca_sip_summary=manifest_summary,
+    )
+
+    quality_service.get_alpaca_sip_quality_summary.assert_awaited_once_with(
+        {"role": "admin"},
+        alpaca_sip_summary=manifest_summary,
+    )
+    quality_service.get_validation_results.assert_any_await(
+        {"role": "admin"},
+        dataset=None,
+        alpaca_sip_summary=manifest_summary,
+    )
+    mock_quality_section.render_quality_summary.assert_called_once_with(quality_summary)
     mock_dataset_permission.assert_any_call({"role": "admin"}, "alpaca_sip")
     mock_permission.assert_any_call({"role": "admin"}, Permission.VIEW_DATA_QUALITY)
 
@@ -376,6 +419,10 @@ async def test_data_quality_section_warns_when_quality_summary_unavailable(
     await dm_module._render_data_quality_section({"role": "admin"}, quality_service)
 
     mock_quality_section.render_quality_summary.assert_not_called()
+    quality_service.get_alpaca_sip_quality_summary.assert_awaited_once_with(
+        {"role": "admin"},
+        alpaca_sip_summary=None,
+    )
     mock_ui.notify.assert_called_once_with(
         "Alpaca SIP quality inputs temporarily unavailable", type="warning"
     )

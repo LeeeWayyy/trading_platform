@@ -88,6 +88,8 @@ class DataQualityService:
         user: Any,
         dataset: str | None,
         limit: int = 50,
+        *,
+        alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
     ) -> list[ValidationResultDTO]:
         """Get recent validation run results.
 
@@ -123,26 +125,27 @@ class DataQualityService:
         if (dataset is None and has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)) or (
             dataset == ALPACA_SIP_DATASET_KEY
         ):
-            try:
+            summary = alpaca_sip_summary
+            if summary is None:
                 summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
-            except Exception:
-                logger.exception(
-                    "alpaca_sip_manifest_summary_unavailable",
-                    extra={"dataset": ALPACA_SIP_DATASET_KEY},
-                )
-                alpaca_results.append(_alpaca_sip_unavailable_validation_result(now))
-            else:
-                alpaca_results.extend(self._alpaca_sip_validation_results(now, summary))
+            alpaca_results.extend(self._alpaca_sip_validation_results(now, summary))
 
         if dataset is None:
             return [*alpaca_results, *filtered][:limit]
         return [*filtered, *alpaca_results][:limit]
 
-    async def get_alpaca_sip_quality_summary(self, user: Any) -> DataQualitySummaryDTO:
+    async def get_alpaca_sip_quality_summary(
+        self,
+        user: Any,
+        *,
+        alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
+    ) -> DataQualitySummaryDTO:
         """Return manifest-backed Alpaca SIP quality state for the data page."""
         self._require_permission(user, Permission.VIEW_DATA_QUALITY)
         self._require_dataset_access(user, ALPACA_SIP_DATASET_KEY)
-        summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
+        summary = alpaca_sip_summary
+        if summary is None:
+            summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
         return _build_alpaca_sip_quality_summary(
             summary,
             integrity_reports_available=self._integrity_reports_available,
@@ -272,20 +275,36 @@ class DataQualityService:
     ) -> list[ValidationResultDTO]:
         if summary.latest_sync is not None:
             observed_at = summary.latest_sync
-        signal = _manifest_validation_signal(summary)
-        status: Literal["ok", "error"] = "ok" if signal.status == "passed" else "error"
+        validation_signal = _manifest_validation_signal(summary)
+        pairing_signal = _manifest_pairing_signal(summary)
         return [
             ValidationResultDTO(
                 id="alpaca-sip-manifest-summary",
                 dataset=ALPACA_SIP_DATASET_KEY,
                 sync_run_id=None,
                 validation_type="manifest_summary",
-                status=status,
+                status=_validation_status_from_signal(validation_signal.status),
                 expected_value="trusted daily and corporate-actions manifests",
-                actual_value=_alpaca_sip_validation_actual_value(summary, signal.status),
-                error_message=signal.message if status != "ok" else None,
+                actual_value=_alpaca_sip_validation_actual_value(
+                    summary,
+                    validation_signal.status,
+                ),
+                error_message=(
+                    validation_signal.message if validation_signal.status != "passed" else None
+                ),
                 created_at=observed_at,
-            )
+            ),
+            ValidationResultDTO(
+                id="alpaca-sip-manifest-pairing",
+                dataset=ALPACA_SIP_DATASET_KEY,
+                sync_run_id=None,
+                validation_type="manifest_pairing",
+                status=_validation_status_from_signal(pairing_signal.status),
+                expected_value="paired daily bars and corporate-actions manifests",
+                actual_value=pairing_signal.status,
+                error_message=pairing_signal.message if pairing_signal.status != "passed" else None,
+                created_at=pairing_signal.observed_at or observed_at,
+            ),
         ]
 
     def _require_permission(self, user: Any, permission: Permission) -> None:
@@ -361,20 +380,6 @@ def _build_alpaca_sip_quality_summary(
     )
 
 
-def _alpaca_sip_unavailable_validation_result(observed_at: datetime) -> ValidationResultDTO:
-    return ValidationResultDTO(
-        id="alpaca-sip-manifest-summary-unavailable",
-        dataset=ALPACA_SIP_DATASET_KEY,
-        sync_run_id=None,
-        validation_type="manifest_summary",
-        status="unavailable",
-        expected_value="trusted daily and corporate-actions manifests",
-        actual_value="unavailable",
-        error_message="Alpaca SIP manifest summary unavailable.",
-        created_at=observed_at,
-    )
-
-
 def _alpaca_sip_validation_actual_value(
     summary: AlpacaSipManifestSummaryDTO,
     signal_status: str,
@@ -384,6 +389,18 @@ def _alpaca_sip_validation_actual_value(
     if summary.missing_datasets:
         return summary.sync_validation_status
     return signal_status
+
+
+def _validation_status_from_signal(
+    signal_status: Literal["passed", "warning", "failed", "unavailable"],
+) -> Literal["ok", "warning", "error", "unavailable"]:
+    if signal_status == "passed":
+        return "ok"
+    if signal_status == "warning":
+        return "warning"
+    if signal_status == "unavailable":
+        return "unavailable"
+    return "error"
 
 
 def _manifest_validation_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQualitySignalDTO:

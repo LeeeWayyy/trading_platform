@@ -68,6 +68,7 @@ from libs.web_console_services.data_explorer_service import (
 )
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_DATASET_KEY,
+    AlpacaSipManifestSummaryDTO,
     DataManifestService,
 )
 from libs.web_console_services.data_quality_service import DataQualityService
@@ -180,7 +181,11 @@ async def data_management_page() -> None:
         )
         return
 
-    await _render_manifest_transparency(user, manifest_service, readiness_service)
+    alpaca_sip_summary = await _render_manifest_transparency(
+        user,
+        manifest_service,
+        readiness_service,
+    )
 
     # Overlap guard flags (per-client scope — each page load creates a new function scope)
     _sync_refreshing = False
@@ -207,7 +212,11 @@ async def data_management_page() -> None:
                     alerts_container,
                     scores_container,
                     _load_alerts_fn,
-                ) = await _render_data_quality_section(user, quality_service)
+                ) = await _render_data_quality_section(
+                    user,
+                    quality_service,
+                    alpaca_sip_summary=alpaca_sip_summary,
+                )
 
     # === Auto-refresh Timers ===
     async def refresh_sync_status() -> None:
@@ -302,14 +311,14 @@ async def _render_manifest_transparency(
     user: dict[str, Any],
     manifest_service: DataManifestService,
     readiness_service: DataReadinessService,
-) -> None:
+) -> AlpacaSipManifestSummaryDTO | None:
     """Render Phase 1 manifest transparency for authorized Alpaca SIP users."""
     if not has_permission(user, Permission.VIEW_DATA_SYNC):
-        return
+        return None
     has_alpaca_sip = has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)
     has_hybrid = has_dataset_permission(user, HYBRID_CRSP_SIP_DATASET_KEY)
     if not has_alpaca_sip and not has_hybrid:
-        return
+        return None
 
     alpaca_summary = None
     if has_alpaca_sip:
@@ -410,6 +419,7 @@ async def _render_manifest_transparency(
             },
         )
         ui.notify("Some readiness checks are temporarily unavailable", type="warning")
+    return alpaca_summary
 
 
 # =============================================================================
@@ -972,6 +982,8 @@ def _build_query_results(
 async def _render_data_quality_section(
     user: dict[str, Any],
     quality_service: DataQualityService,
+    *,
+    alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
 ) -> tuple[ui.column | None, ui.column | None, Callable[[], Any] | None]:
     """Render Data Quality reports section.
 
@@ -985,7 +997,10 @@ async def _render_data_quality_section(
         user, ALPACA_SIP_DATASET_KEY
     ):
         try:
-            alpaca_quality = await quality_service.get_alpaca_sip_quality_summary(user)
+            alpaca_quality = await quality_service.get_alpaca_sip_quality_summary(
+                user,
+                alpaca_sip_summary=alpaca_sip_summary,
+            )
             _data_quality_section.render_quality_summary(alpaca_quality)
         except PermissionError:
             logger.warning(
@@ -1010,7 +1025,11 @@ async def _render_data_quality_section(
     # Quality score cards at top of section
     scores_container = ui.column().classes("w-full mb-4")
     with scores_container:
-        await _build_quality_score_cards(user, quality_service)
+        await _build_quality_score_cards(
+            user,
+            quality_service,
+            alpaca_sip_summary=alpaca_sip_summary,
+        )
 
     with ui.tabs().classes("w-full") as quality_tabs:
         tab_validation = ui.tab("Validation Results")
@@ -1023,7 +1042,11 @@ async def _render_data_quality_section(
 
     with ui.tab_panels(quality_tabs, value=tab_validation).classes("w-full"):
         with ui.tab_panel(tab_validation):
-            await _render_validation_results(user, quality_service)
+            await _render_validation_results(
+                user,
+                quality_service,
+                alpaca_sip_summary=alpaca_sip_summary,
+            )
 
         with ui.tab_panel(tab_anomalies):
             alerts_container, load_alerts_fn = await _render_anomaly_alerts(user, quality_service)
@@ -1040,10 +1063,16 @@ async def _render_data_quality_section(
 async def _build_quality_score_cards(
     user: dict[str, Any],
     quality_service: DataQualityService,
+    *,
+    alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
 ) -> None:
     """Build quality score cards per dataset using compute_quality_scores()."""
     try:
-        validations = await quality_service.get_validation_results(user, dataset=None)
+        validations = await quality_service.get_validation_results(
+            user,
+            dataset=None,
+            alpaca_sip_summary=alpaca_sip_summary,
+        )
         alerts = await quality_service.get_anomaly_alerts(user, severity=None, acknowledged=None)
         quarantine = await quality_service.get_quarantine_status(user)
     except PermissionError as exc:
@@ -1102,6 +1131,8 @@ async def _build_quality_score_cards(
 async def _render_validation_results(
     user: dict[str, Any],
     quality_service: DataQualityService,
+    *,
+    alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
 ) -> None:
     """Render validation results table with dataset filter."""
     ui.label("Recent Validation Results").classes("font-bold mb-2")
@@ -1117,7 +1148,11 @@ async def _render_validation_results(
     async def load_results() -> None:
         ds = None if dataset_filter.value == "all" else str(dataset_filter.value)
         try:
-            results = await quality_service.get_validation_results(user, dataset=ds)
+            results = await quality_service.get_validation_results(
+                user,
+                dataset=ds,
+                alpaca_sip_summary=alpaca_sip_summary,
+            )
             results_container.clear()
             with results_container:
                 _build_validation_table(results)

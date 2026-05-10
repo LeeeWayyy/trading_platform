@@ -243,9 +243,13 @@ async def test_get_validation_results_uses_manifest_for_alpaca_sip() -> None:
             dataset="alpaca_sip",
         )
 
-    assert [result.validation_type for result in results] == ["manifest_summary"]
+    assert [result.validation_type for result in results] == [
+        "manifest_summary",
+        "manifest_pairing",
+    ]
     assert results[0].status == "error"
     assert results[0].actual_value == "missing"
+    assert results[1].status == "error"
     assert manifest_service.thread_ids
     assert all(thread_id != main_thread_id for thread_id in manifest_service.thread_ids)
 
@@ -360,11 +364,15 @@ async def test_get_validation_results_appends_alpaca_manifest_for_all_datasets()
     ):
         results = await svc.get_validation_results(DummyUser(user_id="user-1"), dataset=None)
 
-    by_dataset = {result.dataset: result for result in results}
-    assert set(by_dataset) == {"crsp", "alpaca_sip"}
-    assert by_dataset["crsp"].status == "ok"
-    assert by_dataset["alpaca_sip"].validation_type == "manifest_summary"
-    assert by_dataset["alpaca_sip"].status == "ok"
+    alpaca_results = [result for result in results if result.dataset == "alpaca_sip"]
+    crsp_results = [result for result in results if result.dataset == "crsp"]
+    assert [result.validation_type for result in alpaca_results] == [
+        "manifest_summary",
+        "manifest_pairing",
+    ]
+    assert [result.status for result in alpaca_results] == ["ok", "ok"]
+    assert len(crsp_results) == 1
+    assert crsp_results[0].status == "ok"
 
 
 @pytest.mark.asyncio()
@@ -400,7 +408,38 @@ async def test_get_validation_results_prioritizes_alpaca_manifest_when_limited()
 
 
 @pytest.mark.asyncio()
-async def test_get_validation_results_degrades_when_alpaca_manifest_unavailable() -> None:
+async def test_get_validation_results_includes_alpaca_pairing_signal() -> None:
+    manifest_service = FakeManifestService(
+        _summary(
+            [
+                _manifest(ALPACA_SIP_DAILY_DATASET),
+                _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+            ],
+            warnings=["alpaca_sip_companion_manifest_stale"],
+        )
+    )
+    svc = DataQualityService(manifest_service=cast(DataManifestService, manifest_service))
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+    ):
+        results = await svc.get_validation_results(
+            DummyUser(user_id="user-1"),
+            dataset="alpaca_sip",
+        )
+
+    pairing = next(result for result in results if result.validation_type == "manifest_pairing")
+    assert pairing.status == "warning"
+    assert pairing.actual_value == "warning"
+    assert pairing.error_message == "Companion manifests need operator review."
+
+
+@pytest.mark.asyncio()
+async def test_get_validation_results_raises_when_alpaca_manifest_unavailable() -> None:
     main_thread_id = get_ident()
     manifest_service = RaisingManifestService()
     svc = DataQualityService(manifest_service=cast(DataManifestService, manifest_service))
@@ -415,16 +454,42 @@ async def test_get_validation_results_degrades_when_alpaca_manifest_unavailable(
             side_effect=dataset_access,
         ),
     ):
-        results = await svc.get_validation_results(DummyUser(user_id="user-1"), dataset=None)
+        with pytest.raises(RuntimeError, match="manifest store unavailable"):
+            await svc.get_validation_results(DummyUser(user_id="user-1"), dataset=None)
 
-    by_dataset = {result.dataset: result for result in results}
-    assert set(by_dataset) == {"crsp", "alpaca_sip"}
-    assert by_dataset["crsp"].status == "ok"
-    assert by_dataset["alpaca_sip"].status == "unavailable"
-    assert by_dataset["alpaca_sip"].actual_value == "unavailable"
-    assert by_dataset["alpaca_sip"].error_message == "Alpaca SIP manifest summary unavailable."
     assert manifest_service.thread_ids
     assert all(thread_id != main_thread_id for thread_id in manifest_service.thread_ids)
+
+
+@pytest.mark.asyncio()
+async def test_get_validation_results_reuses_provided_alpaca_summary() -> None:
+    manifest_service = RaisingManifestService()
+    svc = DataQualityService(manifest_service=cast(DataManifestService, manifest_service))
+    summary = _summary(
+        [
+            _manifest(ALPACA_SIP_DAILY_DATASET),
+            _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+        ]
+    )
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+    ):
+        results = await svc.get_validation_results(
+            DummyUser(user_id="user-1"),
+            dataset="alpaca_sip",
+            alpaca_sip_summary=summary,
+        )
+
+    assert [result.validation_type for result in results] == [
+        "manifest_summary",
+        "manifest_pairing",
+    ]
+    assert manifest_service.thread_ids == []
 
 
 @pytest.mark.asyncio()
