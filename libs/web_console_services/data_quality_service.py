@@ -463,7 +463,7 @@ def _manifest_pairing_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQualit
         source="manifest",
         observed_at=summary.latest_sync,
         message=message,
-        reason_codes=reason_codes,
+        reason_codes=sorted(reason_codes),
     )
 
 

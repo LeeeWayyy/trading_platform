@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from libs.platform.web_console_auth.permissions import (
     Permission,
@@ -29,7 +29,6 @@ CRSP_DATASET_KEY = "crsp"
 CRSP_UNIVERSE_MANIFEST_DATASET = "crsp_daily"
 
 RAW_SIP_RETURNS_UNAVAILABLE = "raw_sip_returns_unavailable"
-ALPACA_SIP_ACCESS_UNAVAILABLE = "alpaca_sip_access_unavailable"
 ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST = "alpaca_sip_untrusted_without_manifest"
 ALPACA_SIP_MANIFEST_VALIDATION_FAILED = "alpaca_sip_manifest_validation_failed"
 ALPACA_SIP_COMPANION_MANIFEST_STALE = "alpaca_sip_companion_manifest_stale"
@@ -53,7 +52,7 @@ class DataReadinessService:
 
     def get_readiness(
         self,
-        user: object,
+        user: Any,
         dataset: str,
         workflow: ReadinessWorkflow,
         *,
@@ -79,7 +78,7 @@ class DataReadinessService:
 
     def get_alpaca_sip_readiness(
         self,
-        user: object,
+        user: Any,
         workflow: ReadinessWorkflow = "simple_backtest",
         *,
         alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
@@ -91,7 +90,7 @@ class DataReadinessService:
 
     def get_hybrid_crsp_sip_readiness(
         self,
-        user: object,
+        user: Any,
         workflow: ReadinessWorkflow = "hybrid_research_backtest",
         *,
         alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
@@ -131,7 +130,7 @@ class DataReadinessService:
         )
 
     @staticmethod
-    def _require_dataset_readiness_access(user: object, dataset: str) -> None:
+    def _require_dataset_readiness_access(user: Any, dataset: str) -> None:
         if not has_permission(user, Permission.VIEW_DATA_SYNC):
             raise PermissionError(f"Permission {Permission.VIEW_DATA_SYNC.value} required")
         if not has_dataset_permission(user, dataset):
@@ -326,7 +325,6 @@ def _readiness_from_checks(
 
 
 __all__ = [
-    "ALPACA_SIP_ACCESS_UNAVAILABLE",
     "ALPACA_SIP_COMPANION_MANIFEST_STALE",
     "ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH",
     "ALPACA_SIP_MANIFEST_VALIDATION_FAILED",
