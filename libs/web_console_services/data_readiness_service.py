@@ -31,6 +31,7 @@ CRSP_UNIVERSE_MANIFEST_DATASET = "crsp_daily"
 RAW_SIP_RETURNS_UNAVAILABLE = "raw_sip_returns_unavailable"
 ALPACA_SIP_ACCESS_UNAVAILABLE = "alpaca_sip_access_unavailable"
 ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST = "alpaca_sip_untrusted_without_manifest"
+ALPACA_SIP_MANIFEST_VALIDATION_FAILED = "alpaca_sip_manifest_validation_failed"
 ALPACA_SIP_COMPANION_MANIFEST_STALE = "alpaca_sip_companion_manifest_stale"
 ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH = "alpaca_sip_companion_symbol_set_mismatch"
 CRSP_UNIVERSE_UNAVAILABLE = "crsp_universe_unavailable"
@@ -232,7 +233,7 @@ def _manifest_check(
         )
     if manifest.validation_status != "passed":
         return DataReadinessCheckDTO(
-            code=ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST,
+            code=ALPACA_SIP_MANIFEST_VALIDATION_FAILED,
             status="blocked" if required else "warning",
             message=f"{dataset} manifest validation status is {manifest.validation_status}.",
             source="manifest",
@@ -328,6 +329,7 @@ __all__ = [
     "ALPACA_SIP_ACCESS_UNAVAILABLE",
     "ALPACA_SIP_COMPANION_MANIFEST_STALE",
     "ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH",
+    "ALPACA_SIP_MANIFEST_VALIDATION_FAILED",
     "ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST",
     "CRSP_DATASET_KEY",
     "CRSP_UNIVERSE_MANIFEST_DATASET",

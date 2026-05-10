@@ -283,6 +283,31 @@ async def test_get_validation_results_explains_failed_alpaca_manifest_without_so
 
 
 @pytest.mark.asyncio()
+async def test_get_validation_results_explains_missing_alpaca_manifest_without_source_error() -> (
+    None
+):
+    manifest_summary = _summary([]).model_copy(update={"source_error_message": None})
+    manifest_service = FakeManifestService(manifest_summary)
+    svc = DataQualityService(manifest_service=cast(DataManifestService, manifest_service))
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+    ):
+        results = await svc.get_validation_results(
+            DummyUser(user_id="user-1"),
+            dataset="alpaca_sip",
+        )
+
+    assert results[0].status == "error"
+    assert results[0].error_message == "No Alpaca SIP manifests found."
+    assert results[0].actual_value == "failed"
+
+
+@pytest.mark.asyncio()
 async def test_get_validation_results_appends_alpaca_manifest_for_all_datasets() -> None:
     manifest_service = FakeManifestService(
         _summary(

@@ -78,6 +78,7 @@ from libs.web_console_services.data_readiness_service import (
 from libs.web_console_services.data_sync_service import DataSyncService
 from libs.web_console_services.schemas.data_management import (
     DataPreviewDTO,
+    DataReadinessDTO,
     DatasetInfoDTO,
     QueryResultDTO,
     QueryTemplateDTO,
@@ -339,7 +340,7 @@ async def _render_manifest_transparency(
     async def _load_readiness_target(
         dataset: str,
         workflow: ReadinessWorkflow,
-    ) -> tuple[Any | None, str | None]:
+    ) -> tuple[DataReadinessDTO | None, str | None]:
         try:
             return (
                 await asyncio.to_thread(

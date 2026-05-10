@@ -19,6 +19,7 @@ from libs.web_console_services.data_manifest_service import (
 from libs.web_console_services.data_readiness_service import (
     ALPACA_SIP_COMPANION_MANIFEST_STALE,
     ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
+    ALPACA_SIP_MANIFEST_VALIDATION_FAILED,
     ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST,
     CRSP_UNIVERSE_MANIFEST_DATASET,
     CRSP_UNIVERSE_UNAVAILABLE,
@@ -139,6 +140,27 @@ def test_alpaca_sip_simple_backtest_blocks_missing_manifests(
     assert readiness.status == "blocked"
     assert ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST in readiness.blockers
     assert RAW_SIP_RETURNS_UNAVAILABLE not in readiness.blockers
+
+
+def test_alpaca_sip_readiness_uses_distinct_code_for_invalid_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = _summary(
+        [
+            _manifest(ALPACA_SIP_DAILY_DATASET, validation_status="failed"),
+            _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+        ],
+    )
+    service = DataReadinessService(
+        manifest_service=cast(DataManifestService, FakeManifestService(summary))
+    )
+    _allow_readiness(monkeypatch, {"alpaca_sip"})
+
+    readiness = service.get_readiness(DummyUser(), ALPACA_SIP_DATASET_KEY, "quality_analysis")
+
+    assert readiness.status == "blocked"
+    assert ALPACA_SIP_MANIFEST_VALIDATION_FAILED in readiness.blockers
+    assert ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST not in readiness.blockers
 
 
 def test_alpaca_sip_readiness_exposes_pairing_warnings(

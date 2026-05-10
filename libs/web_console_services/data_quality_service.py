@@ -408,7 +408,7 @@ def _manifest_validation_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQua
                 f"{manifest.dataset}={manifest.validation_status}" for manifest in failed
             )
         else:
-            message = "Alpaca SIP manifest validation failed."
+            message = "No Alpaca SIP manifests found."
     else:
         message = "Alpaca SIP manifests are present and passed validation."
     return DataQualitySignalDTO(
