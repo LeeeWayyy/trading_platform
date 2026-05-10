@@ -664,6 +664,25 @@ def test_alpaca_report_store_uses_latest_pointer_before_directory_scan(
     assert report.content_hash == "latest-hash"
 
 
+def test_alpaca_report_store_ignores_scan_symlink_outside_data_root(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    quality_dir = data_root / "quality"
+    quality_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside"
+    outside_report = _write_quality_report(
+        outside_dir,
+        "alpaca_sip_integrity_evil.json",
+        report_type="alpaca_sip_integrity",
+        status="passed",
+        content_hash="outside-hash",
+    )
+    (quality_dir / "alpaca_sip_integrity_evil.json").symlink_to(outside_report)
+
+    report = AlpacaQualityReportStore(data_root=data_root).get_integrity_report()
+
+    assert report is None
+
+
 @pytest.mark.asyncio()
 async def test_alpaca_sip_quality_summary_loads_report_store_off_event_loop() -> None:
     main_thread_id = get_ident()

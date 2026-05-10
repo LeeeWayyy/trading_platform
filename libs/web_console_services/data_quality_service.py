@@ -107,18 +107,8 @@ class AlpacaQualityReportStore:
         configured = os.getenv(env_var, "").strip()
         if configured:
             path = Path(configured)
-            resolved = path.resolve() if path.is_absolute() else (self._data_root / path).resolve()
-            if not resolved.is_relative_to(self._data_root):
-                logger.warning(
-                    "alpaca_quality_report_outside_data_root",
-                    extra={
-                        "path": str(resolved),
-                        "data_root": str(self._data_root),
-                        "env_var": env_var,
-                    },
-                )
-                return None
-            return resolved if resolved.exists() else None
+            candidate = path if path.is_absolute() else self._data_root / path
+            return self._resolve_quality_report_candidate(candidate)
 
         quality_dir = self._data_root / "quality"
         if not quality_dir.exists():
@@ -145,6 +135,15 @@ class AlpacaQualityReportStore:
                 extra={"path": str(resolved), "data_root": str(self._data_root)},
             )
             return None
+        try:
+            if not resolved.is_file():
+                return None
+        except OSError as exc:
+            logger.debug(
+                "alpaca_quality_report_candidate_unavailable",
+                extra={"report_path": str(resolved), "error": str(exc)},
+            )
+            return None
         return resolved
 
     def _latest_report_path(self, quality_dir: Path, pattern: str) -> Path | None:
@@ -152,17 +151,20 @@ class AlpacaQualityReportStore:
         latest_key: tuple[float, str] | None = None
         try:
             for candidate in quality_dir.glob(pattern):
+                safe_candidate = self._resolve_quality_report_candidate(candidate)
+                if safe_candidate is None:
+                    continue
                 try:
-                    candidate_key = (candidate.stat().st_mtime, candidate.name)
+                    candidate_key = (safe_candidate.stat().st_mtime, safe_candidate.name)
                 except OSError as exc:
                     logger.debug(
                         "alpaca_quality_report_stat_unavailable",
-                        extra={"report_path": str(candidate), "error": str(exc)},
+                        extra={"report_path": str(safe_candidate), "error": str(exc)},
                     )
                     continue
                 if latest_key is None or candidate_key > latest_key:
                     latest_key = candidate_key
-                    latest_path = candidate
+                    latest_path = safe_candidate
         except OSError as exc:
             logger.debug(
                 "alpaca_quality_report_scan_unavailable",

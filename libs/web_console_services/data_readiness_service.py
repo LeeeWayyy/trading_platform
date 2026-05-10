@@ -167,7 +167,8 @@ def _alpaca_sip_checks(
     ]
 
     daily = manifests.get(ALPACA_SIP_DAILY_DATASET)
-    if workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS and _raw_returns_unavailable(daily):
+    requires_returns = workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS
+    if requires_returns and _raw_returns_unavailable(daily):
         checks.append(
             DataReadinessCheckDTO(
                 code=RAW_SIP_RETURNS_UNAVAILABLE,
@@ -183,11 +184,14 @@ def _alpaca_sip_checks(
         )
 
     for warning in summary.warnings:
+        pairing_status: Literal["blocked", "warning"] = (
+            "blocked" if requires_returns else "warning"
+        )
         if warning == ALPACA_SIP_COMPANION_MANIFEST_STALE:
             checks.append(
                 DataReadinessCheckDTO(
                     code=ALPACA_SIP_COMPANION_MANIFEST_STALE,
-                    status="warning",
+                    status=pairing_status,
                     message=(
                         "Daily bars and corporate actions manifests are materially out of date "
                         "relative to each other."
@@ -201,7 +205,7 @@ def _alpaca_sip_checks(
             checks.append(
                 DataReadinessCheckDTO(
                     code=ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
-                    status="warning",
+                    status=pairing_status,
                     message=(
                         "Daily bars and corporate actions manifests carry different symbol-set "
                         "hashes."
@@ -267,15 +271,6 @@ def _crsp_unavailable_check(message: str) -> DataReadinessCheckDTO:
     )
 
 
-def _hybrid_price_component_check(
-    checks: list[DataReadinessCheckDTO],
-) -> DataReadinessCheckDTO:
-    return _hybrid_price_component_status_check(
-        has_blockers=any(check.status == "blocked" for check in checks),
-        has_warnings=any(check.status == "warning" for check in checks),
-    )
-
-
 def _hybrid_price_component_check_from_summary(
     summary: AlpacaSipManifestSummaryDTO,
     workflow: ReadinessWorkflow,
@@ -294,7 +289,8 @@ def _hybrid_price_component_check_from_summary(
             component_states.append("blocked" if required else "warning")
 
     daily = manifests.get(ALPACA_SIP_DAILY_DATASET)
-    if workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS and _raw_returns_unavailable(daily):
+    requires_returns = workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS
+    if requires_returns and _raw_returns_unavailable(daily):
         component_states.append("blocked")
     if any(
         warning
@@ -304,7 +300,7 @@ def _hybrid_price_component_check_from_summary(
         }
         for warning in summary.warnings
     ):
-        component_states.append("warning")
+        component_states.append("blocked" if requires_returns else "warning")
 
     return _hybrid_price_component_status_check(
         has_blockers="blocked" in component_states,

@@ -188,6 +188,28 @@ def test_alpaca_sip_readiness_exposes_pairing_warnings(
     assert ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH in readiness.warnings
 
 
+def test_alpaca_sip_simple_backtest_blocks_pairing_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = _summary(
+        [
+            _manifest(ALPACA_SIP_DAILY_DATASET, read_time_adjustment_mode="available"),
+            _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+        ],
+        warnings=[ALPACA_SIP_COMPANION_MANIFEST_STALE],
+    )
+    service = DataReadinessService(
+        manifest_service=cast(DataManifestService, FakeManifestService(summary))
+    )
+    _allow_readiness(monkeypatch, {"alpaca_sip"})
+
+    readiness = service.get_readiness(DummyUser(), ALPACA_SIP_DATASET_KEY, "simple_backtest")
+
+    assert readiness.status == "blocked"
+    assert ALPACA_SIP_COMPANION_MANIFEST_STALE in readiness.blockers
+    assert RAW_SIP_RETURNS_UNAVAILABLE not in readiness.blockers
+
+
 def test_alpaca_sip_simple_backtest_ready_when_adjustment_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -314,6 +336,34 @@ def test_hybrid_readiness_treats_composite_permission_as_sufficient(
         HYBRID_PRICE_COMPONENT_READY,
         "crsp_universe_available",
     ]
+
+
+def test_hybrid_readiness_blocks_stale_price_component_for_return_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = _summary(
+        [
+            _manifest(ALPACA_SIP_DAILY_DATASET, read_time_adjustment_mode="available"),
+            _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+        ],
+        warnings=[ALPACA_SIP_COMPANION_MANIFEST_STALE],
+    )
+    service = DataReadinessService(
+        manifest_service=cast(
+            DataManifestService,
+            FakeManifestService(summary, _manifest(CRSP_UNIVERSE_MANIFEST_DATASET)),
+        )
+    )
+    _allow_readiness(monkeypatch, {HYBRID_CRSP_SIP_DATASET_KEY})
+
+    readiness = service.get_readiness(
+        DummyUser(),
+        HYBRID_CRSP_SIP_DATASET_KEY,
+        "hybrid_research_backtest",
+    )
+
+    assert readiness.status == "blocked"
+    assert readiness.blockers == [HYBRID_PRICE_COMPONENT_BLOCKED]
 
 
 def test_hybrid_readiness_scrubs_sip_details_without_direct_sip_access(
