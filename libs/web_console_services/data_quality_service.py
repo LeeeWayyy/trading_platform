@@ -404,8 +404,9 @@ def _manifest_validation_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQua
         elif summary.missing_datasets:
             message = "Missing Alpaca SIP manifests: " + ", ".join(sorted(summary.missing_datasets))
         elif failed:
+            sorted_failed = sorted(failed, key=lambda manifest: manifest.dataset)
             message = "Alpaca SIP manifest validation failed: " + ", ".join(
-                f"{manifest.dataset}={manifest.validation_status}" for manifest in failed
+                f"{manifest.dataset}={manifest.validation_status}" for manifest in sorted_failed
             )
         else:
             message = "No Alpaca SIP manifests found."
