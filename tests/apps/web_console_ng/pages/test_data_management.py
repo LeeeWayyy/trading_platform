@@ -98,7 +98,7 @@ async def test_manifest_transparency_requires_sync_view_permission(
     )
 
     manifest_service.get_alpaca_sip_summary.assert_not_called()
-    readiness_service.get_readiness.assert_not_called()
+    readiness_service.get_readiness_async.assert_not_called()
     mock_dataset_permission.assert_not_called()
     mock_permission.assert_called_once()
 
@@ -118,7 +118,7 @@ async def test_manifest_transparency_requires_alpaca_sip_dataset_permission(
     )
 
     manifest_service.get_alpaca_sip_summary.assert_not_called()
-    readiness_service.get_readiness.assert_not_called()
+    readiness_service.get_readiness_async.assert_not_called()
     mock_permission.assert_called_once()
     assert mock_dataset_permission.call_count == 2
 
@@ -141,14 +141,14 @@ async def test_manifest_transparency_renders_hybrid_readiness_without_direct_sip
     readiness = MagicMock()
     manifest_service = MagicMock()
     readiness_service = MagicMock()
-    readiness_service.get_readiness.return_value = readiness
+    readiness_service.get_readiness_async = AsyncMock(return_value=readiness)
 
     await dm_module._render_manifest_transparency(
         {"role": "viewer"}, manifest_service, readiness_service
     )
 
     manifest_service.get_alpaca_sip_summary.assert_not_called()
-    readiness_service.get_readiness.assert_called_once_with(
+    readiness_service.get_readiness_async.assert_awaited_once_with(
         {"role": "viewer"},
         HYBRID_CRSP_SIP_DATASET_KEY,
         "hybrid_research_backtest",
@@ -176,13 +176,14 @@ async def test_manifest_transparency_renders_authorized_summary(
     manifest_service = MagicMock()
     manifest_service.get_alpaca_sip_summary.return_value = summary
     readiness_service = MagicMock()
+    readiness_service.get_readiness_async = AsyncMock(return_value=MagicMock())
 
     await dm_module._render_manifest_transparency(
         {"role": "operator"}, manifest_service, readiness_service
     )
 
     manifest_service.get_alpaca_sip_summary.assert_called_once_with()
-    assert readiness_service.get_readiness.call_count == 2
+    assert readiness_service.get_readiness_async.await_count == 2
     mock_panel.render_manifest_transparency_panel.assert_called_once_with(summary)
     mock_readiness_section.render_readiness_section.assert_called_once()
     mock_permission.assert_called_once()
@@ -204,18 +205,15 @@ async def test_manifest_transparency_warns_when_service_unavailable(
     manifest_service = MagicMock()
     manifest_service.get_alpaca_sip_summary.side_effect = RuntimeError("boom")
     readiness_service = MagicMock()
-    readiness_service.get_readiness.side_effect = RuntimeError("boom")
+    readiness_service.get_readiness_async = AsyncMock(side_effect=RuntimeError("boom"))
 
     await dm_module._render_manifest_transparency(
         {"role": "operator"}, manifest_service, readiness_service
     )
 
-    assert readiness_service.get_readiness.call_count == 2
+    readiness_service.get_readiness_async.assert_not_awaited()
     mock_ui.notify.assert_any_call("Manifest status temporarily unavailable", type="warning")
-    mock_ui.notify.assert_any_call(
-        "Some readiness checks are temporarily unavailable", type="warning"
-    )
-    assert mock_ui.notify.call_count == 2
+    assert mock_ui.notify.call_count == 1
     mock_readiness_section.render_readiness_section.assert_not_called()
     mock_permission.assert_called_once()
     assert mock_dataset_permission.call_count == 2
@@ -239,7 +237,9 @@ async def test_manifest_transparency_preserves_partial_readiness(
     manifest_service.get_alpaca_sip_summary.return_value = summary
     readiness = MagicMock()
     readiness_service = MagicMock()
-    readiness_service.get_readiness.side_effect = [readiness, RuntimeError("boom")]
+    readiness_service.get_readiness_async = AsyncMock(
+        side_effect=[readiness, RuntimeError("boom")]
+    )
 
     await dm_module._render_manifest_transparency(
         {"role": "operator"}, manifest_service, readiness_service
@@ -271,7 +271,7 @@ async def test_manifest_transparency_warns_for_invalid_readiness_target(
     manifest_service = MagicMock()
     manifest_service.get_alpaca_sip_summary.return_value = summary
     readiness_service = MagicMock()
-    readiness_service.get_readiness.side_effect = ValueError("unsupported")
+    readiness_service.get_readiness_async = AsyncMock(side_effect=ValueError("unsupported"))
 
     await dm_module._render_manifest_transparency(
         {"role": "operator"}, manifest_service, readiness_service

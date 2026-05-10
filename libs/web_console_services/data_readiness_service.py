@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -75,6 +76,23 @@ class DataReadinessService:
                 alpaca_sip_summary=alpaca_sip_summary,
             )
         raise ValueError(f"Unsupported readiness dataset: {dataset}")
+
+    async def get_readiness_async(
+        self,
+        user: Any,
+        dataset: str,
+        workflow: ReadinessWorkflow,
+        *,
+        alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
+    ) -> DataReadinessDTO:
+        """Return readiness without blocking the event loop on manifest I/O."""
+        return await asyncio.to_thread(
+            self.get_readiness,
+            user,
+            dataset,
+            workflow,
+            alpaca_sip_summary=alpaca_sip_summary,
+        )
 
     def get_alpaca_sip_readiness(
         self,

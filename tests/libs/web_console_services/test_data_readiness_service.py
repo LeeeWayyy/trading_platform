@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from threading import get_ident
 from typing import cast
 
 import pytest
@@ -47,11 +48,14 @@ class FakeManifestService:
     ) -> None:
         self._summary = summary
         self._crsp_manifest = crsp_manifest
+        self.thread_ids: list[int] = []
 
     def get_alpaca_sip_summary(self) -> AlpacaSipManifestSummaryDTO:
+        self.thread_ids.append(get_ident())
         return self._summary
 
     def get_manifest_summary(self, dataset: str) -> ManifestSummaryDTO | None:
+        self.thread_ids.append(get_ident())
         if dataset == CRSP_UNIVERSE_MANIFEST_DATASET:
             return self._crsp_manifest
         return None
@@ -228,6 +232,31 @@ def test_alpaca_sip_simple_backtest_ready_when_adjustment_available(
 
     assert readiness.status == "ready"
     assert RAW_SIP_RETURNS_UNAVAILABLE not in readiness.blockers
+
+
+@pytest.mark.asyncio()
+async def test_readiness_async_offloads_manifest_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    main_thread_id = get_ident()
+    manifest_service = FakeManifestService(
+        _summary(
+            [
+                _manifest(ALPACA_SIP_DAILY_DATASET, read_time_adjustment_mode="available"),
+                _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+            ],
+        )
+    )
+    service = DataReadinessService(manifest_service=cast(DataManifestService, manifest_service))
+    _allow_readiness(monkeypatch, {"alpaca_sip"})
+
+    readiness = await service.get_readiness_async(
+        DummyUser(),
+        ALPACA_SIP_DATASET_KEY,
+        "simple_backtest",
+    )
+
+    assert readiness.status == "ready"
+    assert manifest_service.thread_ids
+    assert all(thread_id != main_thread_id for thread_id in manifest_service.thread_ids)
 
 
 def test_readiness_rejects_unsupported_dataset(monkeypatch: pytest.MonkeyPatch) -> None:

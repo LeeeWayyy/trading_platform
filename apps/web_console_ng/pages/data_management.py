@@ -321,10 +321,12 @@ async def _render_manifest_transparency(
         return None
 
     alpaca_summary = None
+    alpaca_summary_failed = False
     if has_alpaca_sip:
         try:
             alpaca_summary = await asyncio.to_thread(manifest_service.get_alpaca_sip_summary)
         except Exception:
+            alpaca_summary_failed = True
             logger.exception(
                 "service_call_failed",
                 extra={
@@ -341,9 +343,9 @@ async def _render_manifest_transparency(
     readiness_failures = 0
     readiness_targets: list[tuple[str, ReadinessWorkflow]] = []
     failed_readiness_targets: list[str] = []
-    if has_alpaca_sip:
+    if has_alpaca_sip and not alpaca_summary_failed:
         readiness_targets.append((ALPACA_SIP_DATASET_KEY, "simple_backtest"))
-    if has_hybrid:
+    if has_hybrid and not alpaca_summary_failed:
         readiness_targets.append((HYBRID_CRSP_SIP_DATASET_KEY, "hybrid_research_backtest"))
 
     async def _load_readiness_target(
@@ -352,8 +354,7 @@ async def _render_manifest_transparency(
     ) -> tuple[DataReadinessDTO | None, str | None]:
         try:
             return (
-                await asyncio.to_thread(
-                    readiness_service.get_readiness,
+                await readiness_service.get_readiness_async(
                     user,
                     dataset,
                     workflow,
@@ -387,7 +388,7 @@ async def _render_manifest_transparency(
             logger.exception(
                 "service_call_failed",
                 extra={
-                    "method": "get_readiness",
+                    "method": "get_readiness_async",
                     "service": "DataReadinessService",
                     "dataset": dataset,
                     "workflow": workflow,
