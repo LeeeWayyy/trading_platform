@@ -584,14 +584,14 @@ async def test_alpaca_sip_quality_summary_loads_persisted_report_statuses(
     tmp_path: Path,
 ) -> None:
     quality_dir = tmp_path / "quality"
-    _write_quality_report(
+    integrity_path = _write_quality_report(
         quality_dir,
         "alpaca_sip_integrity_test.json",
         report_type="alpaca_sip_integrity",
         status="passed",
         content_hash="integrity-hash",
     )
-    _write_quality_report(
+    feed_delta_path = _write_quality_report(
         quality_dir,
         "alpaca_iex_sip_delta_test.json",
         report_type="alpaca_feed_delta",
@@ -628,6 +628,14 @@ async def test_alpaca_sip_quality_summary_loads_persisted_report_statuses(
         "alpaca_sip_integrity"
     ].reason_codes
     assert "alpaca_feed_delta_timeframe:1Day" in signals["alpaca_feed_delta"].reason_codes
+    assert signals["alpaca_sip_integrity"].observed_at == datetime.fromtimestamp(
+        integrity_path.stat().st_mtime,
+        UTC,
+    )
+    assert signals["alpaca_feed_delta"].observed_at == datetime.fromtimestamp(
+        feed_delta_path.stat().st_mtime,
+        UTC,
+    )
     assert "hash=feed-delta-hash" in signals["alpaca_feed_delta"].message
 
 
@@ -681,6 +689,28 @@ def test_alpaca_report_store_ignores_scan_symlink_outside_data_root(tmp_path: Pa
     report = AlpacaQualityReportStore(data_root=data_root).get_integrity_report()
 
     assert report is None
+
+
+def test_alpaca_report_store_allows_configured_absolute_path_outside_data_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    outside_report = _write_quality_report(
+        tmp_path / "external_quality",
+        "alpaca_sip_integrity_external.json",
+        report_type="alpaca_sip_integrity",
+        status="passed",
+        content_hash="external-hash",
+    )
+    monkeypatch.setenv("ALPACA_SIP_INTEGRITY_REPORT", str(outside_report))
+
+    report = AlpacaQualityReportStore(data_root=data_root).get_integrity_report()
+
+    assert report is not None
+    assert report.path == outside_report
+    assert report.content_hash == "external-hash"
+    assert report.observed_at == datetime.fromtimestamp(outside_report.stat().st_mtime, UTC)
 
 
 @pytest.mark.asyncio()

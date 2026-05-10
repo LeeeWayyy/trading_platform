@@ -66,6 +66,7 @@ class QualityReportState:
     end: str
     timeframe: str
     path: Path | None = None
+    observed_at: datetime | None = None
     tolerance_version: str = ""
 
 
@@ -106,9 +107,13 @@ class AlpacaQualityReportStore:
     ) -> Path | None:
         configured = os.getenv(env_var, "").strip()
         if configured:
-            path = Path(configured)
-            candidate = path if path.is_absolute() else self._data_root / path
-            return self._resolve_quality_report_candidate(candidate)
+            path = Path(configured).expanduser()
+            if path.is_absolute():
+                return self._resolve_quality_report_candidate(
+                    path,
+                    allow_outside_data_root=True,
+                )
+            return self._resolve_quality_report_candidate(self._data_root / path)
 
         quality_dir = self._data_root / "quality"
         if not quality_dir.exists():
@@ -118,7 +123,12 @@ class AlpacaQualityReportStore:
             return latest_pointer
         return self._latest_report_path(quality_dir, pattern)
 
-    def _resolve_quality_report_candidate(self, candidate: Path) -> Path | None:
+    def _resolve_quality_report_candidate(
+        self,
+        candidate: Path,
+        *,
+        allow_outside_data_root: bool = False,
+    ) -> Path | None:
         try:
             resolved = candidate.resolve(strict=True)
         except FileNotFoundError:
@@ -129,7 +139,7 @@ class AlpacaQualityReportStore:
                 extra={"report_path": str(candidate), "error": str(exc)},
             )
             return None
-        if not resolved.is_relative_to(self._data_root):
+        if not allow_outside_data_root and not resolved.is_relative_to(self._data_root):
             logger.warning(
                 "alpaca_quality_report_outside_data_root",
                 extra={"path": str(resolved), "data_root": str(self._data_root)},
@@ -201,6 +211,14 @@ class AlpacaQualityReportStore:
             else ""
         )
         raw_status = str(payload.get("status", "unknown"))
+        try:
+            observed_at = datetime.fromtimestamp(report_path.stat().st_mtime, UTC)
+        except OSError as exc:
+            logger.debug(
+                "alpaca_quality_report_stat_unavailable",
+                extra={"report_path": str(report_path), "error": str(exc)},
+            )
+            observed_at = None
         return QualityReportState(
             report_type=expected_report_type,
             status=_normalize_report_status(raw_status),
@@ -210,6 +228,7 @@ class AlpacaQualityReportStore:
             end=str(payload.get("end", "")),
             timeframe=str(payload.get("timeframe", "")),
             path=report_path,
+            observed_at=observed_at,
             tolerance_version=tolerance_version,
         )
 
@@ -617,7 +636,7 @@ def _manifest_validation_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQua
         for manifest in failed
     )
     status: Literal["passed", "failed"]
-    if not summary.has_any_manifest or summary.missing_datasets or failed:
+    if not summary.manifests or summary.missing_datasets or failed:
         status = "failed"
     else:
         status = "passed"
@@ -737,7 +756,7 @@ def _quality_report_signal(
             check=check,
             status=report.status,
             source="report_store",
-            observed_at=observed_at,
+            observed_at=report.observed_at or observed_at,
             message=_quality_report_message(display_name, report),
             reason_codes=reason_codes,
         )
