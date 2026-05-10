@@ -97,12 +97,12 @@ class DataReadinessService:
     ) -> DataReadinessDTO:
         """Return hybrid CRSP-universe plus Alpaca SIP price readiness."""
         self._require_dataset_readiness_access(user, HYBRID_CRSP_SIP_DATASET_KEY)
+        has_direct_sip_access = has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)
         summary = alpaca_sip_summary or self._manifest_service.get_alpaca_sip_summary()
-        alpaca_checks = list(_alpaca_sip_checks(summary, workflow))
-        if has_dataset_permission(user, ALPACA_SIP_DATASET_KEY):
-            checks = alpaca_checks
+        if has_direct_sip_access:
+            checks = list(_alpaca_sip_checks(summary, workflow))
         else:
-            checks = [_hybrid_price_component_check(alpaca_checks)]
+            checks = [_hybrid_price_component_check_from_summary(summary, workflow)]
         crsp_manifest = self._manifest_service.get_manifest_summary(
             CRSP_UNIVERSE_MANIFEST_DATASET
         )
@@ -270,9 +270,54 @@ def _crsp_unavailable_check(message: str) -> DataReadinessCheckDTO:
 def _hybrid_price_component_check(
     checks: list[DataReadinessCheckDTO],
 ) -> DataReadinessCheckDTO:
-    blockers = [check for check in checks if check.status == "blocked"]
-    warnings = [check for check in checks if check.status == "warning"]
-    if blockers:
+    return _hybrid_price_component_status_check(
+        has_blockers=any(check.status == "blocked" for check in checks),
+        has_warnings=any(check.status == "warning" for check in checks),
+    )
+
+
+def _hybrid_price_component_check_from_summary(
+    summary: AlpacaSipManifestSummaryDTO,
+    workflow: ReadinessWorkflow,
+) -> DataReadinessCheckDTO:
+    manifests = {manifest.dataset: manifest for manifest in summary.manifests}
+    component_states: list[Literal["blocked", "warning"]] = []
+    for dataset, required in (
+        (ALPACA_SIP_DAILY_DATASET, True),
+        (
+            ALPACA_SIP_CORP_ACTIONS_DATASET,
+            workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS,
+        ),
+    ):
+        manifest = manifests.get(dataset)
+        if manifest is None or manifest.validation_status != "passed":
+            component_states.append("blocked" if required else "warning")
+
+    daily = manifests.get(ALPACA_SIP_DAILY_DATASET)
+    if workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS and _raw_returns_unavailable(daily):
+        component_states.append("blocked")
+    if any(
+        warning
+        in {
+            ALPACA_SIP_COMPANION_MANIFEST_STALE,
+            ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
+        }
+        for warning in summary.warnings
+    ):
+        component_states.append("warning")
+
+    return _hybrid_price_component_status_check(
+        has_blockers="blocked" in component_states,
+        has_warnings="warning" in component_states,
+    )
+
+
+def _hybrid_price_component_status_check(
+    *,
+    has_blockers: bool,
+    has_warnings: bool,
+) -> DataReadinessCheckDTO:
+    if has_blockers:
         return DataReadinessCheckDTO(
             code=HYBRID_PRICE_COMPONENT_BLOCKED,
             status="blocked",
@@ -281,7 +326,7 @@ def _hybrid_price_component_check(
             action_label="Review hybrid price component acquisition",
             target_section="acquisition",
         )
-    if warnings:
+    if has_warnings:
         return DataReadinessCheckDTO(
             code=HYBRID_PRICE_COMPONENT_WARNING,
             status="warning",

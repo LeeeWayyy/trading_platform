@@ -138,7 +138,7 @@ def _write_quality_report(
     status: str,
     content_hash: str,
     timeframe: str = "1Day",
-) -> None:
+) -> Path:
     quality_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, object] = {
         "report_type": report_type,
@@ -150,7 +150,9 @@ def _write_quality_report(
     }
     if report_type == "alpaca_feed_delta":
         payload["tolerances"] = {"version": "alpaca-iex-sip-delta-v1"}
-    (quality_dir / filename).write_text(json.dumps(payload), encoding="utf-8")
+    path = quality_dir / filename
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 @pytest.mark.asyncio()
@@ -627,6 +629,39 @@ async def test_alpaca_sip_quality_summary_loads_persisted_report_statuses(
     ].reason_codes
     assert "alpaca_feed_delta_timeframe:1Day" in signals["alpaca_feed_delta"].reason_codes
     assert "hash=feed-delta-hash" in signals["alpaca_feed_delta"].message
+
+
+def test_alpaca_report_store_uses_latest_pointer_before_directory_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quality_dir = tmp_path / "quality"
+    _write_quality_report(
+        quality_dir,
+        "alpaca_sip_integrity_old.json",
+        report_type="alpaca_sip_integrity",
+        status="failed",
+        content_hash="old-hash",
+    )
+    _write_quality_report(
+        quality_dir,
+        "alpaca_sip_integrity_latest.json",
+        report_type="alpaca_sip_integrity",
+        status="passed",
+        content_hash="latest-hash",
+    )
+    store = AlpacaQualityReportStore(data_root=tmp_path)
+
+    def fail_scan(_quality_dir: Path, _pattern: str) -> Path | None:
+        raise AssertionError("directory scan should not run when latest pointer exists")
+
+    monkeypatch.setattr(store, "_latest_report_path", fail_scan)
+
+    report = store.get_integrity_report()
+
+    assert report is not None
+    assert report.status == "passed"
+    assert report.content_hash == "latest-hash"
 
 
 @pytest.mark.asyncio()

@@ -50,6 +50,8 @@ _MOCK_QUALITY_DATASETS = tuple(
 )
 _ALPACA_SIP_INTEGRITY_CHECK = "alpaca_sip_integrity"
 _ALPACA_FEED_DELTA_CHECK = "alpaca_feed_delta"
+_ALPACA_SIP_INTEGRITY_LATEST_REPORT = "alpaca_sip_integrity_latest.json"
+_ALPACA_FEED_DELTA_LATEST_REPORT = "alpaca_iex_sip_delta_latest.json"
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,7 @@ class AlpacaQualityReportStore:
         report_path = self._resolve_report_path(
             env_var="ALPACA_SIP_INTEGRITY_REPORT",
             pattern="alpaca_sip_integrity*.json",
+            latest_filename=_ALPACA_SIP_INTEGRITY_LATEST_REPORT,
         )
         if report_path is None:
             return None
@@ -88,12 +91,19 @@ class AlpacaQualityReportStore:
         report_path = self._resolve_report_path(
             env_var="ALPACA_FEED_DELTA_REPORT",
             pattern="alpaca_iex_sip_delta*.json",
+            latest_filename=_ALPACA_FEED_DELTA_LATEST_REPORT,
         )
         if report_path is None:
             return None
         return self._load_report(report_path, expected_report_type="alpaca_feed_delta")
 
-    def _resolve_report_path(self, *, env_var: str, pattern: str) -> Path | None:
+    def _resolve_report_path(
+        self,
+        *,
+        env_var: str,
+        pattern: str,
+        latest_filename: str,
+    ) -> Path | None:
         configured = os.getenv(env_var, "").strip()
         if configured:
             path = Path(configured)
@@ -113,7 +123,29 @@ class AlpacaQualityReportStore:
         quality_dir = self._data_root / "quality"
         if not quality_dir.exists():
             return None
+        latest_pointer = self._resolve_quality_report_candidate(quality_dir / latest_filename)
+        if latest_pointer is not None:
+            return latest_pointer
         return self._latest_report_path(quality_dir, pattern)
+
+    def _resolve_quality_report_candidate(self, candidate: Path) -> Path | None:
+        try:
+            resolved = candidate.resolve(strict=True)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            logger.debug(
+                "alpaca_quality_report_candidate_unavailable",
+                extra={"report_path": str(candidate), "error": str(exc)},
+            )
+            return None
+        if not resolved.is_relative_to(self._data_root):
+            logger.warning(
+                "alpaca_quality_report_outside_data_root",
+                extra={"path": str(resolved), "data_root": str(self._data_root)},
+            )
+            return None
+        return resolved
 
     def _latest_report_path(self, quality_dir: Path, pattern: str) -> Path | None:
         latest_path: Path | None = None
@@ -268,9 +300,7 @@ class DataQualityService:
                 summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
             alpaca_results.extend(self._alpaca_sip_validation_results(now, summary))
 
-        if dataset is None:
-            return [*alpaca_results, *filtered][:limit]
-        return [*filtered, *alpaca_results][:limit]
+        return [*alpaca_results, *filtered][:limit]
 
     async def get_alpaca_sip_quality_summary(
         self,
