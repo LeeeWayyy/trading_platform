@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from pathlib import Path
 from threading import get_ident
 from typing import cast
 from unittest.mock import patch
@@ -19,6 +21,7 @@ from libs.web_console_services.data_manifest_service import (
 )
 from libs.web_console_services.data_quality_service import (
     DataQualityService,
+    QualityReportState,
     _build_alpaca_sip_quality_summary,
 )
 from libs.web_console_services.provider_signature import ProviderSignatureDTO
@@ -104,6 +107,29 @@ def _summary(
         source_error_rate_pct=0.0 if statuses == ["passed"] and not missing else 100.0,
         warnings=warnings or [],
     )
+
+
+def _write_quality_report(
+    quality_dir: Path,
+    filename: str,
+    *,
+    report_type: str,
+    status: str,
+    content_hash: str,
+    timeframe: str = "1Day",
+) -> None:
+    quality_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, object] = {
+        "report_type": report_type,
+        "status": status,
+        "content_hash": content_hash,
+        "start": "2024-04-22T00:00:00+00:00",
+        "end": "2024-04-26T00:00:00+00:00",
+        "timeframe": timeframe,
+    }
+    if report_type == "alpaca_feed_delta":
+        payload["tolerances"] = {"version": "alpaca-iex-sip-delta-v1"}
+    (quality_dir / filename).write_text(json.dumps(payload), encoding="utf-8")
 
 
 @pytest.mark.asyncio()
@@ -493,7 +519,9 @@ async def test_get_validation_results_reuses_provided_alpaca_summary() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_alpaca_sip_quality_summary_marks_unavailable_report_inputs() -> None:
+async def test_alpaca_sip_quality_summary_marks_unavailable_report_inputs(
+    tmp_path: Path,
+) -> None:
     main_thread_id = get_ident()
     manifest_service = FakeManifestService(
         _summary(
@@ -503,7 +531,10 @@ async def test_alpaca_sip_quality_summary_marks_unavailable_report_inputs() -> N
             ],
         )
     )
-    svc = DataQualityService(manifest_service=cast(DataManifestService, manifest_service))
+    svc = DataQualityService(
+        manifest_service=cast(DataManifestService, manifest_service),
+        data_root=tmp_path,
+    )
 
     with (
         patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
@@ -525,6 +556,58 @@ async def test_alpaca_sip_quality_summary_marks_unavailable_report_inputs() -> N
     assert all(thread_id != main_thread_id for thread_id in manifest_service.thread_ids)
 
 
+@pytest.mark.asyncio()
+async def test_alpaca_sip_quality_summary_loads_persisted_report_statuses(
+    tmp_path: Path,
+) -> None:
+    quality_dir = tmp_path / "quality"
+    _write_quality_report(
+        quality_dir,
+        "alpaca_sip_integrity_test.json",
+        report_type="alpaca_sip_integrity",
+        status="passed",
+        content_hash="integrity-hash",
+    )
+    _write_quality_report(
+        quality_dir,
+        "alpaca_iex_sip_delta_test.json",
+        report_type="alpaca_feed_delta",
+        status="warning",
+        content_hash="feed-delta-hash",
+    )
+    manifest_service = FakeManifestService(
+        _summary(
+            [
+                _manifest(ALPACA_SIP_DAILY_DATASET),
+                _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+            ],
+        )
+    )
+    svc = DataQualityService(
+        manifest_service=cast(DataManifestService, manifest_service),
+        data_root=tmp_path,
+    )
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+    ):
+        summary = await svc.get_alpaca_sip_quality_summary(DummyUser(user_id="user-1"))
+
+    signals = {signal.check: signal for signal in summary.signals}
+    assert summary.status == "warning"
+    assert signals["alpaca_sip_integrity"].status == "passed"
+    assert signals["alpaca_feed_delta"].status == "warning"
+    assert "alpaca_sip_integrity_hash:integrity-hash" in signals[
+        "alpaca_sip_integrity"
+    ].reason_codes
+    assert "alpaca_feed_delta_timeframe:1Day" in signals["alpaca_feed_delta"].reason_codes
+    assert "hash=feed-delta-hash" in signals["alpaca_feed_delta"].message
+
+
 def test_alpaca_sip_quality_summary_builder_passes_when_persisted_inputs_available() -> None:
     summary = _build_alpaca_sip_quality_summary(
         _summary(
@@ -543,6 +626,35 @@ def test_alpaca_sip_quality_summary_builder_passes_when_persisted_inputs_availab
     assert set(statuses.values()) == {"passed"}
     assert summary.acknowledgments_persistent is True
     assert summary.acknowledgment_status_source == "persistent_store"
+
+
+def test_alpaca_sip_quality_summary_builder_preserves_failed_report_status() -> None:
+    summary = _build_alpaca_sip_quality_summary(
+        _summary(
+            [
+                _manifest(ALPACA_SIP_DAILY_DATASET),
+                _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
+            ],
+        ),
+        integrity_report=QualityReportState(
+            report_type="alpaca_sip_integrity",
+            status="failed",
+            raw_status="failed",
+            content_hash="deadbeefcafebabe",
+            start="2024-04-22T00:00:00+00:00",
+            end="2024-04-26T00:00:00+00:00",
+            timeframe="1Day",
+        ),
+        feed_delta_reports_available=True,
+        acknowledgments_persistent=True,
+    )
+
+    integrity = next(signal for signal in summary.signals if signal.check == "alpaca_sip_integrity")
+    assert summary.status == "failed"
+    assert integrity.status == "failed"
+    assert "alpaca_sip_integrity_report_failed" in integrity.reason_codes
+    assert "alpaca_sip_integrity_hash:deadbeefcafebabe" in integrity.reason_codes
+    assert "timeframe=1Day" in integrity.message
 
 
 @pytest.mark.asyncio()

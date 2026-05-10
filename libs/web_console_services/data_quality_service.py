@@ -6,8 +6,12 @@ Enforces dataset-level access on all read paths for licensing compliance.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -39,10 +43,123 @@ from .schemas.data_management import (
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_DATA_ROOT = Path(os.getenv("DATA_ROOT", "data")).resolve()
 _SUPPORTED_DATASETS = ("crsp", "compustat", "taq", "fama_french", "alpaca_sip")
 _MOCK_QUALITY_DATASETS = tuple(
     dataset for dataset in _SUPPORTED_DATASETS if dataset != ALPACA_SIP_DATASET_KEY
 )
+_ALPACA_SIP_INTEGRITY_CHECK = "alpaca_sip_integrity"
+_ALPACA_FEED_DELTA_CHECK = "alpaca_feed_delta"
+
+
+@dataclass(frozen=True)
+class QualityReportState:
+    """Latest persisted quality report metadata for a data-quality signal."""
+
+    report_type: str
+    status: Literal["passed", "warning", "failed"]
+    raw_status: str
+    content_hash: str
+    start: str
+    end: str
+    timeframe: str
+    path: Path | None = None
+    tolerance_version: str = ""
+
+
+class AlpacaQualityReportStore:
+    """Read persisted Alpaca SIP quality reports from the local data root."""
+
+    def __init__(self, *, data_root: Path | None = None) -> None:
+        self._data_root = data_root.resolve() if data_root is not None else _DEFAULT_DATA_ROOT
+
+    def get_integrity_report(self) -> QualityReportState | None:
+        """Return the latest deterministic SIP re-pull integrity report, if present."""
+        report_path = self._resolve_report_path(
+            env_var="ALPACA_SIP_INTEGRITY_REPORT",
+            pattern="alpaca_sip_integrity*.json",
+        )
+        if report_path is None:
+            return None
+        return self._load_report(report_path, expected_report_type="alpaca_sip_integrity")
+
+    def get_feed_delta_report(self) -> QualityReportState | None:
+        """Return the latest IEX-vs-SIP feed-delta report, if present."""
+        report_path = self._resolve_report_path(
+            env_var="ALPACA_FEED_DELTA_REPORT",
+            pattern="alpaca_iex_sip_delta*.json",
+        )
+        if report_path is None:
+            return None
+        return self._load_report(report_path, expected_report_type="alpaca_feed_delta")
+
+    def _resolve_report_path(self, *, env_var: str, pattern: str) -> Path | None:
+        configured = os.getenv(env_var, "").strip()
+        if configured:
+            path = Path(configured)
+            resolved = path.resolve() if path.is_absolute() else (self._data_root / path).resolve()
+            if not resolved.is_relative_to(self._data_root):
+                logger.warning(
+                    "alpaca_quality_report_outside_data_root",
+                    extra={
+                        "path": str(resolved),
+                        "data_root": str(self._data_root),
+                        "env_var": env_var,
+                    },
+                )
+                return None
+            return resolved if resolved.exists() else None
+
+        quality_dir = self._data_root / "quality"
+        if not quality_dir.exists():
+            return None
+        candidates = sorted(
+            quality_dir.glob(pattern),
+            key=lambda path: (path.stat().st_mtime, path.name),
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
+    def _load_report(
+        self,
+        report_path: Path,
+        *,
+        expected_report_type: str,
+    ) -> QualityReportState | None:
+        try:
+            payload = json.loads(report_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "alpaca_quality_report_unreadable",
+                extra={
+                    "path": str(report_path),
+                    "report_type": expected_report_type,
+                    "error": str(exc),
+                },
+            )
+            return None
+
+        if not isinstance(payload, dict) or payload.get("report_type") != expected_report_type:
+            return None
+
+        tolerances = payload.get("tolerances")
+        tolerance_version = (
+            str(tolerances.get("version"))
+            if isinstance(tolerances, dict) and tolerances.get("version")
+            else ""
+        )
+        raw_status = str(payload.get("status", "unknown"))
+        return QualityReportState(
+            report_type=expected_report_type,
+            status=_normalize_report_status(raw_status),
+            raw_status=raw_status,
+            content_hash=str(payload.get("content_hash", "")),
+            start=str(payload.get("start", "")),
+            end=str(payload.get("end", "")),
+            timeframe=str(payload.get("timeframe", "")),
+            path=report_path,
+            tolerance_version=tolerance_version,
+        )
 
 
 class DataQualityService:
@@ -65,16 +182,19 @@ class DataQualityService:
         self,
         *,
         manifest_service: DataManifestService | None = None,
-        integrity_reports_available: bool = False,
-        feed_delta_reports_available: bool = False,
+        report_store: AlpacaQualityReportStore | None = None,
+        data_root: Path | None = None,
+        integrity_reports_available: bool | None = None,
+        feed_delta_reports_available: bool | None = None,
     ) -> None:
         # TODO: Replace with PostgreSQL persistence using data_quality_alert_acknowledgments table
         # Current in-memory implementation is for interface validation only.
         # Production requires: INSERT ... ON CONFLICT DO NOTHING RETURNING for idempotency
         self._ack_store: dict[str, AlertAcknowledgmentDTO] = {}
         self._manifest_service = manifest_service or DataManifestService()
-        self._integrity_reports_available = integrity_reports_available
-        self._feed_delta_reports_available = feed_delta_reports_available
+        self._report_store = report_store or AlpacaQualityReportStore(data_root=data_root)
+        self._integrity_reports_available_override = integrity_reports_available
+        self._feed_delta_reports_available_override = feed_delta_reports_available
         # Hard-pinned false until durable DB-backed acknowledgment storage lands.
         self._acknowledgments_persistent = False
 
@@ -148,8 +268,8 @@ class DataQualityService:
             summary = await asyncio.to_thread(self._manifest_service.get_alpaca_sip_summary)
         return _build_alpaca_sip_quality_summary(
             summary,
-            integrity_reports_available=self._integrity_reports_available,
-            feed_delta_reports_available=self._feed_delta_reports_available,
+            integrity_report=self._get_integrity_report_state(),
+            feed_delta_report=self._get_feed_delta_report_state(),
             acknowledgments_persistent=self.acknowledgments_persistent,
         )
 
@@ -315,6 +435,24 @@ class DataQualityService:
         if not has_dataset_permission(user, dataset):
             raise PermissionError(f"Dataset access required for {dataset}")
 
+    def _get_integrity_report_state(self) -> QualityReportState | None:
+        report = self._report_store.get_integrity_report()
+        if report is not None:
+            return report
+        return _quality_report_state_from_override(
+            _ALPACA_SIP_INTEGRITY_CHECK,
+            self._integrity_reports_available_override,
+        )
+
+    def _get_feed_delta_report_state(self) -> QualityReportState | None:
+        report = self._report_store.get_feed_delta_report()
+        if report is not None:
+            return report
+        return _quality_report_state_from_override(
+            _ALPACA_FEED_DELTA_CHECK,
+            self._feed_delta_reports_available_override,
+        )
+
     @staticmethod
     def _resolve_alert_dataset(alert_id: str) -> str:
         # TODO: Query data_anomaly_alerts table to get actual dataset for alert_id
@@ -329,32 +467,42 @@ class DataQualityService:
         raise ValueError(f"Could not resolve dataset for alert_id: {alert_id}")
 
 
-__all__ = ["DataQualityService"]
+__all__ = ["AlpacaQualityReportStore", "DataQualityService", "QualityReportState"]
 
 
 def _build_alpaca_sip_quality_summary(
     summary: AlpacaSipManifestSummaryDTO,
     *,
-    integrity_reports_available: bool,
-    feed_delta_reports_available: bool,
+    integrity_report: QualityReportState | None = None,
+    feed_delta_report: QualityReportState | None = None,
+    integrity_reports_available: bool | None = None,
+    feed_delta_reports_available: bool | None = None,
     acknowledgments_persistent: bool,
 ) -> DataQualitySummaryDTO:
     generated_at = datetime.now(UTC)
+    integrity_report = integrity_report or _quality_report_state_from_override(
+        _ALPACA_SIP_INTEGRITY_CHECK,
+        integrity_reports_available,
+    )
+    feed_delta_report = feed_delta_report or _quality_report_state_from_override(
+        _ALPACA_FEED_DELTA_CHECK,
+        feed_delta_reports_available,
+    )
     signals = [
         _manifest_validation_signal(summary),
         _manifest_pairing_signal(summary),
-        _report_availability_signal(
+        _quality_report_signal(
             "alpaca_sip_integrity",
             "No persisted Alpaca SIP deterministic re-pull integrity report is available.",
-            "Alpaca SIP deterministic re-pull integrity report is available.",
-            integrity_reports_available,
+            "Alpaca SIP deterministic re-pull integrity report",
+            integrity_report,
             generated_at,
         ),
-        _report_availability_signal(
+        _quality_report_signal(
             "alpaca_feed_delta",
             "No persisted Alpaca IEX-vs-SIP feed-delta report is available.",
-            "Alpaca IEX-vs-SIP feed-delta report is available.",
-            feed_delta_reports_available,
+            "Alpaca IEX-vs-SIP feed-delta report",
+            feed_delta_report,
             generated_at,
         ),
         _acknowledgment_persistence_signal(acknowledgments_persistent, generated_at),
@@ -489,22 +637,55 @@ def _manifest_pairing_signal(summary: AlpacaSipManifestSummaryDTO) -> DataQualit
     )
 
 
-def _report_availability_signal(
+def _normalize_report_status(raw_status: str) -> Literal["passed", "warning", "failed"]:
+    normalized = raw_status.lower()
+    if normalized == "passed":
+        return "passed"
+    if normalized == "failed":
+        return "failed"
+    return "warning"
+
+
+def _quality_report_state_from_override(
+    check: str,
+    available: bool | None,
+) -> QualityReportState | None:
+    if available is not True:
+        return None
+    return QualityReportState(
+        report_type=check,
+        status="passed",
+        raw_status="passed",
+        content_hash="",
+        start="",
+        end="",
+        timeframe="",
+    )
+
+
+def _quality_report_signal(
     check: str,
     unavailable_message: str,
-    available_message: str,
-    available: bool,
+    display_name: str,
+    report: QualityReportState | None,
     observed_at: datetime,
 ) -> DataQualitySignalDTO:
-    if available:
+    if report is not None:
+        reason_codes = [f"{check}_report_{report.raw_status}"]
+        if report.content_hash:
+            reason_codes.append(f"{check}_hash:{report.content_hash}")
+        if report.timeframe:
+            reason_codes.append(f"{check}_timeframe:{report.timeframe}")
+        if report.tolerance_version:
+            reason_codes.append(f"{check}_tolerance:{report.tolerance_version}")
         return DataQualitySignalDTO(
             dataset=ALPACA_SIP_DATASET_KEY,
             check=check,
-            status="passed",
+            status=report.status,
             source="report_store",
             observed_at=observed_at,
-            message=available_message,
-            reason_codes=[],
+            message=_quality_report_message(display_name, report),
+            reason_codes=reason_codes,
         )
     return DataQualitySignalDTO(
         dataset=ALPACA_SIP_DATASET_KEY,
@@ -515,6 +696,19 @@ def _report_availability_signal(
         message=unavailable_message,
         reason_codes=[f"{check}_report_unavailable"],
     )
+
+
+def _quality_report_message(display_name: str, report: QualityReportState) -> str:
+    status_text = f"status is {report.raw_status}"
+    details: list[str] = []
+    if report.timeframe:
+        details.append(f"timeframe={report.timeframe}")
+    if report.start or report.end:
+        details.append(f"window={report.start or '-'}..{report.end or '-'}")
+    if report.content_hash:
+        details.append(f"hash={report.content_hash[:16]}")
+    suffix = f" ({', '.join(details)})" if details else ""
+    return f"{display_name} {status_text}{suffix}."
 
 
 def _acknowledgment_persistence_signal(
