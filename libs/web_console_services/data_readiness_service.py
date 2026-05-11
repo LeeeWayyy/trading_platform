@@ -64,6 +64,7 @@ class DataReadinessService:
         This method performs synchronous manifest I/O. Async callers must use
         get_readiness_async to avoid blocking the event loop.
         """
+        _raise_if_running_event_loop()
         if dataset == ALPACA_SIP_DATASET_KEY:
             return self.get_alpaca_sip_readiness(
                 user,
@@ -103,6 +104,7 @@ class DataReadinessService:
         alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
     ) -> DataReadinessDTO:
         """Return Alpaca SIP readiness with fail-closed raw-return blockers."""
+        _raise_if_running_event_loop()
         self._require_dataset_readiness_access(user, ALPACA_SIP_DATASET_KEY)
         summary = alpaca_sip_summary or self._manifest_service.get_alpaca_sip_summary()
         return _build_alpaca_sip_readiness(summary, workflow)
@@ -115,6 +117,7 @@ class DataReadinessService:
         alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
     ) -> DataReadinessDTO:
         """Return hybrid CRSP-universe plus Alpaca SIP price readiness."""
+        _raise_if_running_event_loop()
         self._require_dataset_readiness_access(user, HYBRID_CRSP_SIP_DATASET_KEY)
         has_direct_sip_access = has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)
         summary = alpaca_sip_summary or self._manifest_service.get_alpaca_sip_summary()
@@ -154,6 +157,17 @@ class DataReadinessService:
             raise PermissionError(f"Permission {Permission.VIEW_DATA_SYNC.value} required")
         if not has_dataset_permission(user, dataset):
             raise PermissionError(f"Dataset access required for {dataset}")
+
+
+def _raise_if_running_event_loop() -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise RuntimeError(
+        "DataReadinessService synchronous methods block manifest I/O; "
+        "use get_readiness_async from async code."
+    )
 
 
 def _build_alpaca_sip_readiness(

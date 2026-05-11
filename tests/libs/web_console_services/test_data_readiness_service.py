@@ -259,6 +259,16 @@ async def test_readiness_async_offloads_manifest_io(monkeypatch: pytest.MonkeyPa
     assert all(thread_id != main_thread_id for thread_id in manifest_service.thread_ids)
 
 
+@pytest.mark.asyncio()
+async def test_readiness_sync_api_rejects_async_context() -> None:
+    service = DataReadinessService(
+        manifest_service=cast(DataManifestService, FakeManifestService(_summary([])))
+    )
+
+    with pytest.raises(RuntimeError, match="use get_readiness_async"):
+        service.get_readiness(DummyUser(), ALPACA_SIP_DATASET_KEY, "simple_backtest")
+
+
 def test_readiness_rejects_unsupported_dataset(monkeypatch: pytest.MonkeyPatch) -> None:
     service = DataReadinessService(
         manifest_service=cast(DataManifestService, FakeManifestService(_summary([])))

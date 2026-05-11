@@ -54,6 +54,7 @@ _ALPACA_FEED_DELTA_CHECK = "alpaca_feed_delta"
 _ALPACA_SIP_INTEGRITY_LATEST_REPORT = "alpaca_sip_integrity_latest.json"
 _ALPACA_FEED_DELTA_LATEST_REPORT = "alpaca_iex_sip_delta_latest.json"
 _ALPACA_QUALITY_REPORT_ROOTS_ENV = "ALPACA_QUALITY_REPORT_ROOTS"
+_MAX_QUALITY_REPORT_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -110,7 +111,7 @@ class AlpacaQualityReportStore:
     ) -> Path | None:
         configured = os.getenv(env_var, "").strip()
         if configured:
-            path = Path(configured).expanduser()
+            path = Path(configured)
             if path.is_absolute():
                 return self._resolve_quality_report_candidate(
                     path,
@@ -202,8 +203,15 @@ class AlpacaQualityReportStore:
             raw_root = raw_root.strip()
             if not raw_root:
                 continue
+            root_path = Path(raw_root)
+            if not root_path.is_absolute():
+                logger.warning(
+                    "alpaca_quality_report_root_not_absolute",
+                    extra={"root": raw_root},
+                )
+                continue
             try:
-                roots.append(Path(raw_root).expanduser().resolve(strict=True))
+                roots.append(root_path.resolve(strict=True))
             except FileNotFoundError:
                 logger.warning(
                     "alpaca_quality_report_root_missing",
@@ -222,6 +230,29 @@ class AlpacaQualityReportStore:
         *,
         expected_report_type: str,
     ) -> QualityReportState | None:
+        try:
+            report_stat = report_path.stat()
+        except OSError as exc:
+            logger.warning(
+                "alpaca_quality_report_unreadable",
+                extra={
+                    "path": str(report_path),
+                    "report_type": expected_report_type,
+                    "error": str(exc),
+                },
+            )
+            return None
+        if report_stat.st_size > _MAX_QUALITY_REPORT_BYTES:
+            logger.warning(
+                "alpaca_quality_report_too_large",
+                extra={
+                    "path": str(report_path),
+                    "report_type": expected_report_type,
+                    "size_bytes": report_stat.st_size,
+                    "max_bytes": _MAX_QUALITY_REPORT_BYTES,
+                },
+            )
+            return None
         try:
             payload = json.loads(report_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -245,14 +276,6 @@ class AlpacaQualityReportStore:
             else ""
         )
         raw_status = str(payload.get("status", "unknown"))
-        try:
-            observed_at = datetime.fromtimestamp(report_path.stat().st_mtime, UTC)
-        except OSError as exc:
-            logger.debug(
-                "alpaca_quality_report_stat_unavailable",
-                extra={"report_path": str(report_path), "error": str(exc)},
-            )
-            observed_at = None
         return QualityReportState(
             report_type=expected_report_type,
             status=_normalize_report_status(raw_status),
@@ -262,7 +285,7 @@ class AlpacaQualityReportStore:
             end=str(payload.get("end", "")),
             timeframe=str(payload.get("timeframe", "")),
             path=report_path,
-            observed_at=observed_at,
+            observed_at=datetime.fromtimestamp(report_stat.st_mtime, UTC),
             tolerance_version=tolerance_version,
         )
 

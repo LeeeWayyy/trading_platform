@@ -20,6 +20,7 @@ from libs.web_console_services.data_manifest_service import (
     ManifestSummaryDTO,
 )
 from libs.web_console_services.data_quality_service import (
+    _MAX_QUALITY_REPORT_BYTES,
     AlpacaQualityReportStore,
     DataQualityService,
     QualityReportState,
@@ -687,6 +688,17 @@ def test_alpaca_report_store_ignores_scan_symlink_outside_data_root(tmp_path: Pa
     (quality_dir / "alpaca_sip_integrity_evil.json").symlink_to(outside_report)
 
     report = AlpacaQualityReportStore(data_root=data_root).get_integrity_report()
+
+    assert report is None
+
+
+def test_alpaca_report_store_rejects_oversized_report(tmp_path: Path) -> None:
+    quality_dir = tmp_path / "quality"
+    quality_dir.mkdir(parents=True)
+    report_path = quality_dir / "alpaca_sip_integrity_large.json"
+    report_path.write_text("x" * (_MAX_QUALITY_REPORT_BYTES + 1), encoding="utf-8")
+
+    report = AlpacaQualityReportStore(data_root=tmp_path).get_integrity_report()
 
     assert report is None
 
