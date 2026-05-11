@@ -61,7 +61,8 @@ class DataReadinessService:
     ) -> DataReadinessDTO:
         """Return readiness for a supported dataset/workflow pair.
 
-        This method performs synchronous manifest I/O; async callers should offload it.
+        This method performs synchronous manifest I/O. Async callers must use
+        get_readiness_async to avoid blocking the event loop.
         """
         if dataset == ALPACA_SIP_DATASET_KEY:
             return self.get_alpaca_sip_readiness(

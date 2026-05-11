@@ -696,14 +696,16 @@ def test_alpaca_report_store_allows_configured_absolute_path_outside_data_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data_root = tmp_path / "data"
+    external_root = tmp_path / "external_quality"
     outside_report = _write_quality_report(
-        tmp_path / "external_quality",
+        external_root,
         "alpaca_sip_integrity_external.json",
         report_type="alpaca_sip_integrity",
         status="passed",
         content_hash="external-hash",
     )
     monkeypatch.setenv("ALPACA_SIP_INTEGRITY_REPORT", str(outside_report))
+    monkeypatch.setenv("ALPACA_QUALITY_REPORT_ROOTS", str(external_root))
 
     report = AlpacaQualityReportStore(data_root=data_root).get_integrity_report()
 
@@ -711,6 +713,26 @@ def test_alpaca_report_store_allows_configured_absolute_path_outside_data_root(
     assert report.path == outside_report
     assert report.content_hash == "external-hash"
     assert report.observed_at == datetime.fromtimestamp(outside_report.stat().st_mtime, UTC)
+
+
+def test_alpaca_report_store_rejects_untrusted_configured_absolute_path_outside_data_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+    outside_report = _write_quality_report(
+        tmp_path / "untrusted_quality",
+        "alpaca_sip_integrity_external.json",
+        report_type="alpaca_sip_integrity",
+        status="passed",
+        content_hash="external-hash",
+    )
+    monkeypatch.setenv("ALPACA_SIP_INTEGRITY_REPORT", str(outside_report))
+    monkeypatch.delenv("ALPACA_QUALITY_REPORT_ROOTS", raising=False)
+
+    report = AlpacaQualityReportStore(data_root=data_root).get_integrity_report()
+
+    assert report is None
 
 
 @pytest.mark.asyncio()

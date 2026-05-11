@@ -6,6 +6,7 @@ Enforces dataset-level access on all read paths for licensing compliance.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
 import logging
 import os
@@ -52,6 +53,7 @@ _ALPACA_SIP_INTEGRITY_CHECK = "alpaca_sip_integrity"
 _ALPACA_FEED_DELTA_CHECK = "alpaca_feed_delta"
 _ALPACA_SIP_INTEGRITY_LATEST_REPORT = "alpaca_sip_integrity_latest.json"
 _ALPACA_FEED_DELTA_LATEST_REPORT = "alpaca_iex_sip_delta_latest.json"
+_ALPACA_QUALITY_REPORT_ROOTS_ENV = "ALPACA_QUALITY_REPORT_ROOTS"
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,7 @@ class AlpacaQualityReportStore:
 
     def __init__(self, *, data_root: Path | None = None) -> None:
         self._data_root = data_root.resolve() if data_root is not None else _DEFAULT_DATA_ROOT
+        self._trusted_report_roots = self._load_trusted_report_roots()
 
     def get_integrity_report(self) -> QualityReportState | None:
         """Return the latest deterministic SIP re-pull integrity report, if present."""
@@ -111,7 +114,7 @@ class AlpacaQualityReportStore:
             if path.is_absolute():
                 return self._resolve_quality_report_candidate(
                     path,
-                    allow_outside_data_root=True,
+                    trusted_roots=self._trusted_report_roots,
                 )
             return self._resolve_quality_report_candidate(self._data_root / path)
 
@@ -127,8 +130,9 @@ class AlpacaQualityReportStore:
         self,
         candidate: Path,
         *,
-        allow_outside_data_root: bool = False,
+        trusted_roots: tuple[Path, ...] | None = None,
     ) -> Path | None:
+        roots = trusted_roots if trusted_roots is not None else (self._data_root,)
         try:
             resolved = candidate.resolve(strict=True)
         except FileNotFoundError:
@@ -139,10 +143,13 @@ class AlpacaQualityReportStore:
                 extra={"report_path": str(candidate), "error": str(exc)},
             )
             return None
-        if not allow_outside_data_root and not resolved.is_relative_to(self._data_root):
+        if not any(resolved.is_relative_to(root) for root in roots):
             logger.warning(
-                "alpaca_quality_report_outside_data_root",
-                extra={"path": str(resolved), "data_root": str(self._data_root)},
+                "alpaca_quality_report_outside_trusted_roots",
+                extra={
+                    "path": str(resolved),
+                    "trusted_roots": [str(root) for root in roots],
+                },
             )
             return None
         try:
@@ -160,27 +167,54 @@ class AlpacaQualityReportStore:
         latest_path: Path | None = None
         latest_key: tuple[float, str] | None = None
         try:
-            for candidate in quality_dir.glob(pattern):
-                safe_candidate = self._resolve_quality_report_candidate(candidate)
-                if safe_candidate is None:
-                    continue
-                try:
-                    candidate_key = (safe_candidate.stat().st_mtime, safe_candidate.name)
-                except OSError as exc:
-                    logger.debug(
-                        "alpaca_quality_report_stat_unavailable",
-                        extra={"report_path": str(safe_candidate), "error": str(exc)},
-                    )
-                    continue
-                if latest_key is None or candidate_key > latest_key:
-                    latest_key = candidate_key
-                    latest_path = safe_candidate
+            with os.scandir(quality_dir) as entries:
+                candidates = (
+                    Path(entry.path) for entry in entries if fnmatch.fnmatch(entry.name, pattern)
+                )
+                for candidate in candidates:
+                    safe_candidate = self._resolve_quality_report_candidate(candidate)
+                    if safe_candidate is None:
+                        continue
+                    try:
+                        candidate_key = (safe_candidate.stat().st_mtime, safe_candidate.name)
+                    except OSError as exc:
+                        logger.debug(
+                            "alpaca_quality_report_stat_unavailable",
+                            extra={"report_path": str(safe_candidate), "error": str(exc)},
+                        )
+                        continue
+                    if latest_key is None or candidate_key > latest_key:
+                        latest_key = candidate_key
+                        latest_path = safe_candidate
         except OSError as exc:
             logger.debug(
                 "alpaca_quality_report_scan_unavailable",
                 extra={"quality_dir": str(quality_dir), "pattern": pattern, "error": str(exc)},
             )
         return latest_path
+
+    def _load_trusted_report_roots(self) -> tuple[Path, ...]:
+        roots = [self._data_root]
+        configured = os.getenv(_ALPACA_QUALITY_REPORT_ROOTS_ENV, "").strip()
+        if not configured:
+            return tuple(roots)
+        for raw_root in configured.split(os.pathsep):
+            raw_root = raw_root.strip()
+            if not raw_root:
+                continue
+            try:
+                roots.append(Path(raw_root).expanduser().resolve(strict=True))
+            except FileNotFoundError:
+                logger.warning(
+                    "alpaca_quality_report_root_missing",
+                    extra={"root": raw_root},
+                )
+            except OSError as exc:
+                logger.warning(
+                    "alpaca_quality_report_root_unavailable",
+                    extra={"root": raw_root, "error": str(exc)},
+                )
+        return tuple(roots)
 
     def _load_report(
         self,
