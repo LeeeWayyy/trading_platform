@@ -565,14 +565,14 @@ def _build_alpaca_sip_quality_summary(
         _manifest_validation_signal(summary),
         _manifest_pairing_signal(summary),
         _quality_report_signal(
-            "alpaca_sip_integrity",
+            _ALPACA_SIP_INTEGRITY_CHECK,
             "No persisted Alpaca SIP deterministic re-pull integrity report is available.",
             "Alpaca SIP deterministic re-pull integrity report",
             integrity_report,
             generated_at,
         ),
         _quality_report_signal(
-            "alpaca_feed_delta",
+            _ALPACA_FEED_DELTA_CHECK,
             "No persisted Alpaca IEX-vs-SIP feed-delta report is available.",
             "Alpaca IEX-vs-SIP feed-delta report",
             feed_delta_report,
