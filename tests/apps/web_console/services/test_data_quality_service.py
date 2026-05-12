@@ -42,7 +42,7 @@ async def test_get_anomaly_alerts_filters_datasets(
     alerts = await service.get_anomaly_alerts(operator_user, severity=None, acknowledged=None)
 
     datasets = {alert.dataset for alert in alerts}
-    assert datasets == {"crsp", "compustat", "fama_french", "taq", "alpaca_sip"}
+    assert datasets == {"crsp", "compustat", "fama_french", "taq"}
 
 
 @pytest.mark.asyncio()

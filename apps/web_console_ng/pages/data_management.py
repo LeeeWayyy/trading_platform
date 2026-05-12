@@ -31,6 +31,8 @@ from nicegui import ui
 
 from apps.web_console_ng.auth.middleware import get_current_user, requires_auth
 from apps.web_console_ng.components import data_manifest_panel as _data_manifest_panel
+from apps.web_console_ng.components import data_quality_section as _data_quality_section
+from apps.web_console_ng.components import data_readiness_section as _data_readiness_section
 from apps.web_console_ng.components import data_sync_section as _data_sync_section
 from apps.web_console_ng.components.data_management_common import (
     TREND_DATASETS as _TREND_DATASETS,
@@ -64,14 +66,24 @@ from libs.web_console_services.data_explorer_service import (
 from libs.web_console_services.data_explorer_service import (
     RateLimitExceeded as ExplorerRateLimitExceeded,
 )
-from libs.web_console_services.data_manifest_service import DataManifestService
+from libs.web_console_services.data_manifest_service import (
+    ALPACA_SIP_DATASET_KEY,
+    AlpacaSipManifestSummaryDTO,
+    DataManifestService,
+)
 from libs.web_console_services.data_quality_service import DataQualityService
+from libs.web_console_services.data_readiness_service import (
+    HYBRID_CRSP_SIP_DATASET_KEY,
+    DataReadinessService,
+)
 from libs.web_console_services.data_sync_service import DataSyncService
 from libs.web_console_services.schemas.data_management import (
     DataPreviewDTO,
+    DataReadinessDTO,
     DatasetInfoDTO,
     QueryResultDTO,
     QueryTemplateDTO,
+    ReadinessWorkflow,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,8 +138,9 @@ async def data_management_page() -> None:
     # Instantiate services at page-load time (not module level)
     sync_service = DataSyncService()
     explorer_service = DataExplorerService()
-    quality_service = DataQualityService()
     manifest_service = DataManifestService()
+    quality_service = DataQualityService(manifest_service=manifest_service)
+    readiness_service = DataReadinessService(manifest_service=manifest_service)
 
     # Page title
     ui.label("Data Management").classes("text-2xl font-bold mb-4")
@@ -168,7 +181,11 @@ async def data_management_page() -> None:
         )
         return
 
-    await _render_manifest_transparency(user, manifest_service)
+    alpaca_sip_summary = await _render_manifest_transparency(
+        user,
+        manifest_service,
+        readiness_service,
+    )
 
     # Overlap guard flags (per-client scope — each page load creates a new function scope)
     _sync_refreshing = False
@@ -195,7 +212,11 @@ async def data_management_page() -> None:
                     alerts_container,
                     scores_container,
                     _load_alerts_fn,
-                ) = await _render_data_quality_section(user, quality_service)
+                ) = await _render_data_quality_section(
+                    user,
+                    quality_service,
+                    alpaca_sip_summary=alpaca_sip_summary,
+                )
 
     # === Auto-refresh Timers ===
     async def refresh_sync_status() -> None:
@@ -289,28 +310,117 @@ async def data_management_page() -> None:
 async def _render_manifest_transparency(
     user: dict[str, Any],
     manifest_service: DataManifestService,
-) -> None:
+    readiness_service: DataReadinessService,
+) -> AlpacaSipManifestSummaryDTO | None:
     """Render Phase 1 manifest transparency for authorized Alpaca SIP users."""
     if not has_permission(user, Permission.VIEW_DATA_SYNC):
-        return
-    if not has_dataset_permission(user, "alpaca_sip"):
-        return
+        return None
+    has_alpaca_sip = has_dataset_permission(user, ALPACA_SIP_DATASET_KEY)
+    has_hybrid = has_dataset_permission(user, HYBRID_CRSP_SIP_DATASET_KEY)
+    if not has_alpaca_sip and not has_hybrid:
+        return None
 
-    try:
-        summary = await asyncio.to_thread(manifest_service.get_alpaca_sip_summary)
-    except Exception:
-        logger.exception(
-            "service_call_failed",
+    alpaca_summary = None
+    alpaca_summary_failed = False
+    if has_alpaca_sip:
+        try:
+            alpaca_summary = await asyncio.to_thread(manifest_service.get_alpaca_sip_summary)
+        except Exception:
+            alpaca_summary_failed = True
+            logger.exception(
+                "service_call_failed",
+                extra={
+                    "method": "get_alpaca_sip_summary",
+                    "service": "DataManifestService",
+                    "user_id": _get_user_id_safe(user),
+                },
+            )
+            ui.notify("Manifest status temporarily unavailable", type="warning")
+        else:
+            _data_manifest_panel.render_manifest_transparency_panel(alpaca_summary)
+
+    readiness_items = []
+    readiness_failures = 0
+    readiness_targets: list[tuple[str, ReadinessWorkflow]] = []
+    failed_readiness_targets: list[str] = []
+    if has_alpaca_sip and not alpaca_summary_failed:
+        readiness_targets.append((ALPACA_SIP_DATASET_KEY, "simple_backtest"))
+    if has_hybrid and not alpaca_summary_failed:
+        readiness_targets.append((HYBRID_CRSP_SIP_DATASET_KEY, "hybrid_research_backtest"))
+
+    async def _load_readiness_target(
+        dataset: str,
+        workflow: ReadinessWorkflow,
+    ) -> tuple[DataReadinessDTO | None, str | None]:
+        try:
+            return (
+                await readiness_service.get_readiness_async(
+                    user,
+                    dataset,
+                    workflow,
+                    alpaca_sip_summary=alpaca_summary,
+                ),
+                None,
+            )
+        except PermissionError:
+            logger.warning(
+                "readiness_permission_divergence",
+                extra={
+                    "dataset": dataset,
+                    "workflow": workflow,
+                    "service": "DataReadinessService",
+                    "user_id": _get_user_id_safe(user),
+                },
+            )
+            return None, None
+        except ValueError:
+            logger.exception(
+                "readiness_target_configuration_invalid",
+                extra={
+                    "dataset": dataset,
+                    "workflow": workflow,
+                    "service": "DataReadinessService",
+                    "user_id": _get_user_id_safe(user),
+                },
+            )
+            return None, f"{dataset}:{workflow}"
+        except Exception:
+            logger.exception(
+                "service_call_failed",
+                extra={
+                    "method": "get_readiness_async",
+                    "service": "DataReadinessService",
+                    "dataset": dataset,
+                    "workflow": workflow,
+                    "user_id": _get_user_id_safe(user),
+                },
+            )
+            return None, f"{dataset}:{workflow}"
+
+    if readiness_targets:
+        readiness_results = await asyncio.gather(
+            *(_load_readiness_target(dataset, workflow) for dataset, workflow in readiness_targets)
+        )
+        for readiness, failed_target in readiness_results:
+            if readiness is not None:
+                readiness_items.append(readiness)
+            if failed_target is not None:
+                readiness_failures += 1
+                failed_readiness_targets.append(failed_target)
+    if readiness_items:
+        _data_readiness_section.render_readiness_section(readiness_items)
+    if readiness_failures:
+        logger.warning(
+            "readiness_status_partial_failure",
             extra={
-                "method": "get_alpaca_sip_summary",
-                "service": "DataManifestService",
+                "failure_count": readiness_failures,
+                "failed_targets": failed_readiness_targets,
+                "service": "DataReadinessService",
                 "user_id": _get_user_id_safe(user),
             },
         )
-        ui.notify("Manifest status temporarily unavailable", type="warning")
-        return
-
-    _data_manifest_panel.render_manifest_transparency_panel(summary)
+        ui.notify("Some readiness checks are temporarily unavailable", type="warning")
+    return alpaca_summary
 
 
 # =============================================================================
@@ -873,6 +983,8 @@ def _build_query_results(
 async def _render_data_quality_section(
     user: dict[str, Any],
     quality_service: DataQualityService,
+    *,
+    alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
 ) -> tuple[ui.column | None, ui.column | None, Callable[[], Any] | None]:
     """Render Data Quality reports section.
 
@@ -882,10 +994,43 @@ async def _render_data_quality_section(
     """
     ui.label("Data Quality Reports").classes("text-xl font-bold mb-2")
 
+    if has_permission(user, Permission.VIEW_DATA_QUALITY) and has_dataset_permission(
+        user, ALPACA_SIP_DATASET_KEY
+    ):
+        try:
+            alpaca_quality = await quality_service.get_alpaca_sip_quality_summary(
+                user,
+                alpaca_sip_summary=alpaca_sip_summary,
+            )
+            _data_quality_section.render_quality_summary(alpaca_quality)
+        except PermissionError:
+            logger.warning(
+                "alpaca_sip_quality_permission_divergence",
+                extra={
+                    "method": "get_alpaca_sip_quality_summary",
+                    "service": "DataQualityService",
+                    "user_id": _get_user_id_safe(user),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "service_call_failed",
+                extra={
+                    "method": "get_alpaca_sip_quality_summary",
+                    "service": "DataQualityService",
+                    "user_id": _get_user_id_safe(user),
+                },
+            )
+            ui.notify("Alpaca SIP quality inputs temporarily unavailable", type="warning")
+
     # Quality score cards at top of section
     scores_container = ui.column().classes("w-full mb-4")
     with scores_container:
-        await _build_quality_score_cards(user, quality_service)
+        await _build_quality_score_cards(
+            user,
+            quality_service,
+            alpaca_sip_summary=alpaca_sip_summary,
+        )
 
     with ui.tabs().classes("w-full") as quality_tabs:
         tab_validation = ui.tab("Validation Results")
@@ -898,7 +1043,11 @@ async def _render_data_quality_section(
 
     with ui.tab_panels(quality_tabs, value=tab_validation).classes("w-full"):
         with ui.tab_panel(tab_validation):
-            await _render_validation_results(user, quality_service)
+            await _render_validation_results(
+                user,
+                quality_service,
+                alpaca_sip_summary=alpaca_sip_summary,
+            )
 
         with ui.tab_panel(tab_anomalies):
             alerts_container, load_alerts_fn = await _render_anomaly_alerts(user, quality_service)
@@ -915,10 +1064,16 @@ async def _render_data_quality_section(
 async def _build_quality_score_cards(
     user: dict[str, Any],
     quality_service: DataQualityService,
+    *,
+    alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
 ) -> None:
     """Build quality score cards per dataset using compute_quality_scores()."""
     try:
-        validations = await quality_service.get_validation_results(user, dataset=None)
+        validations = await quality_service.get_validation_results(
+            user,
+            dataset=None,
+            alpaca_sip_summary=alpaca_sip_summary,
+        )
         alerts = await quality_service.get_anomaly_alerts(user, severity=None, acknowledged=None)
         quarantine = await quality_service.get_quarantine_status(user)
     except PermissionError as exc:
@@ -977,6 +1132,8 @@ async def _build_quality_score_cards(
 async def _render_validation_results(
     user: dict[str, Any],
     quality_service: DataQualityService,
+    *,
+    alpaca_sip_summary: AlpacaSipManifestSummaryDTO | None = None,
 ) -> None:
     """Render validation results table with dataset filter."""
     ui.label("Recent Validation Results").classes("font-bold mb-2")
@@ -992,7 +1149,11 @@ async def _render_validation_results(
     async def load_results() -> None:
         ds = None if dataset_filter.value == "all" else str(dataset_filter.value)
         try:
-            results = await quality_service.get_validation_results(user, dataset=ds)
+            results = await quality_service.get_validation_results(
+                user,
+                dataset=ds,
+                alpaca_sip_summary=alpaca_sip_summary,
+            )
             results_container.clear()
             with results_container:
                 _build_validation_table(results)
@@ -1140,11 +1301,17 @@ def _build_anomaly_alert_cards(
     severity_lookup: dict[str, str],
 ) -> None:
     """Build alert cards from normalized AnomalyAlertDTO list."""
-    can_ack = has_permission(user, Permission.ACKNOWLEDGE_ALERTS)
+    ack_persistent = quality_service.acknowledgments_persistent
+    user_can_ack = has_permission(user, Permission.ACKNOWLEDGE_ALERTS)
 
     if not alerts:
         ui.label("No alerts matching filters").classes("text-gray-500")
         return
+
+    if user_can_ack and not ack_persistent:
+        ui.label(
+            "Acknowledgment controls are unavailable until server-side persistence is enabled"
+        ).classes("text-xs text-amber-700 mb-2")
 
     for alert in alerts:
         sev = severity_lookup.get(alert.id, alert.severity)
@@ -1164,7 +1331,7 @@ def _build_anomaly_alert_cards(
                     f"(current: {alert.current_value}, expected: {alert.expected_value})"
                 ).classes("text-sm text-gray-600 mt-1")
 
-            if can_ack and not alert.acknowledged:
+            if user_can_ack and ack_persistent and not alert.acknowledged:
                 _alert_id = alert.id
 
                 async def ack_alert(aid: str = _alert_id) -> None:

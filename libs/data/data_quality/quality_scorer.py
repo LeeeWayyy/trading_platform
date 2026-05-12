@@ -5,7 +5,7 @@ Service DTOs (ValidationResultDTO, AnomalyAlertDTO, QuarantineEntryDTO)
 already satisfy these protocols without adapters.
 
 Scoring formula per dataset:
-    validation_pass_rate = passed_count / total_validations * 100
+    validation_pass_rate = passed_count / total_scored_validations * 100
     anomaly_penalty = min(unacknowledged_count * 5.0, 30.0)
     quarantine_penalty = min(quarantine_count * 10.0, 20.0)
     overall_score = max(0.0, validation_pass_rate - anomaly_penalty - quarantine_penalty)
@@ -130,7 +130,8 @@ def compute_quality_scores(
     """Compute quality scores per dataset from raw service data.
 
     Groups inputs by dataset and computes:
-    - validation_pass_rate: % of validations with normalized status "passed"
+    - validation_pass_rate: % of scored validations with normalized status "passed"
+      (availability rows are excluded from pass/fail scoring)
     - anomaly_penalty: min(unacked_count * 5.0, 30.0)
     - quarantine_penalty: min(quarantine_count * 10.0, 20.0)
     - overall_score: max(0.0, pass_rate - anomaly_penalty - quarantine_penalty)
@@ -147,7 +148,11 @@ def compute_quality_scores(
     scores: list[QualityScore] = []
     for ds in sorted(datasets):
         # Validations for this dataset
-        ds_validations = [v for v in validations if v.dataset == ds]
+        ds_validations = [
+            v
+            for v in validations
+            if v.dataset == ds and normalize_validation_status(v.status) != "unavailable"
+        ]
         total = len(ds_validations)
 
         if total == 0:
