@@ -43,9 +43,7 @@ def _manifest(
     adjustment_read_mode = (
         read_time_adjustment_mode
         if read_time_adjustment_mode is not None
-        else "unavailable"
-        if is_daily
-        else None
+        else "unavailable" if is_daily else None
     )
     signature = ProviderSignatureDTO(
         provider_id="alpaca_sip",
@@ -157,15 +155,15 @@ def test_grid_and_detail_expose_present_raw_manifest_provenance() -> None:
 
     assert daily["trusted_manifest_backed"] is True
     assert daily["canonical_storage_mode"] == "raw"
-    assert daily["read_time_adjustment_mode"] == "unavailable"
+    assert daily["read_time_adjustment_mode"] == "split_adjusted"
     assert daily["manifest_id"] == "alpaca_sip_daily@v1:checksum"
     assert corp_actions["readiness"] == "corporate actions only"
     assert detail_map["Manifest checksum"] == "alpaca_sip_daily-checksum"
     assert detail_map["Canonical storage mode"] == "raw"
-    assert detail_map["Read-time adjustment mode"] == "unavailable"
-    assert detail_map["adj_close"] == "not available"
-    assert detail_map["ret"] == "not available"
-    assert "raw_sip_returns_unavailable" in detail_map["Backtest readiness"]
+    assert detail_map["Read-time adjustment mode"] == "split_adjusted"
+    assert detail_map["adj_close"] == "derived split-adjusted"
+    assert detail_map["ret"] == "derived split-adjusted"
+    assert "split_adjusted_read_time_available" in detail_map["Backtest readiness"]
     assert "provider_id" in detail_map["Provider signature"]
 
 

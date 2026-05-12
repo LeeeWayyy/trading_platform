@@ -1,6 +1,6 @@
 # Read-Time Adjustment Service Contract Draft
 
-Status: draft for Data Page phase 4. This is not an accepted ADR and does not enable adjusted previews or backtests by itself.
+Status: superseded by ADR-0043 for the initial `split_adjusted` read-time engine.
 
 ## Purpose
 
@@ -22,7 +22,8 @@ Required fields:
 - `roles`: role-keyed inputs for `universe`, `prices`, and `corp_actions`.
 - `start_date` and `end_date`: requested date bounds.
 - `symbols` or `symbol_source`: explicit symbol set or reproducible source.
-- `read_time_adjustment_mode`: requested mode. Phase 4 only supports `unavailable`; future accepted designs may add modes such as `split_adjusted`.
+- `read_time_adjustment_mode`: requested mode. ADR-0043 accepts `split_adjusted`
+  for trusted Alpaca SIP daily bars plus trusted corporate actions.
 
 ## Response Shape
 
@@ -44,6 +45,12 @@ Phase 4 wired codes:
 - `alpaca_sip_manifest_validation_failed`
 - `alpaca_sip_manifest_summary_unavailable`
 
+ADR-0043 wired codes:
+
+- `split_adjusted_read_time_available`
+- `split_adjusted_no_split_actions_in_scope`
+- `split_adjusted_invalid_split_actions_skipped`
+
 Draft/future companion-state codes:
 
 - `alpaca_sip_companion_manifest_stale`
@@ -54,3 +61,14 @@ Draft/future companion-state codes:
 - Data Explorer displays raw canonical storage and unavailable read-time adjustment state.
 - Adjusted preview controls remain disabled with `read_time_adjustment_layer_not_defined`.
 - Backtest handoff metadata may be built for inspection, but backtest submission must remain fail-closed while adjusted returns are unavailable.
+
+## ADR-0043 Behavior
+
+- Data Explorer can request a derived `split_adjusted` preview when both
+  Alpaca SIP manifests are trusted and companion checks are clean.
+- Alpaca SIP simple-backtest fetches use the same split-adjusted read-time
+  derivation before enforcing `adj_close`/`ret` availability.
+- Raw canonical storage remains labeled `raw`.
+- Derived previews carry read-time mode, manifest provenance, provider
+  signatures, and derivation reason codes.
+- Dividend-aware total-return adjustment remains out of scope.

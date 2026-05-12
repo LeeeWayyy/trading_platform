@@ -6,7 +6,10 @@ from typing import Any
 
 from nicegui import ui
 
-from apps.web_console_ng.components.data_management_common import format_datetime
+from apps.web_console_ng.components.data_management_common import (
+    format_datetime,
+    summary_supports_split_adjustment,
+)
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_DAILY_DATASET,
     ALPACA_SIP_MANIFEST_DATASETS,
@@ -70,8 +73,15 @@ def _tone_class(tone: str) -> str:
 
 def _count_backtest_blocked_rows(summary: AlpacaSipManifestSummaryDTO) -> int:
     manifests_by_dataset = {manifest.dataset: manifest for manifest in summary.manifests}
+    split_adjustment_available = summary_supports_split_adjustment(summary)
     return sum(
-        int(_dataset_blocks_backtest(dataset, manifests_by_dataset.get(dataset)))
+        int(
+            _dataset_blocks_backtest(
+                dataset,
+                manifests_by_dataset.get(dataset),
+                split_adjustment_available=split_adjustment_available,
+            )
+        )
         for dataset in ALPACA_SIP_MANIFEST_DATASETS
     )
 
@@ -79,11 +89,13 @@ def _count_backtest_blocked_rows(summary: AlpacaSipManifestSummaryDTO) -> int:
 def _dataset_blocks_backtest(
     dataset: str,
     manifest: ManifestSummaryDTO | None,
+    *,
+    split_adjustment_available: bool = False,
 ) -> bool:
     if manifest is None or manifest.validation_status != "passed":
         return True
     if dataset == ALPACA_SIP_DAILY_DATASET:
-        return manifest.read_time_adjustment_mode != "available"
+        return not split_adjustment_available and manifest.read_time_adjustment_mode != "available"
     return False
 
 

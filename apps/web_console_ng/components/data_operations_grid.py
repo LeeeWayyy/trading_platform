@@ -6,7 +6,15 @@ from typing import Any
 
 from nicegui import ui
 
-from apps.web_console_ng.components.data_management_common import format_datetime
+from apps.web_console_ng.components.data_management_common import (
+    format_datetime,
+    summary_supports_split_adjustment,
+)
+from libs.data.data_pipeline.read_time_adjustment import (
+    READ_TIME_ADJUSTMENT_AVAILABLE_REASON,
+    READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
+    READ_TIME_ADJUSTMENT_MODE_UNAVAILABLE,
+)
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -63,8 +71,12 @@ def _row_from_manifest_or_missing(
     warnings = _warnings_for_dataset(dataset, summary)
     is_daily = dataset == ALPACA_SIP_DAILY_DATASET
     raw_state = "Raw OHLC" if is_daily else "-"
-    adjustment_state = (
-        "adj_close: not available; ret: not available" if is_daily else "not price bars"
+    adjustment_available = summary_supports_split_adjustment(summary)
+    returns_available = adjustment_available or _manifest_has_native_returns(manifest)
+    adjustment_state = _adjustment_state(
+        is_daily,
+        split_adjustment_available=adjustment_available,
+        native_returns_available=_manifest_has_native_returns(manifest),
     )
     if manifest is None:
         readiness = "blocked: alpaca_sip_untrusted_without_manifest"
@@ -89,7 +101,9 @@ def _row_from_manifest_or_missing(
             "manifest_checksum": None,
             "adjustment_state": adjustment_state,
             "canonical_storage_mode": "raw" if is_daily else None,
-            "read_time_adjustment_mode": "unavailable" if is_daily else None,
+            "read_time_adjustment_mode": (
+                READ_TIME_ADJUSTMENT_MODE_UNAVAILABLE if is_daily else None
+            ),
             "trusted_manifest_backed": False,
         }
 
@@ -102,6 +116,8 @@ def _row_from_manifest_or_missing(
         readiness = "blocked: untrusted_manifest_validation_failed"
         if is_daily:
             readiness = f"{readiness}; raw_sip_returns_unavailable"
+    elif is_daily and returns_available:
+        readiness = f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
     elif is_daily:
         readiness = "blocked: raw_sip_returns_unavailable"
     elif warnings:
@@ -128,7 +144,11 @@ def _row_from_manifest_or_missing(
         "manifest_checksum": manifest.manifest_checksum,
         "adjustment_state": adjustment_state,
         "canonical_storage_mode": manifest.canonical_storage_mode,
-        "read_time_adjustment_mode": manifest.read_time_adjustment_mode,
+        "read_time_adjustment_mode": (
+            READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED
+            if is_daily and adjustment_available
+            else manifest.read_time_adjustment_mode
+        ),
         "trusted_manifest_backed": validation_ok,
     }
 
@@ -147,8 +167,36 @@ def _warnings_for_dataset(
         }:
             warnings.append(warning)
     if dataset == ALPACA_SIP_DAILY_DATASET:
-        warnings.append("raw_sip_returns_unavailable")
+        manifest = next(
+            (item for item in summary.manifests if item.dataset == ALPACA_SIP_DAILY_DATASET),
+            None,
+        )
+        if not summary_supports_split_adjustment(summary) and not _manifest_has_native_returns(
+            manifest
+        ):
+            warnings.append("raw_sip_returns_unavailable")
     return sorted(set(warnings))
+
+
+def _adjustment_state(
+    is_daily: bool,
+    *,
+    split_adjustment_available: bool,
+    native_returns_available: bool,
+) -> str:
+    if not is_daily:
+        return "not price bars"
+    if split_adjustment_available:
+        return "adj_close/ret: derived split-adjusted"
+    if native_returns_available:
+        return "adj_close/ret: available"
+    return "adj_close: not available; ret: not available"
+
+
+def _manifest_has_native_returns(manifest: ManifestSummaryDTO | None) -> bool:
+    if manifest is None or manifest.validation_status != "passed":
+        return False
+    return manifest.read_time_adjustment_mode == "available"
 
 
 __all__ = ["build_manifest_grid_rows", "render_manifest_operations_grid"]

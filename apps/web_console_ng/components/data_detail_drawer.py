@@ -7,7 +7,15 @@ from typing import Any
 
 from nicegui import ui
 
-from apps.web_console_ng.components.data_management_common import format_datetime
+from apps.web_console_ng.components.data_management_common import (
+    format_datetime,
+    summary_supports_split_adjustment,
+)
+from libs.data.data_pipeline.read_time_adjustment import (
+    READ_TIME_ADJUSTMENT_AVAILABLE_REASON,
+    READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
+    READ_TIME_ADJUSTMENT_MODE_UNAVAILABLE,
+)
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -21,7 +29,7 @@ _CANONICAL_STORAGE_MODES = {
 }
 
 _READ_TIME_ADJUSTMENT_MODES = {
-    ALPACA_SIP_DAILY_DATASET: "unavailable",
+    ALPACA_SIP_DAILY_DATASET: READ_TIME_ADJUSTMENT_MODE_UNAVAILABLE,
     ALPACA_SIP_CORP_ACTIONS_DATASET: "not applicable",
 }
 
@@ -86,7 +94,14 @@ def _present_detail_fields(
         if not warning.startswith("alpaca_sip_missing_manifest:")
     ]
     validation_ok = manifest.validation_status == "passed"
-    readiness = _readiness_for_present_manifest(manifest, warnings)
+    split_adjustment_available = summary_supports_split_adjustment(summary)
+    native_returns_available = _manifest_has_native_returns(manifest)
+    returns_available = split_adjustment_available or native_returns_available
+    readiness = (
+        f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
+        if manifest.dataset == ALPACA_SIP_DAILY_DATASET and returns_available
+        else _readiness_for_present_manifest(manifest, warnings)
+    )
     fields = [
         {"field": "Dataset", "value": manifest.dataset},
         {"field": "Local state", "value": "present"},
@@ -111,7 +126,10 @@ def _present_detail_fields(
         {"field": "Canonical storage mode", "value": _canonical_storage_mode(manifest.dataset)},
         {
             "field": "Read-time adjustment mode",
-            "value": _read_time_adjustment_mode(manifest.dataset),
+            "value": _read_time_adjustment_mode_for_manifest(
+                manifest,
+                split_adjustment_available=split_adjustment_available,
+            ),
         },
         {"field": "Symbol set hash", "value": _value(manifest.symbol_set_hash)},
         {"field": "Query/params hash", "value": _value(manifest.query_params_hash)},
@@ -122,11 +140,22 @@ def _present_detail_fields(
         },
     ]
     if manifest.dataset == ALPACA_SIP_DAILY_DATASET:
+        derived_value = _daily_return_column_state(
+            split_adjustment_available=split_adjustment_available,
+            native_returns_available=native_returns_available,
+        )
         fields.extend(
             [
-                {"field": "adj_close", "value": "not available"},
-                {"field": "ret", "value": "not available"},
-                {"field": "Backtest readiness", "value": readiness},
+                {"field": "adj_close", "value": derived_value},
+                {"field": "ret", "value": derived_value},
+                {
+                    "field": "Backtest readiness",
+                    "value": (
+                        f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
+                        if returns_available
+                        else readiness
+                    ),
+                },
             ]
         )
     return fields
@@ -138,6 +167,19 @@ def _canonical_storage_mode(dataset: str) -> str:
 
 def _read_time_adjustment_mode(dataset: str) -> str:
     return _READ_TIME_ADJUSTMENT_MODES.get(dataset, "-")
+
+
+def _read_time_adjustment_mode_for_manifest(
+    manifest: ManifestSummaryDTO,
+    *,
+    split_adjustment_available: bool,
+) -> str:
+    dataset = manifest.dataset
+    if dataset == ALPACA_SIP_DAILY_DATASET and split_adjustment_available:
+        return READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED
+    if dataset == ALPACA_SIP_DAILY_DATASET and manifest.read_time_adjustment_mode:
+        return manifest.read_time_adjustment_mode
+    return _read_time_adjustment_mode(dataset)
 
 
 def _value(value: Any) -> str:
@@ -155,10 +197,30 @@ def _readiness_for_present_manifest(
             readiness = f"{readiness}; raw_sip_returns_unavailable"
         return readiness
     if is_daily:
+        if _manifest_has_native_returns(manifest):
+            return "ready: native adjusted returns available"
         return "blocked: raw_sip_returns_unavailable"
     if warnings:
         return "warn: companion manifest issue"
     return "corporate actions only"
+
+
+def _daily_return_column_state(
+    *,
+    split_adjustment_available: bool,
+    native_returns_available: bool,
+) -> str:
+    if split_adjustment_available:
+        return "derived split-adjusted"
+    if native_returns_available:
+        return "available"
+    return "not available"
+
+
+def _manifest_has_native_returns(manifest: ManifestSummaryDTO | None) -> bool:
+    if manifest is None or manifest.validation_status != "passed":
+        return False
+    return manifest.read_time_adjustment_mode == "available"
 
 
 __all__ = ["build_manifest_detail_fields", "render_manifest_detail_drawer"]

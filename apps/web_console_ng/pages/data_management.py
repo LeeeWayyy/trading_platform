@@ -541,6 +541,7 @@ async def _render_data_explorer_section(
     dataset_map: dict[str, DatasetInfoDTO] = {}
     refresh_query_controls: Callable[[], None] | None = None
     refresh_adjustment_policy: Callable[[], None] | None = None
+    adjusted_preview_container: Any | None = None
 
     with ui.row().classes("w-full gap-4"):
         # Dataset browser sidebar
@@ -655,6 +656,8 @@ async def _render_data_explorer_section(
                 async def on_dataset_change(e: Any) -> None:
                     ds = str(e.value) if e.value else None
                     selected_dataset["value"] = ds
+                    if adjusted_preview_container is not None:
+                        adjusted_preview_container.clear()
                     _show_dataset_info(ds)
                     await _load_schema(ds)
                     if refresh_query_controls is not None:
@@ -675,12 +678,50 @@ async def _render_data_explorer_section(
         # Main content area
         with ui.column().classes("flex-1"):
             adjustment_policy_container = ui.column().classes("w-full mb-4")
+            adjusted_preview_container = ui.column().classes("w-full mb-4")
 
             def _selected_dataset_info() -> DatasetInfoDTO | None:
                 ds = selected_dataset["value"]
                 if ds is None:
                     return None
                 return dataset_map.get(ds)
+
+            async def _load_adjusted_preview() -> None:
+                ds = selected_dataset["value"]
+                if ds != ALPACA_SIP_DATASET_KEY:
+                    ui.notify("Adjusted preview is only available for Alpaca SIP", type="warning")
+                    return
+                if adjusted_preview_container is None:
+                    return
+                adjusted_preview_container.clear()
+                try:
+                    preview = await explorer_service.get_dataset_preview(
+                        user,
+                        ds,
+                        limit=50,
+                        table="alpaca_sip_daily",
+                        read_time_adjustment_mode="split_adjusted",
+                    )
+                    with adjusted_preview_container:
+                        ui.label("Adjusted Preview").classes("font-bold mb-1")
+                        _render_preview_adjustment_metadata(preview)
+                        _render_preview_table(preview)
+                except ValueError as e:
+                    with adjusted_preview_container:
+                        ui.label(str(e)).classes("text-sm text-amber-600")
+                except PermissionError as e:
+                    ui.notify(str(e), type="negative")
+                except Exception:
+                    logger.exception(
+                        "adjusted_preview_failed",
+                        extra={
+                            "method": "get_dataset_preview",
+                            "service": "DataExplorerService",
+                            "dataset": ds,
+                            "user_id": _get_user_id_safe(user),
+                        },
+                    )
+                    ui.notify("Adjusted preview temporarily unavailable", type="warning")
 
             def _refresh_adjustment_policy() -> None:
                 adjustment_policy_container.clear()
@@ -689,7 +730,10 @@ async def _render_data_explorer_section(
                     return
                 with adjustment_policy_container:
                     _render_adjustment_policy_summary(info)
-                    _render_adjusted_preview_controls(info)
+                    _render_adjusted_preview_controls(
+                        info,
+                        on_preview=_load_adjusted_preview if has_query else None,
+                    )
 
             refresh_adjustment_policy = _refresh_adjustment_policy
             _refresh_adjustment_policy()
@@ -896,25 +940,27 @@ def _render_adjustment_policy_summary(payload: DatasetInfoDTO | DataPreviewDTO) 
             ui.label(line).classes("text-xs text-amber-800")
 
 
-def _render_adjusted_preview_controls(dataset_info: DatasetInfoDTO) -> None:
-    """Show the future adjusted preview affordance in a disabled state."""
+def _render_adjusted_preview_controls(
+    dataset_info: DatasetInfoDTO,
+    *,
+    on_preview: Callable[[], Any] | None = None,
+) -> None:
+    """Render adjusted preview controls for datasets with adjustment metadata."""
     if dataset_info.canonical_storage_mode is None and dataset_info.backtest_handoff is None:
         return
     handoff = dataset_info.backtest_handoff
+    preview_available = bool(handoff and handoff.adjusted_preview_available and on_preview)
     unavailable_reason = "read_time_adjustment_layer_not_defined"
     if handoff is not None:
         unavailable_reason = handoff.adjusted_preview_unavailable_reason or unavailable_reason
     with ui.row().classes("w-full gap-2 items-end mt-2"):
-        ui.select(
-            label="Preview Mode",
-            options={
-                "raw": "Raw canonical",
-                "adjusted": "Adjusted derived preview",
-            },
-            value="raw",
-        ).classes("w-56").props("disable")
-        ui.button("Adjusted Preview").props("flat disable")
-        ui.label(unavailable_reason).classes("text-xs text-gray-500")
+        ui.label("Preview mode: split_adjusted").classes("text-xs text-gray-600")
+        button = ui.button("Adjusted Preview", on_click=on_preview if preview_available else None)
+        button.props("flat" if preview_available else "flat disable")
+        if preview_available:
+            ui.label("split_adjusted_read_time_available").classes("text-xs text-green-700")
+        else:
+            ui.label(unavailable_reason).classes("text-xs text-gray-500")
 
 
 def _render_preview_adjustment_metadata(preview: DataPreviewDTO) -> None:
@@ -942,6 +988,12 @@ def _preview_provenance_lines(preview: DataPreviewDTO) -> list[str]:
     for label, value in fields:
         if value is not None and str(value):
             lines.append(f"{label}: {value}")
+    if preview.derived:
+        lines.append(f"derived: {str(preview.derived).lower()}")
+    if preview.derivation_mode:
+        lines.append(f"derivation_mode: {preview.derivation_mode}")
+    if preview.derivation_reason_codes:
+        lines.append("derivation_reasons: " + ", ".join(preview.derivation_reason_codes))
     return lines
 
 
@@ -1006,6 +1058,20 @@ def _build_query_results(
         ui.label(f"Showing: {len(result.rows)} rows").classes("text-sm text-gray-600")
         if result.has_more:
             ui.label("(more results available)").classes("text-sm text-amber-600")
+
+
+def _render_preview_table(preview: DataPreviewDTO) -> None:
+    if not preview.columns:
+        ui.label("No preview rows").classes("text-gray-500")
+        return
+    columns: list[dict[str, Any]] = [
+        {"name": col, "label": col, "field": col, "sortable": True} for col in preview.columns
+    ]
+    ui.table(columns=columns, rows=preview.rows).classes("w-full")
+    with ui.row().classes("gap-4 mt-2"):
+        ui.label(f"Showing: {len(preview.rows)} rows").classes("text-sm text-gray-600")
+        if preview.has_more:
+            ui.label("(more preview rows available)").classes("text-sm text-amber-600")
 
 
 # =============================================================================

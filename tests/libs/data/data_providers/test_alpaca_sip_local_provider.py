@@ -514,6 +514,101 @@ class TestAlpacaSIPDataProviderAdapter:
 
         assert df["ret"].to_list() == [None, None]
 
+    def test_adapter_derives_split_adjusted_returns_from_corp_actions_manifest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        data_root = tmp_path / "data"
+        daily_dir = data_root / "alpaca" / "sip" / "daily"
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        manifest_dir = data_root / "manifests"
+        lock_dir = data_root / "locks"
+        daily_dir.mkdir(parents=True)
+        corp_dir.mkdir(parents=True)
+        manifest_dir.mkdir(parents=True)
+        lock_dir.mkdir(parents=True)
+        daily_path = daily_dir / "2020.parquet"
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "date": [date(2020, 8, 28), date(2020, 8, 31), date(2020, 9, 1)],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "open": [500.0, 125.0, 130.0],
+                "high": [504.0, 126.0, 132.0],
+                "low": [496.0, 124.0, 129.0],
+                "close": [500.0, 125.0, 130.0],
+                "volume": [1_000_000.0, 4_000_000.0, 3_800_000.0],
+                "trade_count": [10_000.0, 11_000.0, 12_000.0],
+                "vwap": [501.0, 125.5, 130.5],
+                "adj_close": [None, None, None],
+                "ret": [None, None, None],
+            },
+            schema={column: ALPACA_SIP_SCHEMA[column] for column in ALPACA_SIP_COLUMNS},
+        ).write_parquet(daily_path)
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_base = {
+            "sync_timestamp": datetime.now(UTC).isoformat(),
+            "checksum": "abc123",
+            "checksum_algorithm": "sha256",
+            "schema_version": "v1.0.0",
+            "wrds_query_hash": "alpaca-sip-local-test",
+            "validation_status": "passed",
+            "manifest_version": 1,
+        }
+        (manifest_dir / "alpaca_sip_daily.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_daily",
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 3,
+                    "file_paths": [str(daily_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_corp_actions",
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "file_paths": [str(corp_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        manifest_manager = ManifestManager(
+            storage_path=manifest_dir,
+            lock_dir=lock_dir,
+            data_root=data_root,
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=daily_dir,
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2020, 8, 28), date(2020, 9, 1))
+
+        assert df["close"].to_list() == [500.0, 125.0, 130.0]
+        assert df["adj_close"].to_list() == [125.0, 125.0, 130.0]
+        assert df["ret"].to_list()[0] is None
+        assert df["ret"].to_list()[1:] == pytest.approx([0.0, 0.04])
+
     def test_adapter_rejects_empty_symbols(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
     ) -> None:

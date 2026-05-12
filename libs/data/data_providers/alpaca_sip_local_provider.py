@@ -20,6 +20,9 @@ from typing import Any, cast
 import duckdb
 import polars as pl
 
+from libs.data.data_providers.alpaca_corp_actions_sync import (
+    ALPACA_CORP_ACTIONS_SCHEMA,
+)
 from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
 from libs.data.data_quality.exceptions import DataNotFoundError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
@@ -81,6 +84,7 @@ class AlpacaSIPLocalProvider:
     """
 
     DATASET_NAME = "alpaca_sip_daily"
+    CORP_ACTIONS_DATASET_NAME = "alpaca_sip_corp_actions"
     DATA_ROOT = Path("data")
 
     def __init__(
@@ -89,6 +93,7 @@ class AlpacaSIPLocalProvider:
         manifest_manager: ManifestManager,
         data_root: Path | None = None,
         pinned_manifest: SyncManifest | None = None,
+        corp_actions_storage_path: Path | None = None,
         duckdb_memory_limit: str | None = None,
         duckdb_threads: int | None = None,
     ) -> None:
@@ -99,6 +104,10 @@ class AlpacaSIPLocalProvider:
             manifest_manager: Manager for manifest operations.
             data_root: Root directory for path validation.
             pinned_manifest: Optional immutable manifest to use for all reads.
+            corp_actions_storage_path: Optional path to paired Alpaca SIP
+                corporate-action parquet files. Defaults to
+                ALPACA_CORP_ACTIONS_STORAGE_PATH or
+                ``data_root/alpaca/sip/corp_actions``.
             duckdb_memory_limit: Optional DuckDB memory limit (env fallback:
                 ALPACA_SIP_DUCKDB_MEMORY_LIMIT, default: 2GB).
             duckdb_threads: Optional DuckDB worker threads (env fallback:
@@ -110,6 +119,12 @@ class AlpacaSIPLocalProvider:
         self.storage_path = Path(storage_path).resolve()
         self.manifest_manager = manifest_manager
         self.data_root = (data_root or self.DATA_ROOT).resolve()
+        raw_corp_actions_storage_path = (
+            corp_actions_storage_path
+            or os.getenv("ALPACA_CORP_ACTIONS_STORAGE_PATH")
+            or self.data_root / "alpaca" / "sip" / "corp_actions"
+        )
+        self.corp_actions_storage_path = Path(raw_corp_actions_storage_path).resolve()
         self._pinned_manifest = pinned_manifest
         self._duckdb_memory_limit = self._resolve_duckdb_memory_limit(duckdb_memory_limit)
         self._duckdb_threads = self._resolve_duckdb_threads(duckdb_threads)
@@ -117,6 +132,11 @@ class AlpacaSIPLocalProvider:
         if not self.storage_path.is_relative_to(self.data_root):
             raise ValueError(
                 f"storage_path '{storage_path}' must be within data_root '{self.data_root}'"
+            )
+        if not self.corp_actions_storage_path.is_relative_to(self.data_root):
+            raise ValueError(
+                "corp_actions_storage_path "
+                f"'{self.corp_actions_storage_path}' must be within data_root '{self.data_root}'"
             )
 
         self._thread_local = threading.local()
@@ -180,6 +200,35 @@ class AlpacaSIPLocalProvider:
 
         return result
 
+    def get_corporate_actions(
+        self,
+        *,
+        start_date: date,
+        symbols: list[str] | None = None,
+    ) -> pl.DataFrame:
+        """Get paired corporate actions from the trusted manifest.
+
+        The read-time split adjustment layer needs actions on or after the
+        first requested price date so later splits can adjust earlier raw bars.
+        A missing corporate-action manifest fails closed via ``DataNotFoundError``.
+        """
+        manifest = self.manifest_manager.load_manifest(self.CORP_ACTIONS_DATASET_NAME)
+        if manifest is None:
+            raise DataNotFoundError(
+                f"No manifest found for '{self.CORP_ACTIONS_DATASET_NAME}'. "
+                "Run Alpaca corporate-actions sync first."
+            )
+
+        partition_paths = self._get_corp_action_paths_from_manifest(manifest)
+        if not partition_paths:
+            return pl.DataFrame(schema=ALPACA_CORP_ACTIONS_SCHEMA)
+
+        return self._execute_corp_actions_query(
+            partition_paths=partition_paths,
+            start_date=start_date,
+            symbols=symbols,
+        )
+
     def _get_manifest(self) -> SyncManifest:
         """Load the Alpaca SIP daily manifest."""
         if self._pinned_manifest is not None:
@@ -228,6 +277,28 @@ class AlpacaSIPLocalProvider:
             storage_root=self.storage_path,
         )
 
+    def _resolve_corp_action_manifest_path(self, path: Path) -> Path:
+        return resolve_alpaca_sip_manifest_path(
+            path,
+            data_root=self.data_root,
+            storage_root=self.corp_actions_storage_path,
+        )
+
+    def _get_corp_action_paths_from_manifest(
+        self,
+        manifest: SyncManifest,
+    ) -> list[Path]:
+        paths: list[Path] = []
+        for path_str in manifest.file_paths:
+            resolved = self._resolve_corp_action_manifest_path(Path(path_str))
+            if resolved.is_relative_to(self.corp_actions_storage_path):
+                paths.append(resolved)
+            else:
+                logger.warning(
+                    "Skipping path outside Alpaca SIP corp-actions storage: %s", resolved
+                )
+        return paths
+
     def _execute_query(
         self,
         partition_paths: list[Path],
@@ -237,8 +308,10 @@ class AlpacaSIPLocalProvider:
         columns: list[str] | None,
     ) -> pl.DataFrame:
         """Execute a parameterized DuckDB query over selected partitions."""
-        col_expr = "*" if columns is None else ", ".join(
-            self._quote_identifier(column) for column in columns
+        col_expr = (
+            "*"
+            if columns is None
+            else ", ".join(self._quote_identifier(column) for column in columns)
         )
 
         params: dict[str, Any] = {
@@ -259,6 +332,35 @@ class AlpacaSIPLocalProvider:
             FROM read_parquet($paths)
             WHERE {" AND ".join(where_clauses)}
             ORDER BY "date", "symbol"
+        """
+
+        with self._connection_lock:
+            conn = self._connection_for_current_thread()
+            return conn.execute(query, params).pl()
+
+    def _execute_corp_actions_query(
+        self,
+        partition_paths: list[Path],
+        start_date: date,
+        symbols: list[str] | None,
+    ) -> pl.DataFrame:
+        params: dict[str, Any] = {
+            "paths": [str(p) for p in partition_paths],
+            "start_date": start_date,
+        }
+        where_clauses = ['COALESCE("ex_date", "process_date") >= $start_date']
+
+        if symbols is not None:
+            params["symbols"] = sorted(
+                {symbol.upper().strip() for symbol in symbols if symbol.strip()}
+            )
+            where_clauses.append('"symbol" = ANY($symbols)')
+
+        query = f"""
+            SELECT *
+            FROM read_parquet($paths)
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY "symbol", COALESCE("ex_date", "process_date")
         """
 
         with self._connection_lock:

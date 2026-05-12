@@ -97,15 +97,17 @@ path unchanged.
   timing differences.
 - Alpaca SIP cannot provide point-in-time universes in Phase 1.
 - Cost model computation remains CRSP-only in this slice.
-- The Phase 2 sync foundation stores adjusted bars by default. Corporate-action
-  announcements are now synced separately, but raw-bar reconstruction remains
-  future work until the adjustment pipeline consumes those announcements.
+- The Phase 2 sync foundation stores raw bars by default. ADR-0043 adds a
+  read-time split-adjusted derivation path, while dividend-aware total-return
+  adjustment remains future work.
 
 ## Required Follow-Up
 
 - Run the Phase 0 entitlement and reconciliation spike before relying on SIP
   results for strategy decisions.
 - Live-validate corporate-actions ingestion before broad usage.
+- Use ADR-0043 for split-adjusted read-time previews; add a follow-up ADR before
+  claiming dividend-aware total-return semantics.
 - Use ADR-0042 for the research-only hybrid simple-backtest path; add a new ADR
   if a production-grade PIT hybrid is designed.
 - Update ADR-016 or replace it with a broader multi-provider selection ADR if

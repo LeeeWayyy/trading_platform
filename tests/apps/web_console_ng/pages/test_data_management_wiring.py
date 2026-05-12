@@ -622,9 +622,7 @@ class TestBuildQueryResults:
 
         def _select(*_args: Any, **kwargs: Any) -> _FakeElement:
             element_cls = (
-                _DatasetSelect
-                if kwargs.get("label") == "Select Dataset"
-                else _FakeElement
+                _DatasetSelect if kwargs.get("label") == "Select Dataset" else _FakeElement
             )
             return element_cls(
                 value=kwargs.get("value"),
@@ -712,9 +710,7 @@ class TestBuildQueryResults:
                     )
                 },
                 adjusted_preview_available=False,
-                adjusted_preview_unavailable_reason=(
-                    "read_time_adjustment_layer_not_defined"
-                ),
+                adjusted_preview_unavailable_reason=("read_time_adjustment_layer_not_defined"),
                 reason_codes=[
                     "raw_sip_returns_unavailable",
                     "read_time_adjustment_layer_not_defined",
@@ -791,12 +787,8 @@ class TestBuildQueryResults:
         row.__enter__ = MagicMock(return_value=row)
         row.__exit__ = MagicMock(return_value=False)
         mock_ui.row.return_value = row
-        select = MagicMock()
-        select.classes.return_value = select
-        select.props.return_value = select
         button = MagicMock()
         button.props.return_value = button
-        mock_ui.select.return_value = select
         mock_ui.button.return_value = button
         mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
         dataset = DatasetInfoDTO(
@@ -805,15 +797,13 @@ class TestBuildQueryResults:
             backtest_handoff=BacktestHandoffDTO(
                 dataset="alpaca_sip",
                 adjusted_preview_available=False,
-                adjusted_preview_unavailable_reason=(
-                    "read_time_adjustment_layer_not_defined"
-                ),
+                adjusted_preview_unavailable_reason=("read_time_adjustment_layer_not_defined"),
             ),
         )
 
         dm_module._render_adjusted_preview_controls(dataset)
 
-        select.props.assert_called_once_with("disable")
+        mock_ui.select.assert_not_called()
         button.props.assert_called_once_with("flat disable")
 
     @patch("apps.web_console_ng.pages.data_management.ui")
@@ -825,12 +815,8 @@ class TestBuildQueryResults:
         row.__enter__ = MagicMock(return_value=row)
         row.__exit__ = MagicMock(return_value=False)
         mock_ui.row.return_value = row
-        select = MagicMock()
-        select.classes.return_value = select
-        select.props.return_value = select
         button = MagicMock()
         button.props.return_value = button
-        mock_ui.select.return_value = select
         mock_ui.button.return_value = button
         mock_ui.label.return_value = MagicMock(classes=MagicMock(return_value=MagicMock()))
         dataset = DatasetInfoDTO(
@@ -843,6 +829,7 @@ class TestBuildQueryResults:
 
         labels = [call.args[0] for call in mock_ui.label.call_args_list if call.args]
         assert "read_time_adjustment_layer_not_defined" in labels
+        mock_ui.select.assert_not_called()
 
     @patch("apps.web_console_ng.pages.data_management.ui")
     def test_adjusted_preview_controls_hidden_without_adjustment_metadata(

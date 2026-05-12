@@ -33,7 +33,9 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import polars as pl
 
+from libs.data.data_pipeline.read_time_adjustment import derive_split_adjusted_prices
 from libs.data.data_providers.registry import ProviderCapabilities, ProviderType, get_provider_spec
+from libs.data.data_quality.exceptions import DataNotFoundError
 
 if TYPE_CHECKING:
     from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
@@ -559,6 +561,8 @@ class AlpacaSIPDataProviderAdapter:
         for column in float_cols:
             df = df.with_columns(pl.col(column).cast(pl.Float64))
 
+        df = self._derive_read_time_adjusted_prices(df)
+
         adjusted_close = pl.col("adj_close")
         previous_adjusted_close = adjusted_close.shift(1).over("symbol")
         df = (
@@ -578,6 +582,42 @@ class AlpacaSIPDataProviderAdapter:
         )
 
         return df.select(UNIFIED_COLUMNS)
+
+    def _derive_read_time_adjusted_prices(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Derive adjusted SIP returns when a paired corp-actions manifest exists."""
+        if df.is_empty() or "date" not in df.columns or "symbol" not in df.columns:
+            return df
+        if "adj_close" in df.columns and df["adj_close"].null_count() == 0:
+            return df
+
+        get_corporate_actions = getattr(type(self._provider), "get_corporate_actions", None)
+        if get_corporate_actions is None:
+            return df
+
+        start_date = df.select(pl.col("date").min()).item()
+        if not isinstance(start_date, date):
+            return df
+        symbols = sorted(
+            {
+                symbol
+                for raw_symbol in df.get_column("symbol").to_list()
+                if (symbol := str(raw_symbol).strip().upper())
+            }
+        )
+        try:
+            corporate_actions = self._provider.get_corporate_actions(
+                start_date=start_date,
+                symbols=symbols,
+            )
+        except DataNotFoundError:
+            return df
+        except Exception as exc:
+            raise DataProviderError(f"Alpaca SIP corporate-action query failed: {exc}") from exc
+
+        try:
+            return derive_split_adjusted_prices(df, corporate_actions).frame
+        except Exception as exc:
+            raise DataProviderError(f"Alpaca SIP read-time adjustment failed: {exc}") from exc
 
     def _empty_result(self) -> pl.DataFrame:
         """Return empty DataFrame with unified schema."""
