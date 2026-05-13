@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
-from uuid import uuid4
 
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import (
@@ -23,6 +22,10 @@ from libs.platform.web_console_auth.permissions import (
     has_permission,
 )
 
+from .alert_acknowledgment_store import (
+    AlertAcknowledgmentStore,
+    InMemoryAlertAcknowledgmentStore,
+)
 from .data_manifest_service import (
     ALPACA_SIP_DATASET_KEY,
     AlpacaSipManifestSummaryDTO,
@@ -294,16 +297,15 @@ class DataQualityService:
     """Service layer for data quality reporting.
 
     Enforces dataset-level access on all read paths for licensing compliance.
-    Alert acknowledgments are currently in-memory placeholders.
+
+    Alert acknowledgments are routed through an
+    :class:`AlertAcknowledgmentStore`. When the caller does not provide a
+    durable store, the service falls back to an in-memory implementation and
+    advertises ``acknowledgments_persistent = False`` so the UI can render the
+    controls as unavailable per the Data Page plan AC.
 
     IMPORTANT: ALL read paths filter by user's dataset permissions.
     Users only see quality data for datasets they have access to.
-
-    NOTE: Current implementation uses mock data and in-memory storage.
-    Production implementation requires:
-    - DB queries against data_validation_results table
-    - DB queries against data_anomaly_alerts table
-    - DB persistence for alert acknowledgments
     """
 
     def __init__(
@@ -314,22 +316,20 @@ class DataQualityService:
         data_root: Path | None = None,
         integrity_reports_available: bool | None = None,
         feed_delta_reports_available: bool | None = None,
+        acknowledgment_store: AlertAcknowledgmentStore | None = None,
     ) -> None:
-        # TODO: Replace with PostgreSQL persistence using data_quality_alert_acknowledgments table
-        # Current in-memory implementation is for interface validation only.
-        # Production requires: INSERT ... ON CONFLICT DO NOTHING RETURNING for idempotency
-        self._ack_store: dict[str, AlertAcknowledgmentDTO] = {}
+        self._ack_store: AlertAcknowledgmentStore = (
+            acknowledgment_store or InMemoryAlertAcknowledgmentStore()
+        )
         self._manifest_service = manifest_service or DataManifestService()
         self._report_store = report_store or AlpacaQualityReportStore(data_root=data_root)
         self._integrity_reports_available_override = integrity_reports_available
         self._feed_delta_reports_available_override = feed_delta_reports_available
-        # Hard-pinned false until durable DB-backed acknowledgment storage lands.
-        self._acknowledgments_persistent = False
 
     @property
     def acknowledgments_persistent(self) -> bool:
         """Whether alert acknowledgments are backed by durable server-side storage."""
-        return self._acknowledgments_persistent
+        return self._ack_store.is_persistent
 
     async def get_validation_results(
         self,
@@ -412,7 +412,13 @@ class DataQualityService:
         """Get anomaly alerts with optional filters.
 
         Permission: VIEW_DATA_QUALITY + dataset-level access (filtered)
-        Filtering: Only alerts for datasets user has access to
+        Filtering: Only alerts for datasets user has access to.
+
+        Acknowledgment status is hydrated from the active
+        :class:`AlertAcknowledgmentStore` so the ``acknowledged`` filter
+        reflects what the operator already triaged. Reads from the store
+        are off-loaded to ``asyncio.to_thread`` so blocking DB I/O does not
+        run on the NiceGUI event loop.
         """
         self._require_permission(user, Permission.VIEW_DATA_QUALITY)
 
@@ -433,53 +439,117 @@ class DataQualityService:
             )
             for idx, name in enumerate(_MOCK_QUALITY_DATASETS, start=1)
         ]
-        filtered = [item for item in mock if has_dataset_permission(user, item.dataset)]
+        permitted = [item for item in mock if has_dataset_permission(user, item.dataset)]
         if severity:
-            filtered = [item for item in filtered if item.severity == severity]
+            permitted = [item for item in permitted if item.severity == severity]
+
+        # Hydrate acknowledged state from the durable store. Use a single
+        # thread hop to amortise the GIL release across all per-id lookups.
+        if permitted:
+            permitted = await asyncio.to_thread(self._hydrate_acknowledgments, permitted)
+
         if acknowledged is not None:
-            filtered = [item for item in filtered if item.acknowledged == acknowledged]
-        return filtered
+            permitted = [item for item in permitted if item.acknowledged == acknowledged]
+        return permitted
+
+    def _hydrate_acknowledgments(self, alerts: list[AnomalyAlertDTO]) -> list[AnomalyAlertDTO]:
+        """Return ``alerts`` with ``acknowledged``/``acknowledged_by`` filled in.
+
+        Pydantic models are immutable here, so we rebuild each one. This
+        runs inside ``asyncio.to_thread`` so the synchronous store reads
+        do not block the event loop.
+        """
+        hydrated: list[AnomalyAlertDTO] = []
+        for alert in alerts:
+            ack = self._ack_store.get(alert.id)
+            if ack is None:
+                hydrated.append(alert)
+                continue
+            hydrated.append(
+                alert.model_copy(
+                    update={
+                        "acknowledged": True,
+                        "acknowledged_by": ack.acknowledged_by,
+                    }
+                )
+            )
+        return hydrated
 
     async def acknowledge_alert(
         self,
         user: Any,
         alert_id: str,
         reason: str,
+        *,
+        dataset: str | None = None,
+        source: str = "anomaly_alert",
+        metric: str = "row_drop",
+        severity: str = "warning",
+        issue_scope: dict[str, Any] | None = None,
+        original_alert: dict[str, Any] | None = None,
     ) -> AlertAcknowledgmentDTO:
         """Acknowledge an anomaly alert (idempotent).
 
-        Permission: ACKNOWLEDGE_ALERTS + dataset-level access for alert's dataset
-        Storage: in-memory placeholder until PostgreSQL persistence is implemented
-        Audit: Logged with user, alert_id, reason
-        Security: Validate user has access to the dataset referenced by alert_id
+        Permission: ACKNOWLEDGE_ALERTS + dataset-level access for alert's dataset.
+        Storage: persistent if an :class:`AlertAcknowledgmentStore` backed by
+        Postgres was injected; otherwise the in-memory fallback is used and
+        :attr:`acknowledgments_persistent` reports False so the UI renders the
+        controls as unavailable.
 
-        Idempotency: First-write-wins (unique constraint on alert_id)
-        - If alert not yet acknowledged: creates acknowledgment, returns AlertAcknowledgmentDTO
-        - If alert already acknowledged: returns existing AlertAcknowledgmentDTO (no error)
-        - Client can safely retry without side effects
+        Per the Phase 5 plan AC, acknowledgments must be persisted server-side
+        before they affect operational state. When the active store is not
+        durable, callers receive ``RuntimeError`` so the UI never accepts a
+        write that would silently disappear on restart.
+
+        ``dataset`` may be passed explicitly by callers that already know
+        which dataset the alert belongs to. The data page UI does this
+        because each rendered :class:`AnomalyAlertDTO` carries its own
+        ``dataset``, and manifest-derived signal ids such as
+        ``alpaca-sip-manifest-pairing`` do not match the
+        ``alert-{idx}`` format that :meth:`_resolve_alert_dataset` knows
+        how to parse. When ``dataset`` is omitted, the legacy mock-id
+        parser is used as a best-effort fallback.
+
+        Idempotency: First-write-wins on ``alert_id``.
         """
         self._require_permission(user, Permission.ACKNOWLEDGE_ALERTS)
 
-        dataset = self._resolve_alert_dataset(alert_id)
-        self._require_dataset_access(user, dataset)
+        if not self._ack_store.is_persistent:
+            raise RuntimeError(
+                "quality_acknowledgment_persistence_unavailable: "
+                "configure a Postgres-backed AlertAcknowledgmentStore before "
+                "accepting acknowledgments."
+            )
 
-        existing = self._ack_store.get(alert_id)
-        if existing is not None:
-            return existing
+        resolved_dataset = dataset if dataset is not None else self._resolve_alert_dataset(alert_id)
+        self._require_dataset_access(user, resolved_dataset)
+        dataset = resolved_dataset
 
-        now = datetime.now(UTC)
-        acknowledgment = AlertAcknowledgmentDTO(
-            id=str(uuid4()),
+        scope: dict[str, Any] = {
+            "dataset": dataset,
+            "metric": metric,
+            "severity": severity,
+        }
+        if issue_scope:
+            scope.update(issue_scope)
+
+        # Delegate idempotency to the store. Postgres uses a single
+        # INSERT ... ON CONFLICT DO UPDATE SET alert_id = EXCLUDED.alert_id
+        # RETURNING; the in-memory implementation short-circuits on its
+        # own records dict. Routing through to_thread keeps the blocking
+        # DB I/O off the NiceGUI event loop in production.
+        return await asyncio.to_thread(
+            self._ack_store.acknowledge,
             alert_id=alert_id,
             dataset=dataset,
-            metric="row_drop",
-            severity="warning",
+            metric=metric,
+            severity=severity,
             acknowledged_by=get_user_id(user),
-            acknowledged_at=now,
             reason=reason,
+            source=source,
+            issue_scope=scope,
+            original_alert=original_alert,
         )
-        self._ack_store[alert_id] = acknowledgment
-        return acknowledgment
 
     async def get_quality_trends(
         self,
