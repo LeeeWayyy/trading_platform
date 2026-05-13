@@ -853,6 +853,7 @@ class DataExplorerService:
         prices: pl.DataFrame,
         table_paths: dict[str, TablePathSpec],
     ) -> pl.DataFrame:
+        corp_query_parameters: list[Any] | None = None
         if prices.is_empty():
             corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
         else:
@@ -862,11 +863,12 @@ class DataExplorerService:
                 corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
             else:
                 start_date, _end_date = date_bounds
-                symbol_list = ", ".join(_sql_string_literal(symbol) for symbol in symbols)
+                symbol_placeholders = ", ".join("?" for _symbol in symbols)
+                corp_query_parameters = [*symbols, start_date]
                 corp_query = (
                     "SELECT * FROM alpaca_sip_corp_actions "
-                    f"WHERE symbol IN ({symbol_list}) "
-                    f"AND coalesce(ex_date, process_date) >= DATE '{start_date.isoformat()}' "
+                    f"WHERE symbol IN ({symbol_placeholders}) "
+                    "AND coalesce(ex_date, process_date) >= CAST(? AS DATE) "
                     "ORDER BY symbol, coalesce(ex_date, process_date)"
                 )
         return cast(
@@ -876,6 +878,7 @@ class DataExplorerService:
                 sql=corp_query,
                 table_paths={"alpaca_sip_corp_actions": table_paths["alpaca_sip_corp_actions"]},
                 timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+                parameters=corp_query_parameters,
             ),
         )
 
@@ -1234,6 +1237,7 @@ class DataExplorerService:
         sql: str,
         table_paths: dict[str, TablePathSpec],
         timeout_seconds: int,
+        parameters: list[Any] | None = None,
     ) -> Any:
         await asyncio.to_thread(ensure_sql_explorer_execution_allowed)
         return await execute_scoped_query_frame_with_timeout(
@@ -1242,6 +1246,7 @@ class DataExplorerService:
             timeout_seconds,
             available_tables=set(table_paths),
             table_paths=table_paths,
+            parameters=parameters,
         )
 
 
@@ -1266,10 +1271,6 @@ def _price_date_bounds(prices: pl.DataFrame) -> tuple[date, date] | None:
     if not isinstance(min_date, date) or not isinstance(max_date, date):
         return None
     return min_date, max_date
-
-
-def _sql_string_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _preview_candidate_tables(dataset: str, allowed_tables: list[str]) -> list[str]:

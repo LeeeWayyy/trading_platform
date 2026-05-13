@@ -12,7 +12,7 @@ import socket
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path as _Path
 from typing import Any
@@ -713,9 +713,7 @@ def resolve_sql_table_availability(
                 fallback_only = bool(manifest_required and isinstance(path_spec, str))
                 manifest_invalid = False
             trusted_for_data_page = bool(
-                available
-                and not manifest_invalid
-                and (not manifest_required or manifest_backed)
+                available and not manifest_invalid and (not manifest_required or manifest_backed)
             )
             if manifest_invalid:
                 warnings.append(
@@ -924,8 +922,9 @@ def can_query_dataset(user: Any, dataset: str) -> bool:
 def _query_frame_from_connection(
     conn: duckdb.DuckDBPyConnection,
     sql: str,
+    parameters: Sequence[Any] | None = None,
 ) -> pl.DataFrame:
-    result = conn.execute(sql)
+    result = conn.execute(sql, parameters) if parameters is not None else conn.execute(sql)
     df = result.pl()
     cell_count = len(df) * len(df.columns)
     if cell_count > _MAX_CELLS:
@@ -988,11 +987,13 @@ async def _execute_query_with_timeout(
     conn: duckdb.DuckDBPyConnection,
     sql: str,
     timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+    *,
+    parameters: Sequence[Any] | None = None,
 ) -> pl.DataFrame:
     """Execute query with bounded concurrency and timeout-safe cleanup."""
 
     return await _execute_query_callable_with_timeout(
-        lambda: _query_frame_from_connection(conn, sql),
+        lambda: _query_frame_from_connection(conn, sql, parameters),
         timeout_seconds,
         conn.interrupt,
     )
@@ -1008,11 +1009,13 @@ class _ScopedQueryRunner:
         available_tables: set[str],
         table_paths: dict[str, TablePathSpec] | None,
         sql: str,
+        parameters: Sequence[Any] | None,
     ) -> None:
         self._dataset = dataset
         self._available_tables = available_tables
         self._table_paths = table_paths
         self._sql = sql
+        self._parameters = parameters
         self._conn: duckdb.DuckDBPyConnection | None = None
         self._conn_lock = threading.Lock()
         self._interrupt_requested = threading.Event()
@@ -1028,7 +1031,7 @@ class _ScopedQueryRunner:
         try:
             if self._interrupt_requested.is_set():
                 conn.interrupt()
-            return _query_frame_from_connection(conn, self._sql)
+            return _query_frame_from_connection(conn, self._sql, self._parameters)
         finally:
             try:
                 conn.close()
@@ -1052,6 +1055,7 @@ async def execute_scoped_query_frame_with_timeout(
     *,
     available_tables: set[str],
     table_paths: dict[str, TablePathSpec] | None = None,
+    parameters: Sequence[Any] | None = None,
 ) -> pl.DataFrame:
     """Execute a scoped DuckDB query while owning close in the query worker thread."""
 
@@ -1060,6 +1064,7 @@ async def execute_scoped_query_frame_with_timeout(
         available_tables=available_tables,
         table_paths=table_paths,
         sql=sql,
+        parameters=parameters,
     )
     return await _execute_query_callable_with_timeout(
         runner.run,
@@ -1072,9 +1077,16 @@ async def execute_scoped_query_with_timeout(
     conn: duckdb.DuckDBPyConnection,
     sql: str,
     timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
+    *,
+    parameters: Sequence[Any] | None = None,
 ) -> pl.DataFrame:
     """Execute a scoped DuckDB query with shared timeout/concurrency limits."""
-    return await _execute_query_with_timeout(conn, sql, timeout_seconds)
+    return await _execute_query_with_timeout(
+        conn,
+        sql,
+        timeout_seconds,
+        parameters=parameters,
+    )
 
 
 def check_sensitive_tables(tables: list[str]) -> None:

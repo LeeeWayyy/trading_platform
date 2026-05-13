@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from libs.web_console_services.data_manifest_service import (
+    ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
+    ALPACA_SIP_COMPANION_MANIFEST_STALE,
+    ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
     AlpacaSipManifestSummaryDTO,
@@ -11,8 +14,9 @@ from libs.web_console_services.data_manifest_service import (
 
 SPLIT_ADJUSTMENT_BLOCKING_WARNINGS = frozenset(
     {
-        "alpaca_sip_companion_manifest_stale",
-        "alpaca_sip_companion_symbol_set_mismatch",
+        ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
+        ALPACA_SIP_COMPANION_MANIFEST_STALE,
+        ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
     }
 )
 
@@ -35,12 +39,15 @@ def summary_supports_split_adjustment(summary: AlpacaSipManifestSummaryDTO) -> b
         return False
     if corp_actions.validation_status.lower() != "passed":
         return False
-    return not any(
-        warning in SPLIT_ADJUSTMENT_BLOCKING_WARNINGS for warning in summary.warnings
-    )
+    if corp_actions.start_date > daily.start_date or corp_actions.end_date < daily.end_date:
+        return False
+    return not any(warning in SPLIT_ADJUSTMENT_BLOCKING_WARNINGS for warning in summary.warnings)
 
 
 __all__ = [
+    "ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH",
+    "ALPACA_SIP_COMPANION_MANIFEST_STALE",
+    "ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH",
     "SPLIT_ADJUSTMENT_BLOCKING_WARNINGS",
     "manifest_has_native_returns",
     "summary_supports_split_adjustment",

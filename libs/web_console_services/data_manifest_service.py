@@ -23,6 +23,9 @@ ALPACA_SIP_MANIFEST_DATASETS: tuple[str, ...] = (
     ALPACA_SIP_DAILY_DATASET,
     ALPACA_SIP_CORP_ACTIONS_DATASET,
 )
+ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH = "alpaca_sip_companion_symbol_set_mismatch"
+ALPACA_SIP_COMPANION_MANIFEST_STALE = "alpaca_sip_companion_manifest_stale"
+ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH = "alpaca_sip_companion_date_range_mismatch"
 
 _ALPACA_SIP_COMPANION_MAX_END_DATE_DRIFT_DAYS = 1
 _DEFAULT_DATA_ROOT = Path(os.getenv("DATA_ROOT", "data")).resolve()
@@ -252,11 +255,13 @@ class DataManifestService:
             and corp_actions.symbol_set_hash
             and daily.symbol_set_hash != corp_actions.symbol_set_hash
         ):
-            warnings.append("alpaca_sip_companion_symbol_set_mismatch")
+            warnings.append(ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH)
 
         end_date_drift = abs((daily.end_date - corp_actions.end_date).days)
         if end_date_drift > _ALPACA_SIP_COMPANION_MAX_END_DATE_DRIFT_DAYS:
-            warnings.append("alpaca_sip_companion_manifest_stale")
+            warnings.append(ALPACA_SIP_COMPANION_MANIFEST_STALE)
+        if corp_actions.start_date > daily.start_date or corp_actions.end_date < daily.end_date:
+            warnings.append(ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH)
 
         return warnings
 

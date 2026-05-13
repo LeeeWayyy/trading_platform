@@ -18,6 +18,7 @@ from libs.web_console_services.data_manifest_service import (
     ManifestSummaryDTO,
 )
 from libs.web_console_services.data_readiness_service import (
+    ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
     ALPACA_SIP_COMPANION_MANIFEST_STALE,
     ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
     ALPACA_SIP_MANIFEST_VALIDATION_FAILED,
@@ -67,6 +68,8 @@ def _manifest(
     *,
     validation_status: str = "passed",
     read_time_adjustment_mode: str | None = None,
+    start_date: date = date(2026, 4, 1),
+    end_date: date = date(2026, 4, 30),
 ) -> ManifestSummaryDTO:
     is_daily = dataset == ALPACA_SIP_DAILY_DATASET
     provider_id = "crsp" if dataset == CRSP_UNIVERSE_MANIFEST_DATASET else "alpaca_sip"
@@ -80,8 +83,8 @@ def _manifest(
         schema_version="v1",
         validation_status=validation_status,
         sync_timestamp=NOW,
-        start_date=date(2026, 4, 1),
-        end_date=date(2026, 4, 30),
+        start_date=start_date,
+        end_date=end_date,
         row_count=10,
         file_count=1,
         provider_id=provider_id,
@@ -92,7 +95,9 @@ def _manifest(
         read_time_adjustment_mode=(
             read_time_adjustment_mode
             if read_time_adjustment_mode is not None
-            else "unavailable" if is_daily else None
+            else "unavailable"
+            if is_daily
+            else None
         ),
         provider_signature=ProviderSignatureDTO(
             provider_id=provider_id,
@@ -176,6 +181,7 @@ def test_alpaca_sip_readiness_exposes_pairing_warnings(
             _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
         ],
         warnings=[
+            ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
             ALPACA_SIP_COMPANION_MANIFEST_STALE,
             ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
         ],
@@ -188,6 +194,7 @@ def test_alpaca_sip_readiness_exposes_pairing_warnings(
     readiness = service.get_readiness(DummyUser(), ALPACA_SIP_DATASET_KEY, "quality_analysis")
 
     assert readiness.status == "warning"
+    assert ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH in readiness.warnings
     assert ALPACA_SIP_COMPANION_MANIFEST_STALE in readiness.warnings
     assert ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH in readiness.warnings
 
@@ -222,7 +229,7 @@ def test_alpaca_sip_simple_backtest_blocks_pairing_for_raw_daily_manifest(
             _manifest(ALPACA_SIP_DAILY_DATASET),
             _manifest(ALPACA_SIP_CORP_ACTIONS_DATASET),
         ],
-        warnings=[ALPACA_SIP_COMPANION_MANIFEST_STALE],
+        warnings=[ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH],
     )
     service = DataReadinessService(
         manifest_service=cast(DataManifestService, FakeManifestService(summary))
@@ -232,8 +239,37 @@ def test_alpaca_sip_simple_backtest_blocks_pairing_for_raw_daily_manifest(
     readiness = service.get_readiness(DummyUser(), ALPACA_SIP_DATASET_KEY, "simple_backtest")
 
     assert readiness.status == "blocked"
-    assert ALPACA_SIP_COMPANION_MANIFEST_STALE in readiness.blockers
+    assert ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH in readiness.blockers
     assert RAW_SIP_RETURNS_UNAVAILABLE in readiness.blockers
+
+
+def test_alpaca_sip_simple_backtest_blocks_split_engine_when_companion_range_misses_daily(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = _summary(
+        [
+            _manifest(
+                ALPACA_SIP_DAILY_DATASET,
+                start_date=date(2026, 4, 1),
+                end_date=date(2026, 4, 30),
+            ),
+            _manifest(
+                ALPACA_SIP_CORP_ACTIONS_DATASET,
+                start_date=date(2026, 4, 5),
+                end_date=date(2026, 4, 30),
+            ),
+        ]
+    )
+    service = DataReadinessService(
+        manifest_service=cast(DataManifestService, FakeManifestService(summary))
+    )
+    _allow_readiness(monkeypatch, {"alpaca_sip"})
+
+    readiness = service.get_readiness(DummyUser(), ALPACA_SIP_DATASET_KEY, "simple_backtest")
+
+    assert readiness.status == "blocked"
+    assert RAW_SIP_RETURNS_UNAVAILABLE in readiness.blockers
+    assert READ_TIME_ADJUSTMENT_AVAILABLE_REASON not in [check.code for check in readiness.checks]
 
 
 def test_alpaca_sip_simple_backtest_ready_when_adjustment_available(

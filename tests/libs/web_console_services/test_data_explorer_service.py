@@ -1766,6 +1766,8 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
                     _manifest_summary(
                         dataset="alpaca_sip_daily",
                         validation_status="passed",
+                        start_date=date(2020, 8, 28),
+                        end_date=date(2020, 9, 1),
                         manifest_id="alpaca_sip_daily@v1:abc",
                         manifest_reference="manifests://alpaca_sip_daily.json",
                         manifest_checksum="abc",
@@ -1781,6 +1783,8 @@ async def test_get_dataset_preview_returns_alpaca_manifest_provenance(
                     _manifest_summary(
                         dataset="alpaca_sip_corp_actions",
                         validation_status="passed",
+                        start_date=date(2020, 8, 28),
+                        end_date=date(2020, 9, 1),
                         manifest_id="alpaca_sip_corp_actions@v1:def",
                         manifest_reference="manifests://alpaca_sip_corp_actions.json",
                         manifest_checksum="def",
@@ -1881,6 +1885,8 @@ async def test_get_dataset_preview_returns_split_adjusted_alpaca_preview(
             _manifest_summary(
                 dataset="alpaca_sip_daily",
                 validation_status="passed",
+                start_date=date(2020, 1, 2),
+                end_date=date(2020, 1, 3),
                 manifest_id="alpaca_sip_daily@v1:abc",
                 manifest_reference="manifests://alpaca_sip_daily.json",
                 manifest_checksum="abc",
@@ -1891,6 +1897,8 @@ async def test_get_dataset_preview_returns_split_adjusted_alpaca_preview(
             _manifest_summary(
                 dataset="alpaca_sip_corp_actions",
                 validation_status="passed",
+                start_date=date(2020, 1, 2),
+                end_date=date(2020, 8, 31),
                 manifest_id="alpaca_sip_corp_actions@v1:def",
                 manifest_reference="manifests://alpaca_sip_corp_actions.json",
                 manifest_checksum="def",
@@ -2028,6 +2036,36 @@ async def test_get_dataset_preview_applies_future_split_to_older_price_chunk(
     assert preview.rows[0]["adj_close"] == 125.0
     assert preview.rows[1]["adj_close"] == 130.0
     assert preview.rows[1]["ret"] == pytest.approx(0.04)
+
+
+@pytest.mark.asyncio()
+async def test_load_corporate_actions_for_prices_uses_bound_parameters(
+    rate_limiter: AsyncMock,
+) -> None:
+    service = DataExplorerService(rate_limiter=rate_limiter)
+    captured: dict[str, Any] = {}
+
+    async def capture_execute_sql_frame(**kwargs: Any) -> pl.DataFrame:
+        captured.update(kwargs)
+        return pl.DataFrame()
+
+    service._execute_sql_frame = capture_execute_sql_frame  # type: ignore[method-assign]
+    prices = pl.DataFrame(
+        {
+            "symbol": ["BRK'B", "AAPL", "AAPL"],
+            "date": [date(2020, 1, 2), date(2020, 1, 3), date(2020, 1, 4)],
+        }
+    )
+
+    await service._load_corporate_actions_for_prices(
+        dataset="alpaca_sip",
+        prices=prices,
+        table_paths={"alpaca_sip_corp_actions": ("actions.parquet",)},
+    )
+
+    assert captured["parameters"] == ["AAPL", "BRK'B", date(2020, 1, 2)]
+    assert "BRK'B" not in captured["sql"]
+    assert captured["sql"].count("?") == 3
 
 
 @pytest.mark.asyncio()

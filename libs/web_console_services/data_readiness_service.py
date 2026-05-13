@@ -15,6 +15,9 @@ from libs.platform.web_console_auth.permissions import (
     has_permission,
 )
 from libs.web_console_services.alpaca_sip_manifest_helpers import (
+    ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
+    ALPACA_SIP_COMPANION_MANIFEST_STALE,
+    ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
     manifest_has_native_returns,
     summary_supports_split_adjustment,
 )
@@ -39,8 +42,6 @@ CRSP_UNIVERSE_MANIFEST_DATASET = "crsp_daily"
 RAW_SIP_RETURNS_UNAVAILABLE = "raw_sip_returns_unavailable"
 ALPACA_SIP_UNTRUSTED_WITHOUT_MANIFEST = "alpaca_sip_untrusted_without_manifest"
 ALPACA_SIP_MANIFEST_VALIDATION_FAILED = "alpaca_sip_manifest_validation_failed"
-ALPACA_SIP_COMPANION_MANIFEST_STALE = "alpaca_sip_companion_manifest_stale"
-ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH = "alpaca_sip_companion_symbol_set_mismatch"
 CRSP_UNIVERSE_UNAVAILABLE = "crsp_universe_unavailable"
 HYBRID_PRICE_COMPONENT_READY = "hybrid_price_component_ready"
 HYBRID_PRICE_COMPONENT_WARNING = "hybrid_price_component_warning"
@@ -253,6 +254,20 @@ def _alpaca_sip_checks(
                     target_section="acquisition",
                 )
             )
+        elif warning == ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH:
+            checks.append(
+                DataReadinessCheckDTO(
+                    code=ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
+                    status=pairing_status,
+                    message=(
+                        "Corporate actions manifest date coverage does not span the daily "
+                        "bars manifest range."
+                    ),
+                    source="manifest_pairing",
+                    action_label="Refresh corporate-actions coverage",
+                    target_section="acquisition",
+                )
+            )
         elif warning == ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH:
             checks.append(
                 DataReadinessCheckDTO(
@@ -320,9 +335,7 @@ def _hybrid_price_component_check_from_summary(
 ) -> DataReadinessCheckDTO:
     manifests = {manifest.dataset: manifest for manifest in summary.manifests}
     component_states: list[Literal["blocked", "warning"]] = []
-    daily_returns_available = manifest_has_native_returns(
-        manifests.get(ALPACA_SIP_DAILY_DATASET)
-    )
+    daily_returns_available = manifest_has_native_returns(manifests.get(ALPACA_SIP_DAILY_DATASET))
     requires_returns = workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS
     for dataset, required in (
         (ALPACA_SIP_DAILY_DATASET, True),
@@ -341,6 +354,7 @@ def _hybrid_price_component_check_from_summary(
     if any(
         warning
         in {
+            ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
             ALPACA_SIP_COMPANION_MANIFEST_STALE,
             ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
         }

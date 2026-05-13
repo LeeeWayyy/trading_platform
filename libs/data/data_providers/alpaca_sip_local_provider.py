@@ -225,6 +225,17 @@ class AlpacaSIPLocalProvider:
                 f"No manifest found for '{self.CORP_ACTIONS_DATASET_NAME}'. "
                 "Run Alpaca corporate-actions sync first."
             )
+        if manifest.validation_status != "passed":
+            raise DataNotFoundError(
+                f"Corporate-action manifest '{self.CORP_ACTIONS_DATASET_NAME}' "
+                f"is not trusted: validation_status={manifest.validation_status}."
+            )
+        if manifest.start_date > start_date:
+            raise DataNotFoundError(
+                f"Corporate-action manifest '{self.CORP_ACTIONS_DATASET_NAME}' starts at "
+                f"{manifest.start_date.isoformat()}, after requested price start "
+                f"{start_date.isoformat()}."
+            )
 
         partition_paths = self._get_corp_action_paths_from_manifest(manifest)
         if not partition_paths:
