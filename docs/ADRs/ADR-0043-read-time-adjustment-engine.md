@@ -37,6 +37,10 @@ The initial accepted scope is:
   trusted and companion-manifest checks are clean.
 - The Alpaca SIP data-provider adapter applies the same derivation before
   simple backtests consume local SIP bars, so readiness and execution agree.
+- Pinned Alpaca SIP daily snapshots must not read the mutable current
+  `alpaca_sip_corp_actions` manifest. Until backtest metadata can pin and
+  record both inputs together, read-time adjustment is disabled for pinned
+  daily-provider reads and callers fail closed on missing adjusted returns.
 - Backtest handoff metadata must continue to carry role-keyed manifest IDs,
   references, checksums, provider signatures, canonical storage modes, and
   read-time adjustment modes.

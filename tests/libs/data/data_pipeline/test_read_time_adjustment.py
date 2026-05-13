@@ -7,6 +7,7 @@ from datetime import date
 import polars as pl
 import pytest
 
+from libs.data.data_pipeline.helpers import normalized_symbols_from_frame
 from libs.data.data_pipeline.read_time_adjustment import (
     READ_TIME_ADJUSTMENT_AVAILABLE_REASON,
     READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
@@ -123,3 +124,9 @@ def test_missing_corporate_action_date_column_fails_closed() -> None:
 
     with pytest.raises(ValueError, match="action date column"):
         derive_split_adjusted_prices(_prices(), corp_actions)
+
+
+def test_normalized_symbols_from_frame_uses_polars_native_normalization() -> None:
+    frame = pl.DataFrame({"symbol": [" aapl", "MSFT", "AAPL ", None, ""]})
+
+    assert normalized_symbols_from_frame(frame) == ["AAPL", "MSFT"]

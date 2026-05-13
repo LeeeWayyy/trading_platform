@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import polars as pl
 
+from libs.data.data_pipeline.helpers import normalized_symbols_from_frame
 from libs.data.data_pipeline.read_time_adjustment import (
     READ_TIME_ADJUSTMENT_AVAILABLE_REASON,
     READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
@@ -31,6 +32,10 @@ from libs.platform.web_console_auth.permissions import (
 )
 from libs.platform.web_console_auth.rate_limiter import RateLimiter, get_rate_limiter
 
+from .alpaca_sip_manifest_helpers import (
+    manifest_has_native_returns,
+    summary_supports_split_adjustment,
+)
 from .data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -852,7 +857,7 @@ class DataExplorerService:
             corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
         else:
             date_bounds = _price_date_bounds(prices)
-            symbols = _price_symbols(prices)
+            symbols = normalized_symbols_from_frame(prices)
             if date_bounds is None or not symbols:
                 corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
             else:
@@ -1263,18 +1268,6 @@ def _price_date_bounds(prices: pl.DataFrame) -> tuple[date, date] | None:
     return min_date, max_date
 
 
-def _price_symbols(prices: pl.DataFrame) -> list[str]:
-    if "symbol" not in prices.columns or prices.is_empty():
-        return []
-    return sorted(
-        {
-            symbol
-            for raw_symbol in prices.get_column("symbol").to_list()
-            if (symbol := str(raw_symbol).strip().upper())
-        }
-    )
-
-
 def _sql_string_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -1336,9 +1329,7 @@ def _read_time_adjustment_available(
 ) -> bool:
     if alpaca_summary is None or alpaca_summary_unavailable:
         return False
-    if any(
-        warning in _ALPACA_SIP_COMPANION_BLOCKING_REASONS for warning in alpaca_summary.warnings
-    ):
+    if not summary_supports_split_adjustment(alpaca_summary):
         return False
     return (
         _trusted_manifest_for_table(alpaca_summary, "alpaca_sip_daily", trusted_tables) is not None
@@ -1349,12 +1340,6 @@ def _read_time_adjustment_available(
         )
         is not None
     )
-
-
-def _daily_manifest_has_returns(manifest: ManifestSummaryDTO | None) -> bool:
-    if manifest is None or manifest.validation_status.lower() != "passed":
-        return False
-    return manifest.read_time_adjustment_mode == "available"
 
 
 def _dataset_adjustment_metadata(
@@ -1378,7 +1363,7 @@ def _dataset_adjustment_metadata(
         "alpaca_sip_daily",
         trusted_tables,
     )
-    daily_returns_available = _daily_manifest_has_returns(daily_manifest)
+    daily_returns_available = manifest_has_native_returns(daily_manifest)
     returns_available = read_time_available or daily_returns_available
     warnings: set[str] = set()
     if not returns_available:

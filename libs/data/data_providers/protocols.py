@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import polars as pl
 
+from libs.data.data_pipeline.helpers import normalized_symbols_from_frame
 from libs.data.data_pipeline.read_time_adjustment import derive_split_adjusted_prices
 from libs.data.data_providers.registry import ProviderCapabilities, ProviderType, get_provider_spec
 from libs.data.data_quality.exceptions import DataNotFoundError
@@ -597,13 +598,7 @@ class AlpacaSIPDataProviderAdapter:
         start_date = df.select(pl.col("date").min()).item()
         if not isinstance(start_date, date):
             return df
-        symbols = sorted(
-            {
-                symbol
-                for raw_symbol in df.get_column("symbol").to_list()
-                if (symbol := str(raw_symbol).strip().upper())
-            }
-        )
+        symbols = normalized_symbols_from_frame(df)
         try:
             corporate_actions = self._provider.get_corporate_actions(
                 start_date=start_date,

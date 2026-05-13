@@ -9,6 +9,7 @@ from nicegui import ui
 
 from apps.web_console_ng.components.data_management_common import (
     format_datetime,
+    manifest_has_native_returns,
     summary_supports_split_adjustment,
 )
 from libs.data.data_pipeline.read_time_adjustment import (
@@ -95,7 +96,7 @@ def _present_detail_fields(
     ]
     validation_ok = manifest.validation_status == "passed"
     split_adjustment_available = summary_supports_split_adjustment(summary)
-    native_returns_available = _manifest_has_native_returns(manifest)
+    native_returns_available = manifest_has_native_returns(manifest)
     returns_available = split_adjustment_available or native_returns_available
     readiness = (
         f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
@@ -197,7 +198,7 @@ def _readiness_for_present_manifest(
             readiness = f"{readiness}; raw_sip_returns_unavailable"
         return readiness
     if is_daily:
-        if _manifest_has_native_returns(manifest):
+        if manifest_has_native_returns(manifest):
             return "ready: native adjusted returns available"
         return "blocked: raw_sip_returns_unavailable"
     if warnings:
@@ -215,12 +216,6 @@ def _daily_return_column_state(
     if native_returns_available:
         return "available"
     return "not available"
-
-
-def _manifest_has_native_returns(manifest: ManifestSummaryDTO | None) -> bool:
-    if manifest is None or manifest.validation_status != "passed":
-        return False
-    return manifest.read_time_adjustment_mode == "available"
 
 
 __all__ = ["build_manifest_detail_fields", "render_manifest_detail_drawer"]

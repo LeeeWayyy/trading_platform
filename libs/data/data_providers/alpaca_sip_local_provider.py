@@ -212,6 +212,13 @@ class AlpacaSIPLocalProvider:
         first requested price date so later splits can adjust earlier raw bars.
         A missing corporate-action manifest fails closed via ``DataNotFoundError``.
         """
+        if self._pinned_manifest is not None:
+            raise DataNotFoundError(
+                "Corporate-action reads are disabled for pinned Alpaca SIP daily "
+                "manifests until a companion corporate-actions manifest is pinned "
+                "with the same backtest snapshot."
+            )
+
         manifest = self.manifest_manager.load_manifest(self.CORP_ACTIONS_DATASET_NAME)
         if manifest is None:
             raise DataNotFoundError(

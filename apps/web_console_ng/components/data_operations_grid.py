@@ -8,6 +8,7 @@ from nicegui import ui
 
 from apps.web_console_ng.components.data_management_common import (
     format_datetime,
+    manifest_has_native_returns,
     summary_supports_split_adjustment,
 )
 from libs.data.data_pipeline.read_time_adjustment import (
@@ -72,11 +73,11 @@ def _row_from_manifest_or_missing(
     is_daily = dataset == ALPACA_SIP_DAILY_DATASET
     raw_state = "Raw OHLC" if is_daily else "-"
     adjustment_available = summary_supports_split_adjustment(summary)
-    returns_available = adjustment_available or _manifest_has_native_returns(manifest)
+    returns_available = adjustment_available or manifest_has_native_returns(manifest)
     adjustment_state = _adjustment_state(
         is_daily,
         split_adjustment_available=adjustment_available,
-        native_returns_available=_manifest_has_native_returns(manifest),
+        native_returns_available=manifest_has_native_returns(manifest),
     )
     if manifest is None:
         readiness = "blocked: alpaca_sip_untrusted_without_manifest"
@@ -171,7 +172,7 @@ def _warnings_for_dataset(
             (item for item in summary.manifests if item.dataset == ALPACA_SIP_DAILY_DATASET),
             None,
         )
-        if not summary_supports_split_adjustment(summary) and not _manifest_has_native_returns(
+        if not summary_supports_split_adjustment(summary) and not manifest_has_native_returns(
             manifest
         ):
             warnings.append("raw_sip_returns_unavailable")
@@ -191,12 +192,6 @@ def _adjustment_state(
     if native_returns_available:
         return "adj_close/ret: available"
     return "adj_close: not available; ret: not available"
-
-
-def _manifest_has_native_returns(manifest: ManifestSummaryDTO | None) -> bool:
-    if manifest is None or manifest.validation_status != "passed":
-        return False
-    return manifest.read_time_adjustment_mode == "available"
 
 
 __all__ = ["build_manifest_grid_rows", "render_manifest_operations_grid"]

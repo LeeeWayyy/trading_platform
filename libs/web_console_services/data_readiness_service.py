@@ -14,6 +14,10 @@ from libs.platform.web_console_auth.permissions import (
     has_dataset_permission,
     has_permission,
 )
+from libs.web_console_services.alpaca_sip_manifest_helpers import (
+    manifest_has_native_returns,
+    summary_supports_split_adjustment,
+)
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -188,7 +192,7 @@ def _alpaca_sip_checks(
 ) -> list[DataReadinessCheckDTO]:
     manifests = {manifest.dataset: manifest for manifest in summary.manifests}
     daily = manifests.get(ALPACA_SIP_DAILY_DATASET)
-    daily_returns_available = _daily_manifest_has_returns(daily)
+    daily_returns_available = manifest_has_native_returns(daily)
     requires_returns = workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS
     checks: list[DataReadinessCheckDTO] = [
         _manifest_check(
@@ -204,7 +208,7 @@ def _alpaca_sip_checks(
     ]
 
     if requires_returns:
-        if _read_time_adjustment_available(summary):
+        if summary_supports_split_adjustment(summary):
             checks.append(
                 DataReadinessCheckDTO(
                     code=READ_TIME_ADJUSTMENT_AVAILABLE_REASON,
@@ -299,30 +303,6 @@ def _manifest_check(
     )
 
 
-def _read_time_adjustment_available(summary: AlpacaSipManifestSummaryDTO) -> bool:
-    manifests = {manifest.dataset: manifest for manifest in summary.manifests}
-    daily = manifests.get(ALPACA_SIP_DAILY_DATASET)
-    corp_actions = manifests.get(ALPACA_SIP_CORP_ACTIONS_DATASET)
-    if daily is None or corp_actions is None:
-        return False
-    if daily.validation_status != "passed" or corp_actions.validation_status != "passed":
-        return False
-    return not any(
-        warning
-        in {
-            ALPACA_SIP_COMPANION_MANIFEST_STALE,
-            ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
-        }
-        for warning in summary.warnings
-    )
-
-
-def _daily_manifest_has_returns(manifest: ManifestSummaryDTO | None) -> bool:
-    if manifest is None or manifest.validation_status != "passed":
-        return False
-    return manifest.read_time_adjustment_mode == "available"
-
-
 def _crsp_unavailable_check(message: str) -> DataReadinessCheckDTO:
     return DataReadinessCheckDTO(
         code=CRSP_UNIVERSE_UNAVAILABLE,
@@ -340,7 +320,9 @@ def _hybrid_price_component_check_from_summary(
 ) -> DataReadinessCheckDTO:
     manifests = {manifest.dataset: manifest for manifest in summary.manifests}
     component_states: list[Literal["blocked", "warning"]] = []
-    daily_returns_available = _daily_manifest_has_returns(manifests.get(ALPACA_SIP_DAILY_DATASET))
+    daily_returns_available = manifest_has_native_returns(
+        manifests.get(ALPACA_SIP_DAILY_DATASET)
+    )
     requires_returns = workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS
     for dataset, required in (
         (ALPACA_SIP_DAILY_DATASET, True),
@@ -354,7 +336,7 @@ def _hybrid_price_component_check_from_summary(
             component_states.append("blocked" if required else "warning")
 
     needs_split_adjustment = requires_returns and not daily_returns_available
-    if needs_split_adjustment and not _read_time_adjustment_available(summary):
+    if needs_split_adjustment and not summary_supports_split_adjustment(summary):
         component_states.append("blocked")
     if any(
         warning
