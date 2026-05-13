@@ -24,12 +24,16 @@ _PRICE_COLUMNS = ("open", "high", "low", "close")
 _CORP_ACTION_REQUIRED_COLUMNS = frozenset({"symbol", "ca_type", "old_rate", "new_rate"})
 _CORP_ACTION_DATE_COLUMNS = ("ex_date", "process_date")
 _SUPPORTED_SPLIT_CA_TYPES = (
+    "forward_split",
+    "forward_splits",
     "reverse_split",
     "reverse_splits",
     "split",
     "splits",
     "stock_split",
     "stock_splits",
+    "unit_split",
+    "unit_splits",
 )
 
 
@@ -118,15 +122,16 @@ def derive_split_adjusted_prices(
 
 
 def _normalize_prices(prices: pl.DataFrame) -> pl.DataFrame:
-    normalized = prices.with_row_index("__input_order").with_columns(
+    return prices.with_row_index("__input_order").with_columns(
         [
-            pl.col("symbol").cast(pl.Utf8).str.to_uppercase(),
+            pl.col("symbol").cast(pl.Utf8).str.strip_chars().str.to_uppercase(),
             pl.col("date").cast(pl.Date, strict=False),
+            *[
+                pl.col(column).cast(pl.Float64, strict=False)
+                for column in (*_PRICE_COLUMNS, "volume")
+            ],
         ]
     )
-    for column in (*_PRICE_COLUMNS, "volume"):
-        normalized = normalized.with_columns(pl.col(column).cast(pl.Float64, strict=False))
-    return normalized
 
 
 def _split_actions(corporate_actions: pl.DataFrame) -> tuple[pl.DataFrame, int]:
@@ -140,8 +145,12 @@ def _split_actions(corporate_actions: pl.DataFrame) -> tuple[pl.DataFrame, int]:
     ]
     normalized = corporate_actions.with_columns(
         [
-            pl.col("symbol").cast(pl.Utf8).str.to_uppercase(),
-            pl.col("ca_type").cast(pl.Utf8).str.to_lowercase(),
+            pl.col("symbol").cast(pl.Utf8).str.strip_chars().str.to_uppercase(),
+            pl.col("ca_type")
+            .cast(pl.Utf8)
+            .str.strip_chars()
+            .str.to_lowercase()
+            .str.replace_all(r"\s+", "_"),
             pl.coalesce(date_exprs).alias("date"),
             pl.col("old_rate").cast(pl.Float64, strict=False),
             pl.col("new_rate").cast(pl.Float64, strict=False),
@@ -152,6 +161,8 @@ def _split_actions(corporate_actions: pl.DataFrame) -> tuple[pl.DataFrame, int]:
         pl.col("date").is_not_null()
         & pl.col("old_rate").is_not_null()
         & pl.col("new_rate").is_not_null()
+        & pl.col("old_rate").is_finite()
+        & pl.col("new_rate").is_finite()
         & (pl.col("old_rate") > 0)
         & (pl.col("new_rate") > 0)
     )

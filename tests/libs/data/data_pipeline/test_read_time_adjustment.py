@@ -94,6 +94,26 @@ def test_split_off_action_type_is_not_treated_as_split() -> None:
     assert result.frame["adj_close"].to_list() == [500.0, 125.0, 130.0]
 
 
+@pytest.mark.parametrize(
+    "ca_type",
+    [" forward split ", "forward_splits", "unit_split", "unit splits"],
+)
+def test_alpaca_split_type_is_supported_with_normalization(ca_type: str) -> None:
+    prices = _prices().with_columns(pl.lit(" aapl ").alias("symbol"))
+    corp_actions = _corp_actions().with_columns(
+        [
+            pl.lit(" aapl ").alias("symbol"),
+            pl.lit(ca_type).alias("ca_type"),
+        ]
+    )
+
+    result = derive_split_adjusted_prices(prices, corp_actions)
+
+    assert result.split_action_count == 1
+    assert result.frame["symbol"].to_list() == ["AAPL", "AAPL", "AAPL"]
+    assert result.frame["adj_close"].to_list() == [125.0, 125.0, 130.0]
+
+
 def test_reverse_split_action_type_is_supported() -> None:
     corp_actions = _corp_actions().with_columns(
         [
@@ -128,6 +148,16 @@ def test_malformed_split_rates_are_skipped_with_reason_code() -> None:
     assert result.skipped_action_count == 1
     assert READ_TIME_INVALID_SPLIT_ACTIONS_SKIPPED_REASON in result.reason_codes
     assert result.frame["adj_close"].to_list() == [500.0, 125.0, 130.0]
+
+
+def test_non_finite_split_rates_are_skipped_with_reason_code() -> None:
+    corp_actions = _corp_actions().with_columns(pl.lit(float("inf")).alias("new_rate"))
+
+    result = derive_split_adjusted_prices(_prices(), corp_actions)
+
+    assert result.skipped_action_count == 1
+    assert READ_TIME_INVALID_SPLIT_ACTIONS_SKIPPED_REASON in result.reason_codes
+    assert READ_TIME_NO_SPLIT_ACTIONS_REASON in result.reason_codes
 
 
 def test_malformed_split_dates_are_skipped_with_reason_code() -> None:
