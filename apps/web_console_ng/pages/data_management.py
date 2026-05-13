@@ -59,6 +59,11 @@ from libs.platform.web_console_auth.permissions import (
     has_dataset_permission,
     has_permission,
 )
+from libs.web_console_services.alert_acknowledgment_store import (
+    AlertAcknowledgmentStore,
+    InMemoryAlertAcknowledgmentStore,
+    PostgresAlertAcknowledgmentStore,
+)
 from libs.web_console_services.data_explorer_service import (
     DATA_EXPORT_RATE_LIMIT,
     DataExplorerService,
@@ -128,6 +133,30 @@ CRITICAL_QUALITY_THRESHOLD = 70.0
 _CLEANUP_OWNER_KEY = "data_management_timers"
 
 
+def _resolve_alert_acknowledgment_store() -> AlertAcknowledgmentStore:
+    """Return a durable acknowledgment store when Postgres is configured.
+
+    Falls back to the in-memory store when the sync DB pool is unavailable, so
+    the page can still render the quality drawer with acknowledgment controls
+    marked unavailable (per the Phase 5 plan AC).
+    """
+    try:
+        from apps.web_console_ng.core.dependencies import get_sync_db_pool
+
+        pool = get_sync_db_pool()
+    except (RuntimeError, ImportError) as exc:
+        # Misconfiguration in production: acknowledgments will not persist.
+        # The page still renders, and the Acknowledge button is gated on
+        # quality_service.acknowledgments_persistent, but operators need to
+        # see this in logs so they can wire up DATABASE_URL.
+        logger.warning(
+            "alert_acknowledgment_store_in_memory",
+            extra={"reason": "sync_db_pool_unavailable", "error": str(exc)},
+        )
+        return InMemoryAlertAcknowledgmentStore()
+    return PostgresAlertAcknowledgmentStore(db_pool=pool)
+
+
 @ui.page("/data")
 @requires_auth
 @main_layout
@@ -139,7 +168,11 @@ async def data_management_page() -> None:
     sync_service = DataSyncService()
     explorer_service = DataExplorerService()
     manifest_service = DataManifestService()
-    quality_service = DataQualityService(manifest_service=manifest_service)
+    ack_store = _resolve_alert_acknowledgment_store()
+    quality_service = DataQualityService(
+        manifest_service=manifest_service,
+        acknowledgment_store=ack_store,
+    )
     readiness_service = DataReadinessService(manifest_service=manifest_service)
 
     # Page title
