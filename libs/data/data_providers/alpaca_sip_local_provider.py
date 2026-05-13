@@ -205,15 +205,18 @@ class AlpacaSIPLocalProvider:
         *,
         start_date: date,
         end_date: date | None = None,
+        coverage_end_date: date | None = None,
         symbols: list[str] | None = None,
     ) -> pl.DataFrame:
         """Get paired corporate actions from the trusted manifest.
 
-        The read-time split adjustment layer needs actions on or after the
-        first requested price date through the last requested price date so
-        later splits can adjust earlier raw bars without stale companion data.
-        A missing corporate-action manifest fails closed via ``DataNotFoundError``.
+        ``end_date`` bounds returned corporate-action rows for explicit action
+        reads. ``coverage_end_date`` only validates that the companion manifest
+        is fresh enough for callers, such as read-time adjustment, that need all
+        later trusted split actions from the manifest horizon. A missing
+        corporate-action manifest fails closed via ``DataNotFoundError``.
         """
+        required_end_date = coverage_end_date if coverage_end_date is not None else end_date
         if self._pinned_manifest is not None:
             raise DataNotFoundError(
                 "Corporate-action reads are disabled for pinned Alpaca SIP daily "
@@ -238,11 +241,11 @@ class AlpacaSIPLocalProvider:
                 f"{manifest.start_date.isoformat()}, after requested price start "
                 f"{start_date.isoformat()}."
             )
-        if end_date is not None and manifest.end_date < end_date:
+        if required_end_date is not None and manifest.end_date < required_end_date:
             raise DataCoverageError(
                 f"Corporate-action manifest '{self.CORP_ACTIONS_DATASET_NAME}' ends at "
                 f"{manifest.end_date.isoformat()}, before requested price end "
-                f"{end_date.isoformat()}."
+                f"{required_end_date.isoformat()}."
             )
 
         partition_paths = self._get_corp_action_paths_from_manifest(manifest)

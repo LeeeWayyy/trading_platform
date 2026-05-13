@@ -605,7 +605,7 @@ class AlpacaSIPDataProviderAdapter:
         try:
             corporate_actions = self._provider.get_corporate_actions(
                 start_date=start_date,
-                end_date=end_date,
+                coverage_end_date=end_date,
                 symbols=symbols,
             )
         except DataCoverageError as exc:

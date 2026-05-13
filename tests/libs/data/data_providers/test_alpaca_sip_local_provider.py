@@ -553,6 +553,7 @@ class TestAlpacaSIPLocalProvider:
         )
         unbounded = provider.get_corporate_actions(
             start_date=date(2020, 8, 1),
+            coverage_end_date=date(2020, 9, 1),
             symbols=["AAPL"],
         )
 
@@ -860,6 +861,101 @@ class TestAlpacaSIPDataProviderAdapter:
         assert df["adj_close"].to_list() == [125.0, 125.0, 130.0]
         assert df["ret"].to_list()[0] is None
         assert df["ret"].to_list()[1:] == pytest.approx([0.0, 0.04])
+
+    def test_adapter_includes_later_manifest_splits_for_adjusted_prices(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        data_root = tmp_path / "data"
+        daily_dir = data_root / "alpaca" / "sip" / "daily"
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        manifest_dir = data_root / "manifests"
+        lock_dir = data_root / "locks"
+        daily_dir.mkdir(parents=True)
+        corp_dir.mkdir(parents=True)
+        manifest_dir.mkdir(parents=True)
+        lock_dir.mkdir(parents=True)
+        daily_path = daily_dir / "2020.parquet"
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "date": [date(2020, 8, 1), date(2020, 8, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "open": [100.0, 104.0],
+                "high": [101.0, 105.0],
+                "low": [99.0, 103.0],
+                "close": [100.0, 104.0],
+                "volume": [1_000_000.0, 1_100_000.0],
+                "trade_count": [10_000.0, 11_000.0],
+                "vwap": [100.5, 104.5],
+                "adj_close": [None, None],
+                "ret": [None, None],
+            },
+            schema={column: ALPACA_SIP_SCHEMA[column] for column in ALPACA_SIP_COLUMNS},
+        ).write_parquet(daily_path)
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 31)],
+                "ex_date": [date(2020, 9, 1)],
+                "old_rate": [1.0],
+                "new_rate": [2.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_base = {
+            "sync_timestamp": datetime.now(UTC).isoformat(),
+            "checksum": "abc123",
+            "checksum_algorithm": "sha256",
+            "schema_version": "v1.0.0",
+            "wrds_query_hash": "alpaca-sip-local-test",
+            "validation_status": "passed",
+            "manifest_version": 1,
+        }
+        (manifest_dir / "alpaca_sip_daily.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_daily",
+                    "start_date": "2020-08-01",
+                    "end_date": "2020-08-02",
+                    "row_count": 2,
+                    "file_paths": [str(daily_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_corp_actions",
+                    "start_date": "2020-08-01",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "file_paths": [str(corp_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        manifest_manager = ManifestManager(
+            storage_path=manifest_dir,
+            lock_dir=lock_dir,
+            data_root=data_root,
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=daily_dir,
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2020, 8, 1), date(2020, 8, 2))
+
+        assert df["close"].to_list() == [100.0, 104.0]
+        assert df["adj_close"].to_list() == [50.0, 52.0]
+        assert df["ret"].to_list()[0] is None
+        assert df["ret"].to_list()[1] == pytest.approx(0.04)
 
     def test_adapter_rejects_stale_corp_actions_manifest(
         self,
