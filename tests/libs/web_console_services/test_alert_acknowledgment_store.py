@@ -24,9 +24,13 @@ class _FakeCursor:
     def __exit__(self, *_: Any) -> None:
         return None
 
-    def execute(self, sql: str, params: tuple[Any, ...]) -> None:
-        normalized = " ".join(sql.split())
-        if normalized.startswith("INSERT INTO data_quality_alert_acknowledgments"):
+    def execute(self, sql: Any, params: tuple[Any, ...]) -> None:
+        # ``psycopg.sql.Composed`` does not render to a finished SQL string
+        # without a connection context (``Composable.as_string(conn)``). For
+        # the fake we just inspect ``repr(sql)``, which is enough to tell
+        # INSERT vs SELECT apart.
+        rendered = repr(sql)
+        if "INSERT INTO" in rendered:
             (
                 alert_id,
                 dataset,
@@ -38,9 +42,11 @@ class _FakeCursor:
                 scope_json,
                 _original_alert_json,
             ) = params
-            if alert_id in self._db.rows:
-                # ON CONFLICT DO NOTHING — RETURNING yields nothing.
-                self._result = None
+            existing = self._db.rows.get(alert_id)
+            if existing is not None:
+                # ``DO UPDATE SET alert_id = EXCLUDED.alert_id`` returns the
+                # already-stored row unchanged (first-write-wins).
+                self._result = existing
                 return
             row = (
                 str(uuid4()),
@@ -56,17 +62,26 @@ class _FakeCursor:
             )
             self._db.rows[alert_id] = row
             self._result = row
-        elif normalized.startswith("SELECT id, alert_id, dataset"):
+        elif "SELECT id, alert_id, dataset" in rendered:
             (alert_id,) = params
             self._result = self._db.rows.get(alert_id)
         else:
-            raise AssertionError(f"unexpected SQL: {sql}")
+            raise AssertionError(f"unexpected SQL: {rendered}")
 
     def fetchone(self) -> tuple[Any, ...] | None:
         return self._result
 
 
 class _FakeConnection:
+    """Stand-in for psycopg's connection.
+
+    Both the pool's ``connection()`` and the connection's own transaction
+    context manager are exercised in production. The store no longer calls
+    ``conn.commit()`` explicitly — it relies on ``with conn:`` to commit on
+    successful exit. The fake therefore marks ``committed = True`` whenever
+    a context block exits without an exception.
+    """
+
     def __init__(self, fake_db: _FakeDB) -> None:
         self._db = fake_db
         self.committed = False
@@ -74,13 +89,16 @@ class _FakeConnection:
     def __enter__(self) -> _FakeConnection:
         return self
 
-    def __exit__(self, *_: Any) -> None:
-        return None
+    def __exit__(self, exc_type: Any, *_: Any) -> None:
+        if exc_type is None:
+            self.committed = True
 
     def cursor(self) -> _FakeCursor:
         return _FakeCursor(self._db)
 
-    def commit(self) -> None:
+    def commit(self) -> None:  # pragma: no cover - safety net
+        # The store no longer calls commit() directly; keep the method so
+        # any future callers that need an explicit commit do not crash.
         self.committed = True
 
 

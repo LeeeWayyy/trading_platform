@@ -12,8 +12,10 @@ This module defines the storage contract and ships two implementations:
   unavailable.
 * :class:`PostgresAlertAcknowledgmentStore` — backed by the
   ``data_quality_alert_acknowledgments`` table (see migrations 0017 + 0034).
-  Uses ``INSERT ... ON CONFLICT (alert_id) DO NOTHING RETURNING`` to keep
-  acknowledgments idempotent on first-write-wins semantics.
+  Uses ``INSERT ... ON CONFLICT (alert_id) DO UPDATE SET alert_id =
+  EXCLUDED.alert_id RETURNING`` so a single round-trip returns the row
+  whether it was just inserted or already present, preserving first-write-
+  wins idempotency without a follow-up SELECT.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ import threading
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
+
+from psycopg import sql as psycopg_sql
 
 from .schemas.data_management import AlertAcknowledgmentDTO
 
@@ -66,7 +70,7 @@ class InMemoryAlertAcknowledgmentStore:
     so two concurrent callers can race on the same ``alert_id``. The
     read-check-write block is guarded by a ``threading.Lock`` to preserve
     first-write-wins idempotency. ``Postgres`` does not need this guard
-    because ``INSERT ... ON CONFLICT DO NOTHING RETURNING`` is the atomic
+    because ``INSERT ... ON CONFLICT (alert_id) DO UPDATE`` is the atomic
     idempotency primitive.
     """
 
@@ -118,23 +122,30 @@ class PostgresAlertAcknowledgmentStore:
     The store keeps the synchronous shape of the rest of ``web_console_services``
     (services run blocking work in ``asyncio.to_thread``), so all DB access
     here is sync and uses ``psycopg_pool.ConnectionPool``.
+
+    Identifiers (table names) are composed via :mod:`psycopg.sql` so the
+    repository's "parameterized queries only" rule is satisfied even though
+    the table name is currently a constant.
+
+    Transactions are scoped with ``with conn:`` rather than an explicit
+    ``conn.commit()`` so the store also works against pools that are
+    configured in autocommit mode (where ``commit()`` would raise
+    ``ProgrammingError``).
     """
 
     is_persistent = True
 
-    _TABLE = "data_quality_alert_acknowledgments"
+    _TABLE = psycopg_sql.Identifier("data_quality_alert_acknowledgments")
 
     def __init__(self, db_pool: ConnectionPool) -> None:
         self._db_pool = db_pool
 
     def get(self, alert_id: str) -> AlertAcknowledgmentDTO | None:
-        sql = f"""
-            SELECT id, alert_id, dataset, metric, severity,
-                   acknowledged_by, acknowledged_at, reason,
-                   source, issue_scope
-            FROM {self._TABLE}
-            WHERE alert_id = %s
-        """
+        sql = psycopg_sql.SQL(
+            "SELECT id, alert_id, dataset, metric, severity, "
+            "acknowledged_by, acknowledged_at, reason, source, issue_scope "
+            "FROM {table} WHERE alert_id = %s"
+        ).format(table=self._TABLE)
         with self._db_pool.connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (alert_id,))
             row = cur.fetchone()
@@ -157,28 +168,24 @@ class PostgresAlertAcknowledgmentStore:
     ) -> AlertAcknowledgmentDTO:
         scope_payload = json.dumps(dict(issue_scope))
         alert_payload = json.dumps(original_alert or {})
-        insert_sql = f"""
-            INSERT INTO {self._TABLE} (
-                alert_id, dataset, metric, severity,
-                acknowledged_by, reason, source, issue_scope, original_alert
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
-            ON CONFLICT (alert_id) DO NOTHING
-            RETURNING id, alert_id, dataset, metric, severity,
-                      acknowledged_by, acknowledged_at, reason,
-                      source, issue_scope
-        """
-        select_sql = f"""
-            SELECT id, alert_id, dataset, metric, severity,
-                   acknowledged_by, acknowledged_at, reason,
-                   source, issue_scope
-            FROM {self._TABLE}
-            WHERE alert_id = %s
-        """
-        with self._db_pool.connection() as conn:
+        # ``ON CONFLICT ... DO UPDATE SET alert_id = EXCLUDED.alert_id``
+        # performs a no-op update on conflict but keeps RETURNING populated,
+        # so we get a single round-trip whether the row is new or existing.
+        # First-write-wins semantics still hold because the update does not
+        # change any column the caller cares about (no actor/scope rewrite).
+        sql = psycopg_sql.SQL(
+            "INSERT INTO {table} ("
+            "alert_id, dataset, metric, severity, "
+            "acknowledged_by, reason, source, issue_scope, original_alert"
+            ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb) "
+            "ON CONFLICT (alert_id) DO UPDATE SET alert_id = EXCLUDED.alert_id "
+            "RETURNING id, alert_id, dataset, metric, severity, "
+            "acknowledged_by, acknowledged_at, reason, source, issue_scope"
+        ).format(table=self._TABLE)
+        with self._db_pool.connection() as conn, conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    insert_sql,
+                    sql,
                     (
                         alert_id,
                         dataset,
@@ -192,15 +199,10 @@ class PostgresAlertAcknowledgmentStore:
                     ),
                 )
                 row = cur.fetchone()
-                if row is None:
-                    # ON CONFLICT path: another writer already recorded it.
-                    cur.execute(select_sql, (alert_id,))
-                    row = cur.fetchone()
-            conn.commit()
         if row is None:
-            raise RuntimeError(
-                f"Failed to read acknowledgment for alert_id={alert_id} after insert"
-            )
+            # DO UPDATE always returns a row; if we get here, something far
+            # more serious than a conflict happened (e.g. RLS suppression).
+            raise RuntimeError(f"INSERT ... RETURNING produced no row for alert_id={alert_id}")
         return self._row_to_dto(row)
 
     @staticmethod
