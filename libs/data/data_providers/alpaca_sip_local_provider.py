@@ -252,6 +252,7 @@ class AlpacaSIPLocalProvider:
         return self._execute_corp_actions_query(
             partition_paths=partition_paths,
             start_date=start_date,
+            end_date=end_date,
             symbols=symbols,
         )
 
@@ -368,6 +369,7 @@ class AlpacaSIPLocalProvider:
         self,
         partition_paths: list[Path],
         start_date: date,
+        end_date: date | None,
         symbols: list[str] | None,
     ) -> pl.DataFrame:
         params: dict[str, Any] = {
@@ -375,6 +377,9 @@ class AlpacaSIPLocalProvider:
             "start_date": start_date,
         }
         where_clauses = ['COALESCE("ex_date", "process_date") >= $start_date']
+        if end_date is not None:
+            params["end_date"] = end_date
+            where_clauses.append('COALESCE("ex_date", "process_date") <= $end_date')
 
         if symbols is not None:
             params["symbols"] = sorted(

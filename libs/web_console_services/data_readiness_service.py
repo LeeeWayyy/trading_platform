@@ -337,21 +337,31 @@ def _hybrid_price_component_check_from_summary(
     component_states: list[Literal["blocked", "warning"]] = []
     daily_returns_available = manifest_has_native_returns(manifests.get(ALPACA_SIP_DAILY_DATASET))
     requires_returns = workflow in _ALPACA_SIP_WORKFLOWS_REQUIRING_RETURNS
-    for dataset, required in (
-        (ALPACA_SIP_DAILY_DATASET, True),
-        (
-            ALPACA_SIP_CORP_ACTIONS_DATASET,
-            requires_returns and not daily_returns_available,
-        ),
-    ):
-        manifest = manifests.get(dataset)
-        if manifest is None or manifest.validation_status != "passed":
-            component_states.append("blocked" if required else "warning")
-
     needs_split_adjustment = requires_returns and not daily_returns_available
-    if needs_split_adjustment and not summary_supports_split_adjustment(summary):
-        component_states.append("blocked")
-    if any(
+
+    if needs_split_adjustment:
+        if not summary_supports_split_adjustment(summary):
+            component_states.append("blocked")
+    else:
+        daily_manifest = manifests.get(ALPACA_SIP_DAILY_DATASET)
+        if daily_manifest is None or daily_manifest.validation_status != "passed":
+            component_states.append("blocked")
+
+        corp_actions_manifest = manifests.get(ALPACA_SIP_CORP_ACTIONS_DATASET)
+        if corp_actions_manifest is None or corp_actions_manifest.validation_status != "passed":
+            component_states.append("warning")
+
+        if _has_companion_quality_warning(summary):
+            component_states.append("warning")
+
+    return _hybrid_price_component_status_check(
+        has_blockers="blocked" in component_states,
+        has_warnings="warning" in component_states,
+    )
+
+
+def _has_companion_quality_warning(summary: AlpacaSipManifestSummaryDTO) -> bool:
+    return any(
         warning
         in {
             ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
@@ -359,12 +369,6 @@ def _hybrid_price_component_check_from_summary(
             ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
         }
         for warning in summary.warnings
-    ):
-        component_states.append("blocked" if needs_split_adjustment else "warning")
-
-    return _hybrid_price_component_status_check(
-        has_blockers="blocked" in component_states,
-        has_warnings="warning" in component_states,
     )
 
 
