@@ -397,7 +397,13 @@ class AnomalyAlertDTO(BaseModel):
 
 
 class AlertAcknowledgmentDTO(BaseModel):
-    """Acknowledgment record for an anomaly alert."""
+    """Acknowledgment record for an anomaly alert.
+
+    Captures the full AC scope required by Phase 5 of the Data Page plan:
+    actor (``acknowledged_by``), time (``acknowledged_at``), source (where the
+    signal originated), and issue scope (the dataset/metric/severity tuple the
+    operator is acknowledging).
+    """
 
     id: str
     alert_id: str
@@ -407,6 +413,8 @@ class AlertAcknowledgmentDTO(BaseModel):
     acknowledged_by: str
     acknowledged_at: AwareDatetime
     reason: str | None = None
+    source: str = "unknown"
+    issue_scope: dict[str, Any] = Field(default_factory=dict)
 
 
 class QualityTrendPointDTO(BaseModel):
