@@ -36,7 +36,7 @@ import polars as pl
 from libs.data.data_pipeline.helpers import normalized_symbols_from_frame
 from libs.data.data_pipeline.read_time_adjustment import derive_split_adjusted_prices
 from libs.data.data_providers.registry import ProviderCapabilities, ProviderType, get_provider_spec
-from libs.data.data_quality.exceptions import DataNotFoundError
+from libs.data.data_quality.exceptions import DataCoverageError, DataNotFoundError
 
 if TYPE_CHECKING:
     from libs.data.data_providers.alpaca_sip_local_provider import AlpacaSIPLocalProvider
@@ -591,19 +591,27 @@ class AlpacaSIPDataProviderAdapter:
         if "adj_close" in df.columns and df["adj_close"].null_count() == 0:
             return df
 
-        get_corporate_actions = getattr(type(self._provider), "get_corporate_actions", None)
-        if get_corporate_actions is None:
-            return df
-
-        start_date = df.select(pl.col("date").min()).item()
-        if not isinstance(start_date, date):
+        date_bounds = df.select(
+            [
+                pl.col("date").min().alias("start_date"),
+                pl.col("date").max().alias("end_date"),
+            ]
+        ).row(0, named=True)
+        start_date = date_bounds["start_date"]
+        end_date = date_bounds["end_date"]
+        if not isinstance(start_date, date) or not isinstance(end_date, date):
             return df
         symbols = normalized_symbols_from_frame(df)
         try:
             corporate_actions = self._provider.get_corporate_actions(
                 start_date=start_date,
+                end_date=end_date,
                 symbols=symbols,
             )
+        except DataCoverageError as exc:
+            raise DataProviderError(
+                f"Alpaca SIP corporate-action manifest incompatible with price range: {exc}"
+            ) from exc
         except DataNotFoundError:
             return df
         except Exception as exc:

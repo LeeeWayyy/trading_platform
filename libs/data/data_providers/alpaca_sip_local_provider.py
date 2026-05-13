@@ -24,7 +24,7 @@ from libs.data.data_providers.alpaca_corp_actions_sync import (
     ALPACA_CORP_ACTIONS_SCHEMA,
 )
 from libs.data.data_providers.alpaca_sip_paths import resolve_alpaca_sip_manifest_path
-from libs.data.data_quality.exceptions import DataNotFoundError
+from libs.data.data_quality.exceptions import DataCoverageError, DataNotFoundError
 from libs.data.data_quality.manifest import ManifestManager, SyncManifest
 
 logger = logging.getLogger(__name__)
@@ -204,12 +204,14 @@ class AlpacaSIPLocalProvider:
         self,
         *,
         start_date: date,
+        end_date: date | None = None,
         symbols: list[str] | None = None,
     ) -> pl.DataFrame:
         """Get paired corporate actions from the trusted manifest.
 
         The read-time split adjustment layer needs actions on or after the
-        first requested price date so later splits can adjust earlier raw bars.
+        first requested price date through the last requested price date so
+        later splits can adjust earlier raw bars without stale companion data.
         A missing corporate-action manifest fails closed via ``DataNotFoundError``.
         """
         if self._pinned_manifest is not None:
@@ -226,15 +228,21 @@ class AlpacaSIPLocalProvider:
                 "Run Alpaca corporate-actions sync first."
             )
         if manifest.validation_status != "passed":
-            raise DataNotFoundError(
+            raise DataCoverageError(
                 f"Corporate-action manifest '{self.CORP_ACTIONS_DATASET_NAME}' "
                 f"is not trusted: validation_status={manifest.validation_status}."
             )
         if manifest.start_date > start_date:
-            raise DataNotFoundError(
+            raise DataCoverageError(
                 f"Corporate-action manifest '{self.CORP_ACTIONS_DATASET_NAME}' starts at "
                 f"{manifest.start_date.isoformat()}, after requested price start "
                 f"{start_date.isoformat()}."
+            )
+        if end_date is not None and manifest.end_date < end_date:
+            raise DataCoverageError(
+                f"Corporate-action manifest '{self.CORP_ACTIONS_DATASET_NAME}' ends at "
+                f"{manifest.end_date.isoformat()}, before requested price end "
+                f"{end_date.isoformat()}."
             )
 
         partition_paths = self._get_corp_action_paths_from_manifest(manifest)

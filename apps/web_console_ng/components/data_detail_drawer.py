@@ -97,11 +97,10 @@ def _present_detail_fields(
     validation_ok = manifest.validation_status == "passed"
     split_adjustment_available = summary_supports_split_adjustment(summary)
     native_returns_available = manifest_has_native_returns(manifest)
-    returns_available = split_adjustment_available or native_returns_available
-    readiness = (
-        f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
-        if manifest.dataset == ALPACA_SIP_DAILY_DATASET and returns_available
-        else _readiness_for_present_manifest(manifest, warnings)
+    readiness = _readiness_for_present_manifest(
+        manifest,
+        warnings,
+        split_adjustment_available=split_adjustment_available,
     )
     fields = [
         {"field": "Dataset", "value": manifest.dataset},
@@ -151,11 +150,7 @@ def _present_detail_fields(
                 {"field": "ret", "value": derived_value},
                 {
                     "field": "Backtest readiness",
-                    "value": (
-                        f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
-                        if returns_available
-                        else readiness
-                    ),
+                    "value": readiness,
                 },
             ]
         )
@@ -190,6 +185,8 @@ def _value(value: Any) -> str:
 def _readiness_for_present_manifest(
     manifest: ManifestSummaryDTO,
     warnings: list[str],
+    *,
+    split_adjustment_available: bool,
 ) -> str:
     is_daily = manifest.dataset == ALPACA_SIP_DAILY_DATASET
     if manifest.validation_status != "passed":
@@ -198,6 +195,8 @@ def _readiness_for_present_manifest(
             readiness = f"{readiness}; raw_sip_returns_unavailable"
         return readiness
     if is_daily:
+        if split_adjustment_available:
+            return f"ready: {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}"
         if manifest_has_native_returns(manifest):
             return "ready: native adjusted returns available"
         return "blocked: raw_sip_returns_unavailable"
