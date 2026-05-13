@@ -12,6 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
+from libs.web_console_services.alert_acknowledgment_store import (
+    InMemoryAlertAcknowledgmentStore,
+)
 from libs.web_console_services.data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -27,6 +30,12 @@ from libs.web_console_services.data_quality_service import (
     _build_alpaca_sip_quality_summary,
 )
 from libs.web_console_services.provider_signature import ProviderSignatureDTO
+
+
+class FakePersistentAlertAcknowledgmentStore(InMemoryAlertAcknowledgmentStore):
+    """In-memory store that advertises durable persistence for tests."""
+
+    is_persistent = True
 
 
 @dataclass(frozen=True)
@@ -247,7 +256,10 @@ async def test_get_quarantine_status_excludes_manifest_backed_alpaca_sip_placeho
 
 
 @pytest.mark.asyncio()
-async def test_acknowledge_alert_idempotent(service: DataQualityService) -> None:
+async def test_acknowledge_alert_idempotent_with_persistent_store() -> None:
+    store = FakePersistentAlertAcknowledgmentStore()
+    svc = DataQualityService(acknowledgment_store=store)
+
     with (
         patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
         patch(
@@ -256,16 +268,49 @@ async def test_acknowledge_alert_idempotent(service: DataQualityService) -> None
         ),
         patch("libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"),
     ):
-        first = await service.acknowledge_alert(
-            DummyUser(user_id="user-1"), alert_id="alert-1", reason="triage"
+        first = await svc.acknowledge_alert(
+            DummyUser(user_id="user-1"),
+            alert_id="alert-1",
+            reason="triage",
+            source="anomaly_alert",
+            issue_scope={"page": "data_management"},
         )
-        second = await service.acknowledge_alert(
-            DummyUser(user_id="user-1"), alert_id="alert-1", reason="ignore"
+        second = await svc.acknowledge_alert(
+            DummyUser(user_id="user-1"),
+            alert_id="alert-1",
+            reason="ignore",
         )
 
+    assert svc.acknowledgments_persistent is True
     assert first.id == second.id
     assert second.reason == "triage"
     assert second.acknowledged_by == "user-1"
+    assert first.source == "anomaly_alert"
+    # Issue scope captures dataset/metric/severity plus any caller additions.
+    assert first.issue_scope["dataset"] == first.dataset
+    assert first.issue_scope["metric"] == first.metric
+    assert first.issue_scope["severity"] == first.severity
+    assert first.issue_scope["page"] == "data_management"
+
+
+@pytest.mark.asyncio()
+async def test_acknowledge_alert_unavailable_when_store_not_persistent() -> None:
+    svc = DataQualityService()  # defaults to in-memory non-persistent store
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"),
+        pytest.raises(RuntimeError, match="quality_acknowledgment_persistence_unavailable"),
+    ):
+        await svc.acknowledge_alert(
+            DummyUser(user_id="user-1"), alert_id="alert-1", reason="triage"
+        )
+
+    assert svc.acknowledgments_persistent is False
 
 
 def test_resolve_alert_dataset_invalid_id() -> None:
@@ -625,9 +670,9 @@ async def test_alpaca_sip_quality_summary_loads_persisted_report_statuses(
     assert summary.status == "warning"
     assert signals["alpaca_sip_integrity"].status == "passed"
     assert signals["alpaca_feed_delta"].status == "warning"
-    assert "alpaca_sip_integrity_hash:integrity-hash" in signals[
-        "alpaca_sip_integrity"
-    ].reason_codes
+    assert (
+        "alpaca_sip_integrity_hash:integrity-hash" in signals["alpaca_sip_integrity"].reason_codes
+    )
     assert "alpaca_feed_delta_timeframe:1Day" in signals["alpaca_feed_delta"].reason_codes
     assert signals["alpaca_sip_integrity"].observed_at == datetime.fromtimestamp(
         integrity_path.stat().st_mtime,
