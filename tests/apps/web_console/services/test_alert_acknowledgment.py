@@ -9,8 +9,17 @@ from uuid import uuid4
 import pytest
 
 from libs.platform.web_console_auth.permissions import Role
+from libs.web_console_services.alert_acknowledgment_store import (
+    InMemoryAlertAcknowledgmentStore,
+)
 from libs.web_console_services.data_quality_service import DataQualityService
 from libs.web_console_services.schemas.data_management import AlertAcknowledgmentDTO
+
+
+class _FakePersistentStore(InMemoryAlertAcknowledgmentStore):
+    """In-memory store that advertises durable persistence for tests."""
+
+    is_persistent = True
 
 
 @dataclass(frozen=True)
@@ -23,8 +32,13 @@ class DummyUser:
 
 @pytest.fixture()
 async def service() -> DataQualityService:
-    """Create fresh service instance with empty ack store."""
-    return DataQualityService()
+    """Create fresh service with a fake persistent ack store.
+
+    ``DataQualityService.acknowledge_alert`` now refuses to write when the
+    injected store is non-persistent (Phase 5 plan AC). Tests that exercise
+    the acknowledgment flow must inject a store that advertises durability.
+    """
+    return DataQualityService(acknowledgment_store=_FakePersistentStore())
 
 
 @pytest.fixture()
@@ -53,7 +67,9 @@ async def test_acknowledge_alert_returns_existing_on_conflict(
         acknowledged_at=datetime.now(UTC),
         reason="seed",
     )
-    service._ack_store["alert-4"] = existing
+    # Seed the underlying store's records dict so the idempotency check finds
+    # an existing acknowledgment without going through the public write path.
+    service._ack_store._records["alert-4"] = existing  # type: ignore[attr-defined]
 
     result = await service.acknowledge_alert(operator_user, alert_id="alert-4", reason="retry")
 
