@@ -446,6 +446,7 @@ class DataQualityService:
         alert_id: str,
         reason: str,
         *,
+        dataset: str | None = None,
         source: str = "anomaly_alert",
         metric: str = "row_drop",
         severity: str = "warning",
@@ -465,6 +466,15 @@ class DataQualityService:
         durable, callers receive ``RuntimeError`` so the UI never accepts a
         write that would silently disappear on restart.
 
+        ``dataset`` may be passed explicitly by callers that already know
+        which dataset the alert belongs to. The data page UI does this
+        because each rendered :class:`AnomalyAlertDTO` carries its own
+        ``dataset``, and manifest-derived signal ids such as
+        ``alpaca-sip-manifest-pairing`` do not match the
+        ``alert-{idx}`` format that :meth:`_resolve_alert_dataset` knows
+        how to parse. When ``dataset`` is omitted, the legacy mock-id
+        parser is used as a best-effort fallback.
+
         Idempotency: First-write-wins on ``alert_id``.
         """
         self._require_permission(user, Permission.ACKNOWLEDGE_ALERTS)
@@ -476,8 +486,9 @@ class DataQualityService:
                 "accepting acknowledgments."
             )
 
-        dataset = self._resolve_alert_dataset(alert_id)
-        self._require_dataset_access(user, dataset)
+        resolved_dataset = dataset if dataset is not None else self._resolve_alert_dataset(alert_id)
+        self._require_dataset_access(user, resolved_dataset)
+        dataset = resolved_dataset
 
         scope: dict[str, Any] = {
             "dataset": dataset,
@@ -487,11 +498,11 @@ class DataQualityService:
         if issue_scope:
             scope.update(issue_scope)
 
-        # Delegate idempotency to the store. Postgres uses
-        # INSERT ... ON CONFLICT DO NOTHING RETURNING with a SELECT fallback;
-        # the in-memory implementation short-circuits on its own records dict.
-        # Routing through to_thread keeps the blocking DB I/O off the NiceGUI
-        # event loop in production.
+        # Delegate idempotency to the store. Postgres uses a single
+        # INSERT ... ON CONFLICT DO UPDATE SET alert_id = EXCLUDED.alert_id
+        # RETURNING; the in-memory implementation short-circuits on its
+        # own records dict. Routing through to_thread keeps the blocking
+        # DB I/O off the NiceGUI event loop in production.
         return await asyncio.to_thread(
             self._ack_store.acknowledge,
             alert_id=alert_id,

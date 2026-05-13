@@ -1366,11 +1366,24 @@ def _build_anomaly_alert_cards(
 
             if user_can_ack and ack_persistent and not alert.acknowledged:
                 _alert_id = alert.id
+                _alert_dataset = alert.dataset
+                _alert_metric = alert.metric
+                _alert_severity = alert.severity
 
-                async def ack_alert(aid: str = _alert_id) -> None:
+                async def ack_alert(
+                    aid: str = _alert_id,
+                    ds: str = _alert_dataset,
+                    metric: str = _alert_metric,
+                    severity: str = _alert_severity,
+                ) -> None:
                     try:
                         ack = await quality_service.acknowledge_alert(
-                            user, aid, "Acknowledged via dashboard"
+                            user,
+                            aid,
+                            "Acknowledged via dashboard",
+                            dataset=ds,
+                            metric=metric,
+                            severity=severity,
                         )
                         ui.notify(
                             f"Alert acknowledged by {ack.acknowledged_by}",

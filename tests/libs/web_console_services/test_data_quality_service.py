@@ -294,6 +294,63 @@ async def test_acknowledge_alert_idempotent_with_persistent_store() -> None:
 
 
 @pytest.mark.asyncio()
+async def test_acknowledge_alert_accepts_explicit_dataset_for_manifest_id() -> None:
+    """Manifest-derived signal ids do not match the legacy mock format.
+
+    The UI knows ``alert.dataset`` and passes it explicitly; the service
+    must NOT try to parse it out of ``alert_id``.
+    """
+    store = FakePersistentAlertAcknowledgmentStore()
+    svc = DataQualityService(acknowledgment_store=store)
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"),
+    ):
+        ack = await svc.acknowledge_alert(
+            DummyUser(user_id="user-1"),
+            alert_id="alpaca-sip-manifest-pairing",
+            reason="triage",
+            dataset="alpaca_sip",
+            metric="manifest_pairing",
+            severity="warning",
+        )
+
+    assert ack.dataset == "alpaca_sip"
+    assert ack.metric == "manifest_pairing"
+    assert ack.alert_id == "alpaca-sip-manifest-pairing"
+
+
+@pytest.mark.asyncio()
+async def test_acknowledge_alert_falls_back_to_resolver_when_dataset_omitted() -> None:
+    """When the caller does not pass dataset, the legacy alert-{idx}
+    parser still runs as a best-effort fallback for backwards compat."""
+    store = FakePersistentAlertAcknowledgmentStore()
+    svc = DataQualityService(acknowledgment_store=store)
+
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"),
+    ):
+        ack = await svc.acknowledge_alert(
+            DummyUser(user_id="user-1"),
+            alert_id="alert-1",
+            reason="triage",
+        )
+
+    # alert-1 maps to _SUPPORTED_DATASETS[0] which is "crsp".
+    assert ack.dataset == "crsp"
+
+
+@pytest.mark.asyncio()
 async def test_acknowledge_alert_unavailable_when_store_not_persistent() -> None:
     svc = DataQualityService()  # defaults to in-memory non-persistent store
 
