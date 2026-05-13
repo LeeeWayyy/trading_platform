@@ -1371,11 +1371,16 @@ def _build_anomaly_alert_cards(
                 _alert_severity = alert.severity
 
                 async def ack_alert(
+                    _e: Any = None,
                     aid: str = _alert_id,
                     ds: str = _alert_dataset,
                     metric: str = _alert_metric,
                     severity: str = _alert_severity,
                 ) -> None:
+                    # NiceGUI passes ClickEventArguments as the first positional
+                    # arg when the handler can accept one. The ``_e`` slot
+                    # absorbs that event so the loop-closure defaults
+                    # (``aid``, ``ds``, …) are not overwritten by it.
                     try:
                         ack = await quality_service.acknowledge_alert(
                             user,

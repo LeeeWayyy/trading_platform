@@ -127,10 +127,12 @@ class PostgresAlertAcknowledgmentStore:
     repository's "parameterized queries only" rule is satisfied even though
     the table name is currently a constant.
 
-    Transactions are scoped with ``with conn:`` rather than an explicit
-    ``conn.commit()`` so the store also works against pools that are
-    configured in autocommit mode (where ``commit()`` would raise
-    ``ProgrammingError``).
+    Transactions are scoped by the pool's ``connection()`` context manager,
+    which commits on success and rolls back on exception when the
+    connection is returned to the pool — and, critically, returns the
+    connection to the pool rather than closing it. The store does not call
+    ``conn.commit()`` explicitly because that raises ``ProgrammingError``
+    against pools configured in autocommit mode.
     """
 
     is_persistent = True
@@ -182,7 +184,13 @@ class PostgresAlertAcknowledgmentStore:
             "RETURNING id, alert_id, dataset, metric, severity, "
             "acknowledged_by, acknowledged_at, reason, source, issue_scope"
         ).format(table=self._TABLE)
-        with self._db_pool.connection() as conn, conn:
+        # The pool's connection() context manager already commits on success
+        # and rolls back on exception when the connection is returned to the
+        # pool. Wrapping the raw connection in an extra ``with conn:`` would
+        # invoke ``Connection.__exit__`` which CLOSES the underlying
+        # connection (see psycopg_pool docs), forcing the pool to open a
+        # fresh one for every successful write.
+        with self._db_pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     sql,
@@ -219,18 +227,16 @@ class PostgresAlertAcknowledgmentStore:
             source,
             issue_scope,
         ) = row
+        # JSONB columns can arrive as a parsed object (dict/list/scalar) or
+        # as a raw string depending on the adapter. Decode strings, then
+        # coerce anything that is not a dict to ``{}`` so Pydantic accepts
+        # the field.
         if isinstance(issue_scope, str):
             try:
-                parsed = json.loads(issue_scope)
+                issue_scope = json.loads(issue_scope)
             except json.JSONDecodeError:
-                parsed = None
-            issue_scope_dict = parsed if isinstance(parsed, dict) else {}
-        elif isinstance(issue_scope, dict):
-            issue_scope_dict = issue_scope
-        else:
-            # JSONB columns may also arrive as a list/None depending on
-            # adapter — Pydantic requires a dict, so coerce defensively.
-            issue_scope_dict = {}
+                issue_scope = {}
+        issue_scope_dict = issue_scope if isinstance(issue_scope, dict) else {}
         return AlertAcknowledgmentDTO(
             id=str(ack_id),
             alert_id=str(alert_id),
@@ -239,8 +245,10 @@ class PostgresAlertAcknowledgmentStore:
             severity=str(severity),
             acknowledged_by=str(acknowledged_by),
             acknowledged_at=acknowledged_at,
-            reason=reason if reason is not None else None,
-            source=str(source) if source is not None else "unknown",
+            reason=reason,
+            # ``source`` is NOT NULL in the schema (migration 0034 with
+            # default 'unknown'), so no further coercion is needed.
+            source=str(source),
             issue_scope=issue_scope_dict,
         )
 
