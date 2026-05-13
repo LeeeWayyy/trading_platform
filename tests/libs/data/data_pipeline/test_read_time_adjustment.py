@@ -84,6 +84,32 @@ def test_no_split_actions_still_derives_trusted_identity_price_path() -> None:
     assert result.frame["ret"].to_list()[1:] == pytest.approx([-0.75, 0.04])
 
 
+def test_split_off_action_type_is_not_treated_as_split() -> None:
+    corp_actions = _corp_actions().with_columns(pl.lit("split_off").alias("ca_type"))
+
+    result = derive_split_adjusted_prices(_prices(), corp_actions)
+
+    assert READ_TIME_NO_SPLIT_ACTIONS_REASON in result.reason_codes
+    assert result.split_action_count == 0
+    assert result.frame["adj_close"].to_list() == [500.0, 125.0, 130.0]
+
+
+def test_reverse_split_action_type_is_supported() -> None:
+    corp_actions = _corp_actions().with_columns(
+        [
+            pl.lit("reverse_split").alias("ca_type"),
+            pl.lit(4.0).alias("old_rate"),
+            pl.lit(1.0).alias("new_rate"),
+        ]
+    )
+
+    result = derive_split_adjusted_prices(_prices(), corp_actions)
+
+    assert result.split_action_count == 1
+    assert result.frame["split_adjustment_factor"].to_list() == [0.25, 1.0, 1.0]
+    assert result.frame["adj_close"].to_list() == [2000.0, 125.0, 130.0]
+
+
 def test_invalid_split_actions_are_skipped_with_reason_code() -> None:
     corp_actions = _corp_actions().with_columns(pl.lit(None).cast(pl.Float64).alias("new_rate"))
 
@@ -124,6 +150,13 @@ def test_missing_corporate_action_date_column_fails_closed() -> None:
 
     with pytest.raises(ValueError, match="action date column"):
         derive_split_adjusted_prices(_prices(), corp_actions)
+
+
+def test_duplicate_symbol_date_price_rows_fail_closed() -> None:
+    prices = pl.concat([_prices(), _prices().head(1)], how="vertical")
+
+    with pytest.raises(ValueError, match="duplicate symbol/date"):
+        derive_split_adjusted_prices(prices, _corp_actions())
 
 
 def test_normalized_symbols_from_frame_uses_polars_native_normalization() -> None:

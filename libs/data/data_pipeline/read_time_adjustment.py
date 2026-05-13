@@ -23,6 +23,14 @@ _PRICE_REQUIRED_COLUMNS = frozenset({"symbol", "date", "open", "high", "low", "c
 _PRICE_COLUMNS = ("open", "high", "low", "close")
 _CORP_ACTION_REQUIRED_COLUMNS = frozenset({"symbol", "ca_type", "old_rate", "new_rate"})
 _CORP_ACTION_DATE_COLUMNS = ("ex_date", "process_date")
+_SUPPORTED_SPLIT_CA_TYPES = (
+    "reverse_split",
+    "reverse_splits",
+    "split",
+    "splits",
+    "stock_split",
+    "stock_splits",
+)
 
 
 @dataclass(frozen=True)
@@ -64,6 +72,7 @@ def derive_split_adjusted_prices(
         )
 
     normalized_prices = _normalize_prices(prices)
+    _ensure_unique_price_keys(normalized_prices)
     split_actions, skipped_action_count = _split_actions(corporate_actions)
     split_factor = _split_factor_frame(normalized_prices, split_actions)
     adjusted = (
@@ -138,7 +147,7 @@ def _split_actions(corporate_actions: pl.DataFrame) -> tuple[pl.DataFrame, int]:
             pl.col("new_rate").cast(pl.Float64, strict=False),
         ]
     )
-    splits = normalized.filter(pl.col("ca_type").str.contains("split"))
+    splits = normalized.filter(pl.col("ca_type").is_in(_SUPPORTED_SPLIT_CA_TYPES))
     valid_splits = splits.filter(
         pl.col("date").is_not_null()
         & pl.col("old_rate").is_not_null()
@@ -223,6 +232,22 @@ def _empty_split_actions() -> pl.DataFrame:
             pl.col("date").cast(pl.Date),
             pl.col("split_ratio").cast(pl.Float64),
         ]
+    )
+
+
+def _ensure_unique_price_keys(prices: pl.DataFrame) -> None:
+    duplicates = (
+        prices.group_by(["symbol", "date"])
+        .agg(pl.len().alias("__duplicate_count"))
+        .filter(pl.col("__duplicate_count") > 1)
+    )
+    if duplicates.is_empty():
+        return
+
+    sample = duplicates.select(["symbol", "date"]).head(1).to_dicts()[0]
+    raise ValueError(
+        "prices contain duplicate symbol/date rows: "
+        f"symbol={sample['symbol']} date={sample['date']}"
     )
 
 

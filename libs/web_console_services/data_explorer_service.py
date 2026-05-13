@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -72,6 +72,7 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_DATASETS = tuple(DATASET_TABLES)
 _PREVIEW_TIMEOUT_SECONDS = 10
 _PREVIEW_RATE_LIMIT = 30
+_ADJUSTED_PREVIEW_LOOKBACK_DAYS = 31
 _INTERACTIVE_ROW_LIMIT = 10_000
 _INTERACTIVE_FETCH_LIMIT = _INTERACTIVE_ROW_LIMIT + 1
 DATA_EXPORT_RATE_LIMIT = 5
@@ -769,23 +770,51 @@ class DataExplorerService:
         )
 
         fetch_limit = limit + 1
-        price_query = "SELECT * FROM alpaca_sip_daily " f"ORDER BY symbol, date LIMIT {fetch_limit}"
+        price_query_parameters: list[Any] | None = None
+        preview_start_date = _split_adjusted_preview_start_date(
+            alpaca_summary,
+            provenance_trusted_tables,
+        )
+        if preview_start_date is None:
+            price_query = (
+                f"SELECT * FROM alpaca_sip_daily ORDER BY symbol, date LIMIT {fetch_limit}"
+            )
+        else:
+            price_query_parameters = [preview_start_date]
+            price_query = (
+                "SELECT * FROM alpaca_sip_daily "
+                "WHERE date >= CAST(? AS DATE) "
+                f"ORDER BY symbol, date LIMIT {fetch_limit}"
+            )
         prices = await self._execute_sql_frame(
             dataset=dataset,
             sql=price_query,
             table_paths={"alpaca_sip_daily": trusted_table_paths["alpaca_sip_daily"]},
             timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+            parameters=price_query_parameters,
         )
         fetched_row_count = len(prices)
         has_more = fetched_row_count > limit
+        warmup_prices = await self._load_split_adjusted_warmup_prices(
+            dataset=dataset,
+            prices=prices,
+            preview_start_date=preview_start_date,
+            table_paths=trusted_table_paths,
+        )
+        adjustment_prices = _prepend_split_adjusted_warmup_prices(
+            prices=prices,
+            warmup_prices=warmup_prices,
+        )
 
         corp_actions = await self._load_corporate_actions_for_prices(
             dataset=dataset,
-            prices=prices,
+            prices=adjustment_prices,
             table_paths=trusted_table_paths,
         )
-        adjustment_result = derive_split_adjusted_prices(prices, corp_actions)
+        adjustment_result = derive_split_adjusted_prices(adjustment_prices, corp_actions)
         frame = adjustment_result.frame
+        if preview_start_date is not None and not warmup_prices.is_empty():
+            frame = _drop_split_adjusted_warmup_rows(frame, preview_start_date)
         if has_more:
             frame = frame.head(limit)
 
@@ -845,6 +874,46 @@ class DataExplorerService:
             sql_handoff_url=_sql_handoff_url(dataset, ["alpaca_sip_daily"]),
             **provenance,
         )
+
+    async def _load_split_adjusted_warmup_prices(
+        self,
+        *,
+        dataset: str,
+        prices: pl.DataFrame,
+        preview_start_date: date | None,
+        table_paths: dict[str, TablePathSpec],
+    ) -> pl.DataFrame:
+        if preview_start_date is None or prices.is_empty():
+            return pl.DataFrame()
+
+        symbols = normalized_symbols_from_frame(prices)
+        if not symbols:
+            return pl.DataFrame()
+
+        symbol_placeholders = ", ".join("?" for _symbol in symbols)
+        warmup_query = (
+            "SELECT * FROM ("
+            "SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY date DESC) "
+            "AS __rta_warmup_rank "
+            "FROM alpaca_sip_daily "
+            f"WHERE symbol IN ({symbol_placeholders}) "
+            "AND date < CAST(? AS DATE)"
+            ") WHERE __rta_warmup_rank = 1 "
+            "ORDER BY symbol, date"
+        )
+        warmup = cast(
+            pl.DataFrame,
+            await self._execute_sql_frame(
+                dataset=dataset,
+                sql=warmup_query,
+                table_paths={"alpaca_sip_daily": table_paths["alpaca_sip_daily"]},
+                timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+                parameters=[*symbols, preview_start_date],
+            ),
+        )
+        if "__rta_warmup_rank" in warmup.columns:
+            return warmup.drop("__rta_warmup_rank")
+        return warmup
 
     async def _load_corporate_actions_for_prices(
         self,
@@ -1271,6 +1340,40 @@ def _price_date_bounds(prices: pl.DataFrame) -> tuple[date, date] | None:
     if not isinstance(min_date, date) or not isinstance(max_date, date):
         return None
     return min_date, max_date
+
+
+def _split_adjusted_preview_start_date(
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
+    trusted_tables: list[str],
+) -> date | None:
+    daily_manifest = _trusted_manifest_for_table(
+        alpaca_summary,
+        "alpaca_sip_daily",
+        trusted_tables,
+    )
+    if daily_manifest is None:
+        return None
+    lookback_start = daily_manifest.end_date - timedelta(days=_ADJUSTED_PREVIEW_LOOKBACK_DAYS)
+    return max(daily_manifest.start_date, lookback_start)
+
+
+def _prepend_split_adjusted_warmup_prices(
+    *,
+    prices: pl.DataFrame,
+    warmup_prices: pl.DataFrame,
+) -> pl.DataFrame:
+    if prices.is_empty() or warmup_prices.is_empty():
+        return prices
+    return pl.concat([warmup_prices, prices], how="vertical_relaxed")
+
+
+def _drop_split_adjusted_warmup_rows(
+    frame: pl.DataFrame,
+    preview_start_date: date,
+) -> pl.DataFrame:
+    if frame.is_empty() or "date" not in frame.columns:
+        return frame
+    return frame.filter(pl.col("date").cast(pl.Date, strict=False) >= preview_start_date)
 
 
 def _preview_candidate_tables(dataset: str, allowed_tables: list[str]) -> list[str]:
