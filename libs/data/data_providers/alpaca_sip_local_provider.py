@@ -15,7 +15,7 @@ import threading
 import weakref
 from datetime import date
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import duckdb
 import polars as pl
@@ -206,15 +206,19 @@ class AlpacaSIPLocalProvider:
         start_date: date,
         end_date: date | None = None,
         coverage_end_date: date | None = None,
+        date_basis: Literal["process_date", "effective_date"] = "process_date",
         symbols: list[str] | None = None,
     ) -> pl.DataFrame:
         """Get paired corporate actions from the trusted manifest.
 
-        ``end_date`` bounds returned corporate-action rows for explicit action
-        reads. ``coverage_end_date`` only validates that the companion manifest
-        is fresh enough for callers, such as read-time adjustment, that need all
-        later trusted split actions from the manifest horizon. A missing
-        corporate-action manifest fails closed via ``DataNotFoundError``.
+        ``end_date`` bounds returned corporate-action rows for explicit action reads.
+        The default ``date_basis`` matches Alpaca's process-date API window, while
+        read-time adjustment can request the effective action date so splits
+        processed before the price window still adjust later raw bars.
+        ``coverage_end_date`` only validates that the companion manifest is fresh
+        enough for callers that need all later trusted split actions from the
+        manifest horizon. A missing corporate-action manifest fails closed via
+        ``DataNotFoundError``.
         """
         required_end_date = coverage_end_date if coverage_end_date is not None else end_date
         if self._pinned_manifest is not None:
@@ -256,6 +260,7 @@ class AlpacaSIPLocalProvider:
             partition_paths=partition_paths,
             start_date=start_date,
             end_date=end_date,
+            date_basis=date_basis,
             symbols=symbols,
         )
 
@@ -373,16 +378,32 @@ class AlpacaSIPLocalProvider:
         partition_paths: list[Path],
         start_date: date,
         end_date: date | None,
+        date_basis: Literal["process_date", "effective_date"],
         symbols: list[str] | None,
     ) -> pl.DataFrame:
         params: dict[str, Any] = {
             "paths": [str(p) for p in partition_paths],
             "start_date": start_date,
         }
-        where_clauses = ['COALESCE("ex_date", "process_date") >= $start_date']
+        if date_basis == "process_date":
+            where_clauses = ['"process_date" >= $start_date']
+            order_by = '"symbol", "process_date", "ex_date"'
+        else:
+            where_clauses = [
+                '(("ex_date" IS NOT NULL AND "ex_date" >= $start_date) '
+                'OR ("ex_date" IS NULL AND "process_date" >= $start_date))'
+            ]
+            order_by = '"symbol", "ex_date" NULLS LAST, "process_date" NULLS LAST'
+
         if end_date is not None:
             params["end_date"] = end_date
-            where_clauses.append('COALESCE("ex_date", "process_date") <= $end_date')
+            if date_basis == "process_date":
+                where_clauses.append('"process_date" <= $end_date')
+            else:
+                where_clauses.append(
+                    '(("ex_date" IS NOT NULL AND "ex_date" <= $end_date) '
+                    'OR ("ex_date" IS NULL AND "process_date" <= $end_date))'
+                )
 
         if symbols is not None:
             params["symbols"] = sorted(
@@ -394,7 +415,7 @@ class AlpacaSIPLocalProvider:
             SELECT *
             FROM read_parquet($paths)
             WHERE {" AND ".join(where_clauses)}
-            ORDER BY "symbol", COALESCE("ex_date", "process_date")
+            ORDER BY {order_by}
         """
 
         with self._connection_lock:

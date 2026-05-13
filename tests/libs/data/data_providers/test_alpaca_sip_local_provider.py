@@ -503,7 +503,7 @@ class TestAlpacaSIPLocalProvider:
                 symbols=["AAPL"],
             )
 
-    def test_corp_actions_query_respects_requested_end_date(
+    def test_corp_actions_query_respects_requested_process_date_window(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
     ) -> None:
         data_root, manifest_manager, _ = mock_alpaca_sip_data
@@ -512,12 +512,12 @@ class TestAlpacaSIPLocalProvider:
         corp_path = corp_dir / "actions.parquet"
         pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL"],
-                "ca_type": ["stock_split", "stock_split"],
-                "process_date": [date(2020, 8, 30), date(2020, 9, 14)],
-                "ex_date": [date(2020, 8, 31), date(2020, 9, 15)],
-                "old_rate": [1.0, 1.0],
-                "new_rate": [4.0, 2.0],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "ca_type": ["stock_split", "stock_split", "stock_split"],
+                "process_date": [date(2020, 8, 30), date(2020, 9, 1), date(2020, 9, 14)],
+                "ex_date": [date(2020, 8, 31), date(2020, 9, 10), date(2020, 9, 15)],
+                "old_rate": [1.0, 1.0, 1.0],
+                "new_rate": [4.0, 2.0, 3.0],
             }
         ).write_parquet(corp_path)
         manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
@@ -528,7 +528,7 @@ class TestAlpacaSIPLocalProvider:
                     "sync_timestamp": datetime.now(UTC).isoformat(),
                     "start_date": "2020-08-01",
                     "end_date": "2020-09-30",
-                    "row_count": 2,
+                    "row_count": 3,
                     "checksum": "abc123",
                     "checksum_algorithm": "sha256",
                     "schema_version": "v1.0.0",
@@ -557,9 +557,17 @@ class TestAlpacaSIPLocalProvider:
             symbols=["AAPL"],
         )
 
-        assert bounded["ex_date"].to_list() == [date(2020, 8, 31)]
+        assert bounded["process_date"].to_list() == [
+            date(2020, 8, 30),
+            date(2020, 9, 1),
+        ]
+        assert bounded["ex_date"].to_list() == [
+            date(2020, 8, 31),
+            date(2020, 9, 10),
+        ]
         assert unbounded["ex_date"].to_list() == [
             date(2020, 8, 31),
+            date(2020, 9, 10),
             date(2020, 9, 15),
         ]
 
@@ -897,7 +905,7 @@ class TestAlpacaSIPDataProviderAdapter:
             {
                 "symbol": ["AAPL"],
                 "ca_type": ["stock_split"],
-                "process_date": [date(2020, 8, 31)],
+                "process_date": [date(2020, 7, 31)],
                 "ex_date": [date(2020, 9, 1)],
                 "old_rate": [1.0],
                 "new_rate": [2.0],
@@ -930,7 +938,7 @@ class TestAlpacaSIPDataProviderAdapter:
                 {
                     **manifest_base,
                     "dataset": "alpaca_sip_corp_actions",
-                    "start_date": "2020-08-01",
+                    "start_date": "2020-07-31",
                     "end_date": "2020-09-01",
                     "row_count": 1,
                     "file_paths": [str(corp_path)],
