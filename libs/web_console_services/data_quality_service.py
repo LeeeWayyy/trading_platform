@@ -412,7 +412,13 @@ class DataQualityService:
         """Get anomaly alerts with optional filters.
 
         Permission: VIEW_DATA_QUALITY + dataset-level access (filtered)
-        Filtering: Only alerts for datasets user has access to
+        Filtering: Only alerts for datasets user has access to.
+
+        Acknowledgment status is hydrated from the active
+        :class:`AlertAcknowledgmentStore` so the ``acknowledged`` filter
+        reflects what the operator already triaged. Reads from the store
+        are off-loaded to ``asyncio.to_thread`` so blocking DB I/O does not
+        run on the NiceGUI event loop.
         """
         self._require_permission(user, Permission.VIEW_DATA_QUALITY)
 
@@ -433,12 +439,41 @@ class DataQualityService:
             )
             for idx, name in enumerate(_MOCK_QUALITY_DATASETS, start=1)
         ]
-        filtered = [item for item in mock if has_dataset_permission(user, item.dataset)]
+        permitted = [item for item in mock if has_dataset_permission(user, item.dataset)]
         if severity:
-            filtered = [item for item in filtered if item.severity == severity]
+            permitted = [item for item in permitted if item.severity == severity]
+
+        # Hydrate acknowledged state from the durable store. Use a single
+        # thread hop to amortise the GIL release across all per-id lookups.
+        if permitted:
+            permitted = await asyncio.to_thread(self._hydrate_acknowledgments, permitted)
+
         if acknowledged is not None:
-            filtered = [item for item in filtered if item.acknowledged == acknowledged]
-        return filtered
+            permitted = [item for item in permitted if item.acknowledged == acknowledged]
+        return permitted
+
+    def _hydrate_acknowledgments(self, alerts: list[AnomalyAlertDTO]) -> list[AnomalyAlertDTO]:
+        """Return ``alerts`` with ``acknowledged``/``acknowledged_by`` filled in.
+
+        Pydantic models are immutable here, so we rebuild each one. This
+        runs inside ``asyncio.to_thread`` so the synchronous store reads
+        do not block the event loop.
+        """
+        hydrated: list[AnomalyAlertDTO] = []
+        for alert in alerts:
+            ack = self._ack_store.get(alert.id)
+            if ack is None:
+                hydrated.append(alert)
+                continue
+            hydrated.append(
+                alert.model_copy(
+                    update={
+                        "acknowledged": True,
+                        "acknowledged_by": ack.acknowledged_by,
+                    }
+                )
+            )
+        return hydrated
 
     async def acknowledge_alert(
         self,

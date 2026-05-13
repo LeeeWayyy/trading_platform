@@ -222,6 +222,43 @@ async def test_get_anomaly_alerts_filters_severity_and_acknowledged(
 
 
 @pytest.mark.asyncio()
+async def test_get_anomaly_alerts_hydrates_acknowledged_state_from_store() -> None:
+    """After an operator acknowledges an alert, subsequent reads must
+    surface the acknowledgment so the UI does not re-show the same alert
+    as unacked and the ``acked`` filter is not empty (Codex PR #225 P2)."""
+    store = FakePersistentAlertAcknowledgmentStore()
+    svc = DataQualityService(acknowledgment_store=store)
+
+    # Persist an acknowledgment for the first mocked alert. ``alert-1``
+    # maps to _SUPPORTED_DATASETS[0] which is "crsp" under the legacy
+    # resolver.
+    with (
+        patch("libs.web_console_services.data_quality_service.has_permission", return_value=True),
+        patch(
+            "libs.web_console_services.data_quality_service.has_dataset_permission",
+            return_value=True,
+        ),
+        patch("libs.web_console_services.data_quality_service.get_user_id", return_value="user-1"),
+    ):
+        await svc.acknowledge_alert(
+            DummyUser(user_id="user-1"), alert_id="alert-1", reason="triage"
+        )
+
+        unacked = await svc.get_anomaly_alerts(
+            DummyUser(user_id="user-1"), severity=None, acknowledged=False
+        )
+        acked = await svc.get_anomaly_alerts(
+            DummyUser(user_id="user-1"), severity=None, acknowledged=True
+        )
+
+    assert "alert-1" not in {a.id for a in unacked}
+    assert {a.id for a in acked} == {"alert-1"}
+    (only,) = acked
+    assert only.acknowledged is True
+    assert only.acknowledged_by == "user-1"
+
+
+@pytest.mark.asyncio()
 async def test_get_anomaly_alerts_excludes_manifest_backed_alpaca_sip_placeholder(
     service: DataQualityService,
 ) -> None:
