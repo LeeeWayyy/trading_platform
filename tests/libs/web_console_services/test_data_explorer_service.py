@@ -2162,12 +2162,27 @@ async def test_load_corporate_actions_for_prices_uses_bound_parameters(
     await service._load_corporate_actions_for_prices(
         dataset="alpaca_sip",
         prices=prices,
-        table_paths={"alpaca_sip_corp_actions": ("actions.parquet",)},
+        table_paths={
+            "alpaca_sip_corp_actions": sql_module.ResolvedTablePathSpec(
+                path_spec=("actions.parquet",),
+                manifest_backed=True,
+                manifest_end_date=date(2020, 8, 31),
+            )
+        },
     )
 
-    assert captured["parameters"] == ["AAPL", "BRK'B", date(2020, 1, 2)]
+    assert captured["parameters"] == [
+        "AAPL",
+        "BRK'B",
+        date(2020, 1, 2),
+        date(2020, 1, 2),
+        date(2020, 8, 31),
+        date(2020, 8, 31),
+    ]
     assert "BRK'B" not in captured["sql"]
-    assert captured["sql"].count("?") == 3
+    assert "process_date <= CAST(? AS DATE)" in captured["sql"]
+    assert "coalesce" not in captured["sql"].lower()
+    assert captured["sql"].count("?") == 6
 
 
 @pytest.mark.asyncio()

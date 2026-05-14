@@ -260,6 +260,7 @@ class AlpacaSIPLocalProvider:
             partition_paths=partition_paths,
             start_date=start_date,
             end_date=end_date,
+            manifest_end_date=manifest.end_date,
             date_basis=date_basis,
             symbols=symbols,
         )
@@ -378,6 +379,7 @@ class AlpacaSIPLocalProvider:
         partition_paths: list[Path],
         start_date: date,
         end_date: date | None,
+        manifest_end_date: date,
         date_basis: Literal["process_date", "effective_date"],
         symbols: list[str] | None,
     ) -> pl.DataFrame:
@@ -386,24 +388,29 @@ class AlpacaSIPLocalProvider:
             "start_date": start_date,
         }
         if date_basis == "process_date":
+            query_end_date = end_date if end_date is not None else manifest_end_date
+            params["query_end_date"] = query_end_date
             where_clauses = ['"process_date" >= $start_date']
+            where_clauses.append('"process_date" <= $query_end_date')
             order_by = '"symbol", "process_date", "ex_date"'
         else:
+            params["manifest_end_date"] = manifest_end_date
             where_clauses = [
                 '(("ex_date" IS NOT NULL AND "ex_date" >= $start_date) '
                 'OR ("ex_date" IS NULL AND "process_date" >= $start_date))'
             ]
+            where_clauses.append(
+                '(("process_date" IS NOT NULL AND "process_date" <= $manifest_end_date) '
+                'OR ("process_date" IS NULL AND "ex_date" <= $manifest_end_date))'
+            )
             order_by = '"symbol", "ex_date" NULLS LAST, "process_date" NULLS LAST'
 
-        if end_date is not None:
+        if end_date is not None and date_basis == "effective_date":
             params["end_date"] = end_date
-            if date_basis == "process_date":
-                where_clauses.append('"process_date" <= $end_date')
-            else:
-                where_clauses.append(
-                    '(("ex_date" IS NOT NULL AND "ex_date" <= $end_date) '
-                    'OR ("ex_date" IS NULL AND "process_date" <= $end_date))'
-                )
+            where_clauses.append(
+                '(("ex_date" IS NOT NULL AND "ex_date" <= $end_date) '
+                'OR ("ex_date" IS NULL AND "process_date" <= $end_date))'
+            )
 
         if symbols is not None:
             params["symbols"] = sorted(

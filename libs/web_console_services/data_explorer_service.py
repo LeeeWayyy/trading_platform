@@ -931,14 +931,30 @@ class DataExplorerService:
             if date_bounds is None or not symbols:
                 corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
             else:
-                start_date, _end_date = date_bounds
+                start_date, _price_end_date = date_bounds
+                query_end_date = _trusted_manifest_end_date(
+                    table_paths.get("alpaca_sip_corp_actions")
+                )
                 symbol_placeholders = ", ".join("?" for _symbol in symbols)
-                corp_query_parameters = [*symbols, start_date]
+                corp_query_parameters = [*symbols, start_date, start_date]
+                upper_bound_clause = ""
+                if query_end_date is not None:
+                    corp_query_parameters.extend([query_end_date, query_end_date])
+                    upper_bound_clause = (
+                        "AND ("
+                        "(process_date IS NOT NULL AND process_date <= CAST(? AS DATE)) "
+                        "OR (process_date IS NULL AND ex_date <= CAST(? AS DATE))"
+                        ") "
+                    )
                 corp_query = (
                     "SELECT * FROM alpaca_sip_corp_actions "
                     f"WHERE symbol IN ({symbol_placeholders}) "
-                    "AND coalesce(ex_date, process_date) >= CAST(? AS DATE) "
-                    "ORDER BY symbol, coalesce(ex_date, process_date)"
+                    "AND ("
+                    "(ex_date IS NOT NULL AND ex_date >= CAST(? AS DATE)) "
+                    "OR (ex_date IS NULL AND process_date >= CAST(? AS DATE))"
+                    ") "
+                    f"{upper_bound_clause}"
+                    "ORDER BY symbol, ex_date NULLS LAST, process_date NULLS LAST"
                 )
         return cast(
             pl.DataFrame,
@@ -1340,6 +1356,13 @@ def _price_date_bounds(prices: pl.DataFrame) -> tuple[date, date] | None:
     if not isinstance(min_date, date) or not isinstance(max_date, date):
         return None
     return min_date, max_date
+
+
+def _trusted_manifest_end_date(path_spec: TablePathSpec | None) -> date | None:
+    value = getattr(path_spec, "manifest_end_date", None)
+    if isinstance(value, date):
+        return value
+    return None
 
 
 def _split_adjusted_preview_start_date(

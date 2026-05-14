@@ -512,12 +512,22 @@ class TestAlpacaSIPLocalProvider:
         corp_path = corp_dir / "actions.parquet"
         pl.DataFrame(
             {
-                "symbol": ["AAPL", "AAPL", "AAPL"],
-                "ca_type": ["stock_split", "stock_split", "stock_split"],
-                "process_date": [date(2020, 8, 30), date(2020, 9, 1), date(2020, 9, 14)],
-                "ex_date": [date(2020, 8, 31), date(2020, 9, 10), date(2020, 9, 15)],
-                "old_rate": [1.0, 1.0, 1.0],
-                "new_rate": [4.0, 2.0, 3.0],
+                "symbol": ["AAPL", "AAPL", "AAPL", "AAPL"],
+                "ca_type": ["stock_split", "stock_split", "stock_split", "stock_split"],
+                "process_date": [
+                    date(2020, 8, 30),
+                    date(2020, 9, 1),
+                    date(2020, 9, 14),
+                    date(2020, 10, 5),
+                ],
+                "ex_date": [
+                    date(2020, 8, 31),
+                    date(2020, 9, 10),
+                    date(2020, 9, 15),
+                    date(2020, 10, 6),
+                ],
+                "old_rate": [1.0, 1.0, 1.0, 1.0],
+                "new_rate": [4.0, 2.0, 3.0, 5.0],
             }
         ).write_parquet(corp_path)
         manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
@@ -570,6 +580,7 @@ class TestAlpacaSIPLocalProvider:
             date(2020, 9, 10),
             date(2020, 9, 15),
         ]
+        assert date(2020, 10, 6) not in unbounded["ex_date"].to_list()
 
     def test_invalid_column_raises(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]

@@ -13,7 +13,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path as _Path
 from typing import Any
 from uuid import uuid4
@@ -65,6 +65,8 @@ class ResolvedTablePathSpec(BaseModel, frozen=True):
     manifest_backed: bool = False
     fallback_only: bool = False
     manifest_invalid: bool = False
+    manifest_start_date: date | None = None
+    manifest_end_date: date | None = None
 
 
 _TablePathSpec = _RawTablePathSpec | ResolvedTablePathSpec
@@ -534,6 +536,8 @@ def _resolve_alpaca_sip_snapshot_paths(
                     path_spec=raw_path_spec,
                     manifest_backed=bool(raw_path_spec),
                     manifest_invalid=not raw_path_spec,
+                    manifest_start_date=_parse_manifest_date(manifest.get("start_date")),
+                    manifest_end_date=_parse_manifest_date(manifest.get("end_date")),
                 )
                 return _cache_resolved_alpaca_sip_manifest_path(
                     cache_key,
@@ -556,6 +560,17 @@ def _resolve_alpaca_sip_snapshot_paths(
         path_spec=fallback_path_spec,
         fallback_only=True,
     )
+
+
+def _parse_manifest_date(value: Any) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _resolve_alpaca_sip_daily_paths(data_root: str) -> _TablePathSpec:

@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -337,11 +338,25 @@ def test_resolve_table_paths_uses_alpaca_manifest_paths(
     manifest_dir = data_root / "manifests"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "alpaca_sip_daily.json").write_text(
-        json.dumps({"file_paths": [str(partition)], "validation_status": "passed"}),
+        json.dumps(
+            {
+                "file_paths": [str(partition)],
+                "validation_status": "passed",
+                "start_date": "2026-01-01",
+                "end_date": "2026-01-31",
+            }
+        ),
         encoding="utf-8",
     )
     (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
-        json.dumps({"file_paths": [str(corp_partition)], "validation_status": "passed"}),
+        json.dumps(
+            {
+                "file_paths": [str(corp_partition)],
+                "validation_status": "passed",
+                "start_date": "2026-01-01",
+                "end_date": "2026-02-15",
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(module, "_PROJECT_ROOT", project_root)
@@ -352,6 +367,10 @@ def test_resolve_table_paths_uses_alpaca_manifest_paths(
     assert _raw_path_spec(paths["alpaca_sip_corp_actions"]) == (str(corp_partition),)
     assert isinstance(paths["alpaca_sip_daily"], module.ResolvedTablePathSpec)
     assert paths["alpaca_sip_daily"].manifest_backed is True
+    assert paths["alpaca_sip_daily"].manifest_start_date == date(2026, 1, 1)
+    assert paths["alpaca_sip_daily"].manifest_end_date == date(2026, 1, 31)
+    assert isinstance(paths["alpaca_sip_corp_actions"], module.ResolvedTablePathSpec)
+    assert paths["alpaca_sip_corp_actions"].manifest_end_date == date(2026, 2, 15)
 
 
 def test_resolve_table_paths_uses_nested_relative_manifest_paths(
@@ -797,7 +816,7 @@ async def test_execute_query_timeout_interrupts_connection(
             "SELECT * FROM crsp_daily",
             timeout_seconds=0,
             available_tables={"crsp_daily"},
-    )
+        )
 
     await asyncio.wait_for(_wait_until(lambda: conn.interrupt_called), timeout=1.0)
     await asyncio.wait_for(_wait_until(lambda: conn.closed), timeout=1.0)
