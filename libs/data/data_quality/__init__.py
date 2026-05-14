@@ -12,6 +12,7 @@ This module provides:
 
 from libs.data.data_quality.exceptions import (
     ChecksumMismatchError,
+    DataCoverageError,
     DataNotFoundError,
     DatasetNotInSnapshotError,
     DiskSpaceError,
@@ -80,6 +81,7 @@ __all__ = [
     "QuarantineError",
     "LockNotHeldError",
     "DiskSpaceError",
+    "DataCoverageError",
     "DataNotFoundError",
     # Versioning Exceptions
     "SnapshotNotFoundError",

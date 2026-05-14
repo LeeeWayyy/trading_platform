@@ -21,6 +21,7 @@ from libs.data.data_providers.protocols import (
     UNIFIED_COLUMNS,
     AlpacaSIPDataProviderAdapter,
     DataProvider,
+    DataProviderError,
     ProviderNotSupportedError,
 )
 from libs.data.data_quality.exceptions import DataNotFoundError
@@ -311,6 +312,276 @@ class TestAlpacaSIPLocalProvider:
 
         assert df.height == 2
 
+    def test_pinned_manifest_disables_current_corp_actions_manifest(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        pinned_manifest = manifest_manager.load_manifest("alpaca_sip_daily")
+        assert pinned_manifest is not None
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        corp_dir.mkdir(parents=True)
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "dataset": "alpaca_sip_corp_actions",
+                    "sync_timestamp": datetime.now(UTC).isoformat(),
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "checksum": "abc123",
+                    "checksum_algorithm": "sha256",
+                    "schema_version": "v1.0.0",
+                    "wrds_query_hash": "alpaca-sip-local-test",
+                    "file_paths": [str(corp_path)],
+                    "validation_status": "passed",
+                    "manifest_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+            pinned_manifest=pinned_manifest,
+        )
+
+        with pytest.raises(DataNotFoundError, match="pinned Alpaca SIP daily"):
+            provider.get_corporate_actions(start_date=date(2020, 8, 28), symbols=["AAPL"])
+
+    def test_untrusted_corp_actions_manifest_fails_closed(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        corp_dir.mkdir(parents=True)
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "dataset": "alpaca_sip_corp_actions",
+                    "sync_timestamp": datetime.now(UTC).isoformat(),
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "checksum": "abc123",
+                    "checksum_algorithm": "sha256",
+                    "schema_version": "v1.0.0",
+                    "wrds_query_hash": "alpaca-sip-local-test",
+                    "file_paths": [str(corp_path)],
+                    "validation_status": "failed",
+                    "manifest_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        with pytest.raises(DataNotFoundError, match="not trusted"):
+            provider.get_corporate_actions(start_date=date(2020, 8, 28), symbols=["AAPL"])
+
+    def test_corp_actions_manifest_start_after_price_range_fails_closed(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        corp_dir.mkdir(parents=True)
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "dataset": "alpaca_sip_corp_actions",
+                    "sync_timestamp": datetime.now(UTC).isoformat(),
+                    "start_date": "2020-08-29",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "checksum": "abc123",
+                    "checksum_algorithm": "sha256",
+                    "schema_version": "v1.0.0",
+                    "wrds_query_hash": "alpaca-sip-local-test",
+                    "file_paths": [str(corp_path)],
+                    "validation_status": "passed",
+                    "manifest_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        with pytest.raises(DataNotFoundError, match="after requested price start"):
+            provider.get_corporate_actions(start_date=date(2020, 8, 28), symbols=["AAPL"])
+
+    def test_corp_actions_manifest_end_before_price_range_fails_closed(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        corp_dir.mkdir(parents=True)
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "dataset": "alpaca_sip_corp_actions",
+                    "sync_timestamp": datetime.now(UTC).isoformat(),
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-08-31",
+                    "row_count": 1,
+                    "checksum": "abc123",
+                    "checksum_algorithm": "sha256",
+                    "schema_version": "v1.0.0",
+                    "wrds_query_hash": "alpaca-sip-local-test",
+                    "file_paths": [str(corp_path)],
+                    "validation_status": "passed",
+                    "manifest_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        with pytest.raises(DataNotFoundError, match="before requested price end"):
+            provider.get_corporate_actions(
+                start_date=date(2020, 8, 28),
+                end_date=date(2020, 9, 1),
+                symbols=["AAPL"],
+            )
+
+    def test_corp_actions_query_respects_requested_process_date_window(
+        self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
+    ) -> None:
+        data_root, manifest_manager, _ = mock_alpaca_sip_data
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        corp_dir.mkdir(parents=True)
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL", "AAPL", "AAPL", "AAPL"],
+                "ca_type": ["stock_split", "stock_split", "stock_split", "stock_split"],
+                "process_date": [
+                    date(2020, 8, 30),
+                    date(2020, 9, 1),
+                    date(2020, 9, 14),
+                    date(2020, 10, 5),
+                ],
+                "ex_date": [
+                    date(2020, 8, 31),
+                    date(2020, 9, 10),
+                    date(2020, 9, 15),
+                    date(2020, 10, 6),
+                ],
+                "old_rate": [1.0, 1.0, 1.0, 1.0],
+                "new_rate": [4.0, 2.0, 3.0, 5.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_path = data_root / "manifests" / "alpaca_sip_corp_actions.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "dataset": "alpaca_sip_corp_actions",
+                    "sync_timestamp": datetime.now(UTC).isoformat(),
+                    "start_date": "2020-08-01",
+                    "end_date": "2020-09-30",
+                    "row_count": 3,
+                    "checksum": "abc123",
+                    "checksum_algorithm": "sha256",
+                    "schema_version": "v1.0.0",
+                    "wrds_query_hash": "alpaca-sip-local-test",
+                    "file_paths": [str(corp_path)],
+                    "validation_status": "passed",
+                    "manifest_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=data_root / "alpaca" / "sip" / "daily",
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+
+        bounded = provider.get_corporate_actions(
+            start_date=date(2020, 8, 1),
+            end_date=date(2020, 9, 1),
+            symbols=["AAPL"],
+        )
+        unbounded = provider.get_corporate_actions(
+            start_date=date(2020, 8, 1),
+            coverage_end_date=date(2020, 9, 1),
+            symbols=["AAPL"],
+        )
+
+        assert bounded["process_date"].to_list() == [
+            date(2020, 8, 30),
+            date(2020, 9, 1),
+        ]
+        assert bounded["ex_date"].to_list() == [
+            date(2020, 8, 31),
+            date(2020, 9, 10),
+        ]
+        assert unbounded["ex_date"].to_list() == [
+            date(2020, 8, 31),
+            date(2020, 9, 10),
+            date(2020, 9, 15),
+        ]
+        assert date(2020, 10, 6) not in unbounded["ex_date"].to_list()
+
     def test_invalid_column_raises(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]
     ) -> None:
@@ -508,11 +779,293 @@ class TestAlpacaSIPDataProviderAdapter:
                 "ret": [None, None],
             }
         )
+        provider.get_corporate_actions.side_effect = DataNotFoundError("no companion manifest")
         adapter = AlpacaSIPDataProviderAdapter(provider)
 
         df = adapter.get_daily_prices(["AAPL"], date(2023, 1, 3), date(2023, 1, 4))
 
         assert df["ret"].to_list() == [None, None]
+
+    def test_adapter_derives_split_adjusted_returns_from_corp_actions_manifest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        data_root = tmp_path / "data"
+        daily_dir = data_root / "alpaca" / "sip" / "daily"
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        manifest_dir = data_root / "manifests"
+        lock_dir = data_root / "locks"
+        daily_dir.mkdir(parents=True)
+        corp_dir.mkdir(parents=True)
+        manifest_dir.mkdir(parents=True)
+        lock_dir.mkdir(parents=True)
+        daily_path = daily_dir / "2020.parquet"
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "date": [date(2020, 8, 28), date(2020, 8, 31), date(2020, 9, 1)],
+                "symbol": ["AAPL", "AAPL", "AAPL"],
+                "open": [500.0, 125.0, 130.0],
+                "high": [504.0, 126.0, 132.0],
+                "low": [496.0, 124.0, 129.0],
+                "close": [500.0, 125.0, 130.0],
+                "volume": [1_000_000.0, 4_000_000.0, 3_800_000.0],
+                "trade_count": [10_000.0, 11_000.0, 12_000.0],
+                "vwap": [501.0, 125.5, 130.5],
+                "adj_close": [None, None, None],
+                "ret": [None, None, None],
+            },
+            schema={column: ALPACA_SIP_SCHEMA[column] for column in ALPACA_SIP_COLUMNS},
+        ).write_parquet(daily_path)
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_base = {
+            "sync_timestamp": datetime.now(UTC).isoformat(),
+            "checksum": "abc123",
+            "checksum_algorithm": "sha256",
+            "schema_version": "v1.0.0",
+            "wrds_query_hash": "alpaca-sip-local-test",
+            "validation_status": "passed",
+            "manifest_version": 1,
+        }
+        (manifest_dir / "alpaca_sip_daily.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_daily",
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 3,
+                    "file_paths": [str(daily_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_corp_actions",
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "file_paths": [str(corp_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        manifest_manager = ManifestManager(
+            storage_path=manifest_dir,
+            lock_dir=lock_dir,
+            data_root=data_root,
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=daily_dir,
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2020, 8, 28), date(2020, 9, 1))
+
+        assert df["close"].to_list() == [500.0, 125.0, 130.0]
+        assert df["adj_close"].to_list() == [125.0, 125.0, 130.0]
+        assert df["ret"].to_list()[0] is None
+        assert df["ret"].to_list()[1:] == pytest.approx([0.0, 0.04])
+
+    def test_adapter_includes_later_manifest_splits_for_adjusted_prices(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        data_root = tmp_path / "data"
+        daily_dir = data_root / "alpaca" / "sip" / "daily"
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        manifest_dir = data_root / "manifests"
+        lock_dir = data_root / "locks"
+        daily_dir.mkdir(parents=True)
+        corp_dir.mkdir(parents=True)
+        manifest_dir.mkdir(parents=True)
+        lock_dir.mkdir(parents=True)
+        daily_path = daily_dir / "2020.parquet"
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "date": [date(2020, 8, 1), date(2020, 8, 2)],
+                "symbol": ["AAPL", "AAPL"],
+                "open": [100.0, 104.0],
+                "high": [101.0, 105.0],
+                "low": [99.0, 103.0],
+                "close": [100.0, 104.0],
+                "volume": [1_000_000.0, 1_100_000.0],
+                "trade_count": [10_000.0, 11_000.0],
+                "vwap": [100.5, 104.5],
+                "adj_close": [None, None],
+                "ret": [None, None],
+            },
+            schema={column: ALPACA_SIP_SCHEMA[column] for column in ALPACA_SIP_COLUMNS},
+        ).write_parquet(daily_path)
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 7, 31)],
+                "ex_date": [date(2020, 9, 1)],
+                "old_rate": [1.0],
+                "new_rate": [2.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_base = {
+            "sync_timestamp": datetime.now(UTC).isoformat(),
+            "checksum": "abc123",
+            "checksum_algorithm": "sha256",
+            "schema_version": "v1.0.0",
+            "wrds_query_hash": "alpaca-sip-local-test",
+            "validation_status": "passed",
+            "manifest_version": 1,
+        }
+        (manifest_dir / "alpaca_sip_daily.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_daily",
+                    "start_date": "2020-08-01",
+                    "end_date": "2020-08-02",
+                    "row_count": 2,
+                    "file_paths": [str(daily_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_corp_actions",
+                    "start_date": "2020-07-31",
+                    "end_date": "2020-09-01",
+                    "row_count": 1,
+                    "file_paths": [str(corp_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        manifest_manager = ManifestManager(
+            storage_path=manifest_dir,
+            lock_dir=lock_dir,
+            data_root=data_root,
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=daily_dir,
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        df = adapter.get_daily_prices(["AAPL"], date(2020, 8, 1), date(2020, 8, 2))
+
+        assert df["close"].to_list() == [100.0, 104.0]
+        assert df["adj_close"].to_list() == [50.0, 52.0]
+        assert df["ret"].to_list()[0] is None
+        assert df["ret"].to_list()[1] == pytest.approx(0.04)
+
+    def test_adapter_rejects_stale_corp_actions_manifest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        data_root = tmp_path / "data"
+        daily_dir = data_root / "alpaca" / "sip" / "daily"
+        corp_dir = data_root / "alpaca" / "sip" / "corp_actions"
+        manifest_dir = data_root / "manifests"
+        lock_dir = data_root / "locks"
+        daily_dir.mkdir(parents=True)
+        corp_dir.mkdir(parents=True)
+        manifest_dir.mkdir(parents=True)
+        lock_dir.mkdir(parents=True)
+        daily_path = daily_dir / "2020.parquet"
+        corp_path = corp_dir / "actions.parquet"
+        pl.DataFrame(
+            {
+                "date": [date(2020, 8, 28), date(2020, 9, 1)],
+                "symbol": ["AAPL", "AAPL"],
+                "open": [500.0, 130.0],
+                "high": [504.0, 132.0],
+                "low": [496.0, 129.0],
+                "close": [500.0, 130.0],
+                "volume": [1_000_000.0, 3_800_000.0],
+                "trade_count": [10_000.0, 12_000.0],
+                "vwap": [501.0, 130.5],
+                "adj_close": [None, None],
+                "ret": [None, None],
+            },
+            schema={column: ALPACA_SIP_SCHEMA[column] for column in ALPACA_SIP_COLUMNS},
+        ).write_parquet(daily_path)
+        pl.DataFrame(
+            {
+                "symbol": ["AAPL"],
+                "ca_type": ["stock_split"],
+                "process_date": [date(2020, 8, 30)],
+                "ex_date": [date(2020, 8, 31)],
+                "old_rate": [1.0],
+                "new_rate": [4.0],
+            }
+        ).write_parquet(corp_path)
+        manifest_base = {
+            "sync_timestamp": datetime.now(UTC).isoformat(),
+            "checksum": "abc123",
+            "checksum_algorithm": "sha256",
+            "schema_version": "v1.0.0",
+            "wrds_query_hash": "alpaca-sip-local-test",
+            "validation_status": "passed",
+            "manifest_version": 1,
+        }
+        (manifest_dir / "alpaca_sip_daily.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_daily",
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-09-01",
+                    "row_count": 2,
+                    "file_paths": [str(daily_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (manifest_dir / "alpaca_sip_corp_actions.json").write_text(
+            json.dumps(
+                {
+                    **manifest_base,
+                    "dataset": "alpaca_sip_corp_actions",
+                    "start_date": "2020-08-28",
+                    "end_date": "2020-08-31",
+                    "row_count": 1,
+                    "file_paths": [str(corp_path)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        manifest_manager = ManifestManager(
+            storage_path=manifest_dir,
+            lock_dir=lock_dir,
+            data_root=data_root,
+        )
+        provider = AlpacaSIPLocalProvider(
+            storage_path=daily_dir,
+            manifest_manager=manifest_manager,
+            data_root=data_root,
+        )
+        adapter = AlpacaSIPDataProviderAdapter(provider)
+
+        with pytest.raises(DataProviderError, match="before requested price end"):
+            adapter.get_daily_prices(["AAPL"], date(2020, 8, 28), date(2020, 9, 1))
 
     def test_adapter_rejects_empty_symbols(
         self, mock_alpaca_sip_data: tuple[Path, ManifestManager, list[Path]]

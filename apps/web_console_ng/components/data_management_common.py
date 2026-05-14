@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from libs.web_console_services.alpaca_sip_manifest_helpers import (
+    manifest_has_native_returns,
+    summary_supports_split_adjustment,
+)
+
 TREND_DATASETS: tuple[str, ...] = (
     "crsp",
     "compustat",
@@ -29,4 +34,10 @@ def get_user_id_safe(user: Any) -> str | None:
     return str(val) if val is not None else None
 
 
-__all__ = ["TREND_DATASETS", "format_datetime", "get_user_id_safe"]
+__all__ = [
+    "TREND_DATASETS",
+    "format_datetime",
+    "get_user_id_safe",
+    "manifest_has_native_returns",
+    "summary_supports_split_adjustment",
+]

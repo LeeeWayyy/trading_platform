@@ -99,6 +99,12 @@ class DataNotFoundError(DataQualityError):
     pass
 
 
+class DataCoverageError(DataNotFoundError):
+    """Raised when available data does not cover the requested range."""
+
+    pass
+
+
 # =============================================================================
 # Versioning Exceptions (T1.6)
 # =============================================================================

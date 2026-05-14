@@ -7,6 +7,9 @@ from pathlib import Path
 
 from libs.data.data_quality.manifest import SyncManifest
 from libs.web_console_services.data_manifest_service import (
+    ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH,
+    ALPACA_SIP_COMPANION_MANIFEST_STALE,
+    ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH,
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
     ALPACA_SIP_DATASET_KEY,
@@ -24,6 +27,7 @@ def _write_manifest(
     dataset: str,
     row_count: int = 10,
     validation_status: str = "passed",
+    start_date: date = date(2026, 4, 1),
     end_date: date = date(2026, 4, 30),
     symbol_set_hash: str | None = "symbols-v1",
 ) -> None:
@@ -32,7 +36,7 @@ def _write_manifest(
     manifest = SyncManifest(
         dataset=dataset,
         sync_timestamp=SYNC_TS,
-        start_date=date(2026, 4, 1),
+        start_date=start_date,
         end_date=end_date,
         row_count=row_count,
         checksum=f"{dataset}-checksum",
@@ -127,8 +131,32 @@ def test_alpaca_sip_summary_adds_companion_warnings(tmp_path: Path) -> None:
 
     summary = service.get_alpaca_sip_summary()
 
-    assert "alpaca_sip_companion_symbol_set_mismatch" in summary.warnings
-    assert "alpaca_sip_companion_manifest_stale" in summary.warnings
+    assert ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH in summary.warnings
+    assert ALPACA_SIP_COMPANION_MANIFEST_STALE in summary.warnings
+    assert ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH in summary.warnings
+
+
+def test_alpaca_sip_summary_warns_when_companion_starts_after_daily(
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "data"
+    _write_manifest(
+        data_root,
+        dataset=ALPACA_SIP_DAILY_DATASET,
+        start_date=date(2026, 4, 1),
+        end_date=date(2026, 4, 30),
+    )
+    _write_manifest(
+        data_root,
+        dataset=ALPACA_SIP_CORP_ACTIONS_DATASET,
+        start_date=date(2026, 4, 5),
+        end_date=date(2026, 4, 30),
+    )
+    service = DataManifestService(data_root=data_root)
+
+    summary = service.get_alpaca_sip_summary()
+
+    assert ALPACA_SIP_COMPANION_DATE_RANGE_MISMATCH in summary.warnings
 
 
 def test_provider_signature_sanitizer_drops_unknown_sensitive_fields() -> None:

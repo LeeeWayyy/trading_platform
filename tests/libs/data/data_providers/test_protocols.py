@@ -29,6 +29,7 @@ from libs.data.data_providers.protocols import (
     ProviderUnavailableError,
     YFinanceDataProviderAdapter,
 )
+from libs.data.data_quality.exceptions import DataNotFoundError
 
 if TYPE_CHECKING:
     pass
@@ -272,6 +273,7 @@ class TestAlpacaSIPSchemaNormalization:
                 "ret": [None, None, None],
             }
         )
+        provider.get_corporate_actions.side_effect = DataNotFoundError("no companion manifest")
         adapter = AlpacaSIPDataProviderAdapter(provider)
 
         df = adapter.get_daily_prices(["AAPL"], date(2024, 1, 2), date(2024, 1, 4))

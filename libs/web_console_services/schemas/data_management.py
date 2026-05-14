@@ -228,6 +228,7 @@ class BacktestHandoffDTO(BaseModel):
     dataset: str
     data_roles: dict[str, BacktestRoleProvenanceDTO] = Field(default_factory=dict)
     selected_read_time_adjustment_mode: str = "unavailable"
+    derived: bool = False
     adjusted_preview_available: bool = False
     adjusted_preview_unavailable_reason: str | None = None
     reason_codes: list[str] = Field(default_factory=list)
@@ -281,6 +282,9 @@ class DataPreviewDTO(BaseModel):
     canonical_storage_mode: str | None = None
     read_time_adjustment_mode: str | None = None
     provider_signature: ProviderSignatureDTO | None = None
+    derived: bool = False
+    derivation_mode: str | None = None
+    derivation_reason_codes: list[str] = Field(default_factory=list)
     null_column_reasons: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     backtest_handoff: BacktestHandoffDTO | None = None

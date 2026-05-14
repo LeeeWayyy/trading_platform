@@ -8,11 +8,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, datetime
-from typing import Any, Literal, TypedDict
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Literal, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
+import polars as pl
+
+from libs.data.data_pipeline.helpers import normalized_symbols_from_frame
+from libs.data.data_pipeline.read_time_adjustment import (
+    READ_TIME_ADJUSTMENT_AVAILABLE_REASON,
+    READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
+    READ_TIME_ADJUSTMENT_MODE_UNAVAILABLE,
+    READ_TIME_INVALID_SPLIT_ACTIONS_SKIPPED_REASON,
+    READ_TIME_NO_SPLIT_ACTIONS_REASON,
+    derive_split_adjusted_prices,
+)
 from libs.platform.web_console_auth.helpers import get_user_id
 from libs.platform.web_console_auth.permissions import (
     Permission,
@@ -21,6 +32,10 @@ from libs.platform.web_console_auth.permissions import (
 )
 from libs.platform.web_console_auth.rate_limiter import RateLimiter, get_rate_limiter
 
+from .alpaca_sip_manifest_helpers import (
+    manifest_has_native_returns,
+    summary_supports_split_adjustment,
+)
 from .data_manifest_service import (
     ALPACA_SIP_CORP_ACTIONS_DATASET,
     ALPACA_SIP_DAILY_DATASET,
@@ -57,6 +72,7 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_DATASETS = tuple(DATASET_TABLES)
 _PREVIEW_TIMEOUT_SECONDS = 10
 _PREVIEW_RATE_LIMIT = 30
+_ADJUSTED_PREVIEW_LOOKBACK_DAYS = 31
 _INTERACTIVE_ROW_LIMIT = 10_000
 _INTERACTIVE_FETCH_LIMIT = _INTERACTIVE_ROW_LIMIT + 1
 DATA_EXPORT_RATE_LIMIT = 5
@@ -82,6 +98,7 @@ class _DatasetAdjustmentMetadata(TypedDict, total=False):
     null_column_reasons: dict[str, str]
     warnings: list[str]
     backtest_handoff: BacktestHandoffDTO | None
+
 
 _DATASET_DESCRIPTIONS: dict[str, str] = {
     "crsp": "CRSP stock and index history",
@@ -110,6 +127,7 @@ _NULL_COLUMN_REASONS_BY_TABLE: dict[str, dict[str, str]] = {
         "ret": "raw_sip_returns_unavailable",
     }
 }
+_RAW_SIP_RETURNS_UNAVAILABLE = "raw_sip_returns_unavailable"
 _ALPACA_SIP_BACKTEST_ROLE_TABLES: dict[str, str] = {
     "universe": "alpaca_sip_daily",
     "prices": "alpaca_sip_daily",
@@ -117,11 +135,19 @@ _ALPACA_SIP_BACKTEST_ROLE_TABLES: dict[str, str] = {
 }
 _ALPACA_SIP_DAILY_ADJUSTMENT_MODE = "raw"
 _ALPACA_SIP_DAILY_CANONICAL_STORAGE_MODE = "raw"
-_ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE = "unavailable"
+_ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE = READ_TIME_ADJUSTMENT_MODE_UNAVAILABLE
 _ALPACA_SIP_CORP_ACTIONS_STORAGE_MODE = "read_only_adjustment_input"
 _ADJUSTED_PREVIEW_UNAVAILABLE_REASON = "read_time_adjustment_layer_not_defined"
 _ALPACA_SIP_MANIFEST_VALIDATION_FAILED_REASON = "alpaca_sip_manifest_validation_failed"
 _ALPACA_SIP_UNTRUSTED_REASON = "alpaca_sip_untrusted_without_manifest"
+_ALPACA_SIP_COMPANION_MANIFEST_STALE_REASON = "alpaca_sip_companion_manifest_stale"
+_ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH_REASON = "alpaca_sip_companion_symbol_set_mismatch"
+_ALPACA_SIP_COMPANION_BLOCKING_REASONS = frozenset(
+    {
+        _ALPACA_SIP_COMPANION_MANIFEST_STALE_REASON,
+        _ALPACA_SIP_COMPANION_SYMBOL_SET_MISMATCH_REASON,
+    }
+)
 
 
 class RateLimitExceeded(RuntimeError):
@@ -193,7 +219,9 @@ class DataExplorerService:
             fallback_tables = sorted(
                 resolution.table
                 for resolution in dataset_resolutions
-                if resolution.available and resolution.fallback_only and not resolution.manifest_invalid
+                if resolution.available
+                and resolution.fallback_only
+                and not resolution.manifest_invalid
             )
             invalid_manifest_tables = sorted(
                 resolution.table
@@ -282,6 +310,7 @@ class DataExplorerService:
         dataset: str,
         limit: int = 100,
         table: str | None = None,
+        read_time_adjustment_mode: Literal["raw", "split_adjusted"] = "raw",
     ) -> DataPreviewDTO:
         """Get first N rows of dataset.
 
@@ -297,6 +326,18 @@ class DataExplorerService:
                 raise ValueError("Preview limit cannot exceed 1000 rows")
             if limit <= 0:
                 raise ValueError("Preview limit must be positive")
+            if read_time_adjustment_mode == READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED:
+                return await self._get_split_adjusted_preview(
+                    user,
+                    dataset=dataset,
+                    limit=limit,
+                    table=table,
+                    started=started,
+                )
+            if read_time_adjustment_mode != "raw":
+                raise ValueError(
+                    f"Unsupported read-time adjustment mode: {read_time_adjustment_mode}"
+                )
 
             (
                 table_name,
@@ -678,6 +719,254 @@ class DataExplorerService:
             )
             raise
 
+    async def _get_split_adjusted_preview(
+        self,
+        user: Any,
+        *,
+        dataset: str,
+        limit: int,
+        table: str | None,
+        started: float,
+    ) -> DataPreviewDTO:
+        if dataset != ALPACA_SIP_DATASET_KEY:
+            raise ValueError("Split-adjusted preview is only available for alpaca_sip")
+        if table not in {None, "alpaca_sip_daily"}:
+            raise ValueError("Split-adjusted preview is only available for alpaca_sip_daily")
+
+        referenced_tables = ["alpaca_sip_daily", "alpaca_sip_corp_actions"]
+        trusted_table_paths = await self._trusted_available_tables_for_query(
+            dataset,
+            referenced_tables,
+        )
+        table_resolutions, _warnings = await self._resolve_table_availability()
+        daily_resolution = table_resolutions["alpaca_sip_daily"]
+        provenance_trusted_tables = sorted(trusted_table_paths)
+
+        alpaca_summary, alpaca_summary_unavailable = await self._get_alpaca_summary()
+        if not _read_time_adjustment_available(
+            trusted_tables=provenance_trusted_tables,
+            alpaca_summary=alpaca_summary,
+            alpaca_summary_unavailable=alpaca_summary_unavailable,
+        ):
+            handoff = _build_backtest_handoff(
+                dataset,
+                trusted_tables=provenance_trusted_tables,
+                alpaca_summary=alpaca_summary,
+                alpaca_summary_unavailable=alpaca_summary_unavailable,
+                queryable_state=_queryable_state_for_table(daily_resolution),
+            )
+            reasons = (
+                ", ".join(handoff.reason_codes)
+                if handoff is not None and handoff.reason_codes
+                else _ADJUSTED_PREVIEW_UNAVAILABLE_REASON
+            )
+            raise ValueError(f"Split-adjusted preview unavailable: {reasons}")
+
+        await self._enforce_rate_limit(
+            user,
+            action="data_preview",
+            max_requests=_PREVIEW_RATE_LIMIT,
+            window=60,
+        )
+
+        fetch_limit = limit + 1
+        price_query_parameters: list[Any] | None = None
+        preview_start_date = _split_adjusted_preview_start_date(
+            alpaca_summary,
+            provenance_trusted_tables,
+        )
+        if preview_start_date is None:
+            price_query = (
+                f"SELECT * FROM alpaca_sip_daily ORDER BY symbol, date LIMIT {fetch_limit}"
+            )
+        else:
+            price_query_parameters = [preview_start_date]
+            price_query = (
+                "SELECT * FROM alpaca_sip_daily "
+                "WHERE date >= CAST(? AS DATE) "
+                f"ORDER BY symbol, date LIMIT {fetch_limit}"
+            )
+        prices = await self._execute_sql_frame(
+            dataset=dataset,
+            sql=price_query,
+            table_paths={"alpaca_sip_daily": trusted_table_paths["alpaca_sip_daily"]},
+            timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+            parameters=price_query_parameters,
+        )
+        fetched_row_count = len(prices)
+        has_more = fetched_row_count > limit
+        warmup_prices = await self._load_split_adjusted_warmup_prices(
+            dataset=dataset,
+            prices=prices,
+            preview_start_date=preview_start_date,
+            table_paths=trusted_table_paths,
+        )
+        adjustment_prices = _prepend_split_adjusted_warmup_prices(
+            prices=prices,
+            warmup_prices=warmup_prices,
+        )
+
+        corp_actions = await self._load_corporate_actions_for_prices(
+            dataset=dataset,
+            prices=adjustment_prices,
+            table_paths=trusted_table_paths,
+        )
+        adjustment_result = derive_split_adjusted_prices(adjustment_prices, corp_actions)
+        frame = adjustment_result.frame
+        if preview_start_date is not None and not warmup_prices.is_empty():
+            frame = _drop_split_adjusted_warmup_rows(frame, preview_start_date)
+        if has_more:
+            frame = frame.head(limit)
+
+        provenance = await self._preview_provenance_for_table(
+            "alpaca_sip_daily",
+            dataset=dataset,
+            trusted_tables=provenance_trusted_tables,
+        )
+        warnings = sorted(
+            {
+                *(
+                    str(item)
+                    for item in provenance.get("warnings", [])
+                    if str(item) != _RAW_SIP_RETURNS_UNAVAILABLE
+                ),
+                *(
+                    code
+                    for code in adjustment_result.reason_codes
+                    if code
+                    in {
+                        READ_TIME_INVALID_SPLIT_ACTIONS_SKIPPED_REASON,
+                        READ_TIME_NO_SPLIT_ACTIONS_REASON,
+                    }
+                ),
+            }
+        )
+        provenance.update(
+            {
+                "read_time_adjustment_mode": READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
+                "null_column_reasons": {},
+                "warnings": warnings,
+                "derived": True,
+                "derivation_mode": READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED,
+                "derivation_reason_codes": list(adjustment_result.reason_codes),
+            }
+        )
+
+        execution_ms = int((time.monotonic() - started) * 1000)
+        log_sql_query_audit(
+            user,
+            dataset,
+            "READ_TIME_ADJUSTMENT_PREVIEW split_adjusted alpaca_sip_daily",
+            price_query,
+            len(frame),
+            execution_ms,
+            "success",
+            None,
+        )
+        return DataPreviewDTO(
+            columns=list(frame.columns),
+            rows=frame.to_dicts(),
+            total_count=fetched_row_count,
+            has_more=has_more,
+            table="alpaca_sip_daily",
+            queryable_state=_queryable_state_for_table(daily_resolution),
+            trusted_manifest_backed=daily_resolution.manifest_backed,
+            sql_handoff_url=_sql_handoff_url(dataset, ["alpaca_sip_daily"]),
+            **provenance,
+        )
+
+    async def _load_split_adjusted_warmup_prices(
+        self,
+        *,
+        dataset: str,
+        prices: pl.DataFrame,
+        preview_start_date: date | None,
+        table_paths: dict[str, TablePathSpec],
+    ) -> pl.DataFrame:
+        if preview_start_date is None or prices.is_empty():
+            return pl.DataFrame()
+
+        symbols = normalized_symbols_from_frame(prices)
+        if not symbols:
+            return pl.DataFrame()
+
+        symbol_placeholders = ", ".join("?" for _symbol in symbols)
+        warmup_query = (
+            "SELECT * FROM ("
+            "SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY date DESC) "
+            "AS __rta_warmup_rank "
+            "FROM alpaca_sip_daily "
+            f"WHERE symbol IN ({symbol_placeholders}) "
+            "AND date < CAST(? AS DATE)"
+            ") WHERE __rta_warmup_rank = 1 "
+            "ORDER BY symbol, date"
+        )
+        warmup = cast(
+            pl.DataFrame,
+            await self._execute_sql_frame(
+                dataset=dataset,
+                sql=warmup_query,
+                table_paths={"alpaca_sip_daily": table_paths["alpaca_sip_daily"]},
+                timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+                parameters=[*symbols, preview_start_date],
+            ),
+        )
+        if "__rta_warmup_rank" in warmup.columns:
+            return warmup.drop("__rta_warmup_rank")
+        return warmup
+
+    async def _load_corporate_actions_for_prices(
+        self,
+        *,
+        dataset: str,
+        prices: pl.DataFrame,
+        table_paths: dict[str, TablePathSpec],
+    ) -> pl.DataFrame:
+        corp_query_parameters: list[Any] | None = None
+        if prices.is_empty():
+            corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
+        else:
+            date_bounds = _price_date_bounds(prices)
+            symbols = normalized_symbols_from_frame(prices)
+            if date_bounds is None or not symbols:
+                corp_query = "SELECT * FROM alpaca_sip_corp_actions LIMIT 0"
+            else:
+                start_date, _price_end_date = date_bounds
+                query_end_date = _trusted_manifest_end_date(
+                    table_paths.get("alpaca_sip_corp_actions")
+                )
+                symbol_placeholders = ", ".join("?" for _symbol in symbols)
+                corp_query_parameters = [*symbols, start_date, start_date]
+                upper_bound_clause = ""
+                if query_end_date is not None:
+                    corp_query_parameters.extend([query_end_date, query_end_date])
+                    upper_bound_clause = (
+                        "AND ("
+                        "(process_date IS NOT NULL AND process_date <= CAST(? AS DATE)) "
+                        "OR (process_date IS NULL AND ex_date <= CAST(? AS DATE))"
+                        ") "
+                    )
+                corp_query = (
+                    "SELECT * FROM alpaca_sip_corp_actions "
+                    f"WHERE symbol IN ({symbol_placeholders}) "
+                    "AND ("
+                    "(ex_date IS NOT NULL AND ex_date >= CAST(? AS DATE)) "
+                    "OR (ex_date IS NULL AND process_date >= CAST(? AS DATE))"
+                    ") "
+                    f"{upper_bound_clause}"
+                    "ORDER BY symbol, ex_date NULLS LAST, process_date NULLS LAST"
+                )
+        return cast(
+            pl.DataFrame,
+            await self._execute_sql_frame(
+                dataset=dataset,
+                sql=corp_query,
+                table_paths={"alpaca_sip_corp_actions": table_paths["alpaca_sip_corp_actions"]},
+                timeout_seconds=_PREVIEW_TIMEOUT_SECONDS,
+                parameters=corp_query_parameters,
+            ),
+        )
+
     def _require_permission(self, user: Any, permission: Permission) -> None:
         if not has_permission(user, permission):
             raise PermissionError(f"Permission {permission.value} required")
@@ -729,10 +1018,7 @@ class DataExplorerService:
             if self._uses_shared_table_availability_cache
             else self._table_availability_cache
         )
-        if (
-            cache is not None
-            and now - cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS
-        ):
+        if cache is not None and now - cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS:
             return cache[1]
 
         lock = (
@@ -747,10 +1033,7 @@ class DataExplorerService:
                 if self._uses_shared_table_availability_cache
                 else self._table_availability_cache
             )
-            if (
-                cache is not None
-                and now - cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS
-            ):
+            if cache is not None and now - cache[0] < _TABLE_AVAILABILITY_CACHE_TTL_SECONDS:
                 return cache[1]
 
             result = await asyncio.to_thread(resolve_sql_table_availability, self._table_paths)
@@ -875,6 +1158,10 @@ class DataExplorerService:
                 ),
             }
 
+        if table_name == "alpaca_sip_daily" and manifest.read_time_adjustment_mode == "available":
+            null_column_reasons = {}
+            warnings = []
+
         return {
             "manifest_id": manifest.manifest_id,
             "manifest_reference": manifest.manifest_reference,
@@ -964,9 +1251,7 @@ class DataExplorerService:
                         raise ValueError(
                             f"{table} is queryable fallback only; trusted manifest required for /data"
                         )
-                    raise ValueError(
-                        f"No trusted local data available for table {table}"
-                    )
+                    raise ValueError(f"No trusted local data available for table {table}")
                 continue
             provenance_trusted_tables = (
                 sorted(trusted_table_paths) if dataset == ALPACA_SIP_DATASET_KEY else [table]
@@ -1009,9 +1294,7 @@ class DataExplorerService:
                     raise ValueError(
                         f"{table} is queryable fallback only; trusted manifest required for /data"
                     )
-                raise ValueError(
-                    f"No trusted local data available for table {table}"
-                )
+                raise ValueError(f"No trusted local data available for table {table}")
         missing_trusted = sorted(set(referenced_tables) - set(trusted_table_paths))
         if missing_trusted:
             raise ValueError(
@@ -1039,6 +1322,7 @@ class DataExplorerService:
         sql: str,
         table_paths: dict[str, TablePathSpec],
         timeout_seconds: int,
+        parameters: list[Any] | None = None,
     ) -> Any:
         await asyncio.to_thread(ensure_sql_explorer_execution_allowed)
         return await execute_scoped_query_frame_with_timeout(
@@ -1047,6 +1331,7 @@ class DataExplorerService:
             timeout_seconds,
             available_tables=set(table_paths),
             table_paths=table_paths,
+            parameters=parameters,
         )
 
 
@@ -1060,6 +1345,58 @@ def _trusted_table_paths_for_dataset(
             continue
         trusted_paths[item.table] = item.path_spec
     return trusted_paths
+
+
+def _price_date_bounds(prices: pl.DataFrame) -> tuple[date, date] | None:
+    if "date" not in prices.columns or prices.is_empty():
+        return None
+    dates = prices.select(pl.col("date").cast(pl.Date))
+    min_date = dates.select(pl.col("date").min()).item()
+    max_date = dates.select(pl.col("date").max()).item()
+    if not isinstance(min_date, date) or not isinstance(max_date, date):
+        return None
+    return min_date, max_date
+
+
+def _trusted_manifest_end_date(path_spec: TablePathSpec | None) -> date | None:
+    value = getattr(path_spec, "manifest_end_date", None)
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _split_adjusted_preview_start_date(
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
+    trusted_tables: list[str],
+) -> date | None:
+    daily_manifest = _trusted_manifest_for_table(
+        alpaca_summary,
+        "alpaca_sip_daily",
+        trusted_tables,
+    )
+    if daily_manifest is None:
+        return None
+    lookback_start = daily_manifest.end_date - timedelta(days=_ADJUSTED_PREVIEW_LOOKBACK_DAYS)
+    return max(daily_manifest.start_date, lookback_start)
+
+
+def _prepend_split_adjusted_warmup_prices(
+    *,
+    prices: pl.DataFrame,
+    warmup_prices: pl.DataFrame,
+) -> pl.DataFrame:
+    if prices.is_empty() or warmup_prices.is_empty():
+        return prices
+    return pl.concat([warmup_prices, prices], how="vertical_relaxed")
+
+
+def _drop_split_adjusted_warmup_rows(
+    frame: pl.DataFrame,
+    preview_start_date: date,
+) -> pl.DataFrame:
+    if frame.is_empty() or "date" not in frame.columns:
+        return frame
+    return frame.filter(pl.col("date").cast(pl.Date, strict=False) >= preview_start_date)
 
 
 def _preview_candidate_tables(dataset: str, allowed_tables: list[str]) -> list[str]:
@@ -1111,6 +1448,27 @@ def _trusted_alpaca_summary_manifests(
     ]
 
 
+def _read_time_adjustment_available(
+    *,
+    trusted_tables: list[str],
+    alpaca_summary: AlpacaSipManifestSummaryDTO | None,
+    alpaca_summary_unavailable: bool,
+) -> bool:
+    if alpaca_summary is None or alpaca_summary_unavailable:
+        return False
+    if not summary_supports_split_adjustment(alpaca_summary):
+        return False
+    return (
+        _trusted_manifest_for_table(alpaca_summary, "alpaca_sip_daily", trusted_tables) is not None
+        and _trusted_manifest_for_table(
+            alpaca_summary,
+            "alpaca_sip_corp_actions",
+            trusted_tables,
+        )
+        is not None
+    )
+
+
 def _dataset_adjustment_metadata(
     dataset: str,
     *,
@@ -1122,12 +1480,21 @@ def _dataset_adjustment_metadata(
     if dataset != ALPACA_SIP_DATASET_KEY:
         return {}
 
+    read_time_available = _read_time_adjustment_available(
+        trusted_tables=trusted_tables,
+        alpaca_summary=alpaca_summary,
+        alpaca_summary_unavailable=alpaca_summary_unavailable,
+    )
     daily_manifest = _trusted_manifest_for_table(
         alpaca_summary,
         "alpaca_sip_daily",
         trusted_tables,
     )
-    warnings = set(_NULL_COLUMN_REASONS_BY_TABLE["alpaca_sip_daily"].values())
+    daily_returns_available = manifest_has_native_returns(daily_manifest)
+    returns_available = read_time_available or daily_returns_available
+    warnings: set[str] = set()
+    if not returns_available:
+        warnings.update(_NULL_COLUMN_REASONS_BY_TABLE["alpaca_sip_daily"].values())
     if alpaca_summary_unavailable:
         warnings.add("alpaca_sip_manifest_summary_unavailable")
     if alpaca_summary is not None:
@@ -1142,11 +1509,17 @@ def _dataset_adjustment_metadata(
             daily_manifest.canonical_storage_mode if daily_manifest is not None else None,
             _ALPACA_SIP_DAILY_CANONICAL_STORAGE_MODE,
         ),
-        "read_time_adjustment_mode": _manifest_text(
-            daily_manifest.read_time_adjustment_mode if daily_manifest is not None else None,
-            _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+        "read_time_adjustment_mode": (
+            READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED
+            if read_time_available
+            else _manifest_text(
+                daily_manifest.read_time_adjustment_mode if daily_manifest is not None else None,
+                _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+            )
         ),
-        "null_column_reasons": dict(_NULL_COLUMN_REASONS_BY_TABLE["alpaca_sip_daily"]),
+        "null_column_reasons": (
+            {} if returns_available else dict(_NULL_COLUMN_REASONS_BY_TABLE["alpaca_sip_daily"])
+        ),
         "warnings": sorted(warnings),
         "backtest_handoff": _build_backtest_handoff(
             dataset,
@@ -1169,20 +1542,39 @@ def _build_backtest_handoff(
     if dataset != ALPACA_SIP_DATASET_KEY:
         return None
 
-    reason_codes: set[str] = {_ADJUSTED_PREVIEW_UNAVAILABLE_REASON}
+    read_time_available = _read_time_adjustment_available(
+        trusted_tables=trusted_tables,
+        alpaca_summary=alpaca_summary,
+        alpaca_summary_unavailable=alpaca_summary_unavailable,
+    )
+    reason_codes: set[str] = (
+        {READ_TIME_ADJUSTMENT_AVAILABLE_REASON}
+        if read_time_available
+        else {_ADJUSTED_PREVIEW_UNAVAILABLE_REASON}
+    )
     if queryable_state == "queryable_fallback_only":
         reason_codes.add("alpaca_sip_untrusted_without_manifest")
     if alpaca_summary_unavailable:
         reason_codes.add("alpaca_sip_manifest_summary_unavailable")
+    if alpaca_summary is not None:
+        reason_codes.update(
+            str(warning)
+            for warning in alpaca_summary.warnings
+            if warning in _ALPACA_SIP_COMPANION_BLOCKING_REASONS
+        )
 
     daily_manifest = _trusted_manifest_for_table(
         alpaca_summary,
         "alpaca_sip_daily",
         trusted_tables,
     )
-    selected_read_time_adjustment_mode = _manifest_text(
-        daily_manifest.read_time_adjustment_mode if daily_manifest is not None else None,
-        _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+    selected_read_time_adjustment_mode = (
+        READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED
+        if read_time_available
+        else _manifest_text(
+            daily_manifest.read_time_adjustment_mode if daily_manifest is not None else None,
+            _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
+        )
     )
 
     data_roles: dict[str, BacktestRoleProvenanceDTO] = {}
@@ -1201,21 +1593,33 @@ def _build_backtest_handoff(
                 reason_codes.add("raw_sip_returns_unavailable")
             continue
 
-        data_roles[role] = _role_provenance_from_manifest(role, table, manifest)
+        data_roles[role] = _role_provenance_from_manifest(
+            role,
+            table,
+            manifest,
+            read_time_adjustment_mode_override=(
+                READ_TIME_ADJUSTMENT_MODE_SPLIT_ADJUSTED
+                if read_time_available and table == "alpaca_sip_daily"
+                else None
+            ),
+        )
         if table == "alpaca_sip_daily":
             read_mode = _manifest_text(
                 manifest.read_time_adjustment_mode,
                 _ALPACA_SIP_DAILY_READ_TIME_ADJUSTMENT_MODE,
             )
-            if read_mode != "available":
+            if read_mode != "available" and not read_time_available:
                 reason_codes.add("raw_sip_returns_unavailable")
 
     return BacktestHandoffDTO(
         dataset=dataset,
         data_roles=data_roles,
         selected_read_time_adjustment_mode=selected_read_time_adjustment_mode,
-        adjusted_preview_available=False,
-        adjusted_preview_unavailable_reason=_ADJUSTED_PREVIEW_UNAVAILABLE_REASON,
+        derived=read_time_available,
+        adjusted_preview_available=read_time_available,
+        adjusted_preview_unavailable_reason=(
+            None if read_time_available else _ADJUSTED_PREVIEW_UNAVAILABLE_REASON
+        ),
         reason_codes=sorted(reason_codes),
     )
 
@@ -1247,9 +1651,7 @@ def _manifest_candidates_for_table(
         return []
     manifest_dataset = _ALPACA_SIP_TABLE_MANIFEST_DATASETS.get(table, table)
     return [
-        candidate
-        for candidate in alpaca_summary.manifests
-        if candidate.dataset == manifest_dataset
+        candidate for candidate in alpaca_summary.manifests if candidate.dataset == manifest_dataset
     ]
 
 
@@ -1283,6 +1685,8 @@ def _role_provenance_from_manifest(
     role: str,
     table: str,
     manifest: ManifestSummaryDTO,
+    *,
+    read_time_adjustment_mode_override: str | None = None,
 ) -> BacktestRoleProvenanceDTO:
     return BacktestRoleProvenanceDTO(
         role=role,
@@ -1299,7 +1703,9 @@ def _role_provenance_from_manifest(
         source_feed=_optional_text(manifest.source_feed),
         adjustment_mode=_optional_text(manifest.adjustment_mode),
         canonical_storage_mode=_role_canonical_storage_mode(table, manifest),
-        read_time_adjustment_mode=_role_read_time_adjustment_mode(table, manifest),
+        read_time_adjustment_mode=(
+            read_time_adjustment_mode_override or _role_read_time_adjustment_mode(table, manifest)
+        ),
     )
 
 
